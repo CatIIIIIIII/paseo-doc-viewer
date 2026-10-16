@@ -21,9 +21,12 @@ interface Held {
 const MAX_HELD_DOCUMENTS = 4;
 const MAX_HELD_BYTES = 256 * 1024 * 1024;
 const CERTIFICATE_SECURITY = "/Adobe.PubSec";
+export const PDFIUM_IDLE_MS = 60_000;
 
 let library: Promise<PDFiumLibrary> | undefined;
 const held = new Map<string, Held>();
+let active = 0;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
 function pdfium(): Promise<PDFiumLibrary> {
   library ??= PDFiumLibrary.init({ disableBase64Warning: true }).catch((error) => {
@@ -78,7 +81,19 @@ function trim(keep: string): void {
   }
 }
 
+function recycle(): void {
+  const current = library;
+  const documents = [...held.values()].map((entry) => entry.document);
+  library = undefined;
+  held.clear();
+  void Promise.allSettled(documents.map((document) => document.then((loaded) => loaded.destroy()))).then(() =>
+    current?.then((lib) => lib.destroy(), () => {}),
+  );
+}
+
 async function withDocument<T>(file: PdfFile, use: (document: PDFiumDocument) => Promise<T>): Promise<T> {
+  active++;
+  clearTimeout(idleTimer);
   const key = `${file.path}\0${file.revision}`;
   let entry = held.get(key);
   if (entry) {
@@ -98,6 +113,11 @@ async function withDocument<T>(file: PdfFile, use: (document: PDFiumDocument) =>
   } finally {
     entry.users--;
     release(entry);
+    if (--active === 0) {
+      idleTimer = setTimeout(recycle, PDFIUM_IDLE_MS);
+      // React Native's global typings shadow Node's, so setTimeout is typed as returning a number.
+      (idleTimer as unknown as NodeJS.Timeout).unref();
+    }
   }
 }
 
