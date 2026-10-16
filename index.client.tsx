@@ -1,6 +1,7 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { DocumentScreen, documentTitle } from "./client/document-screen";
 import { createDocumentsPanel } from "./client/documents-panel";
+import { addDocumentsHeaderButtons } from "./client/header-button";
 import { DOCUMENT_SCREEN_ID, DOCUMENTS_PANEL_ID, openByPath, openMostRecent } from "./client/recent";
 
 export default function contribute(client: PluginClientContext) {
@@ -17,7 +18,7 @@ export default function contribute(client: PluginClientContext) {
     client.addCommandCenterItem({
       id: "show-documents",
       title: "Show documents",
-      icon: "Files",
+      icon: "FileStack",
       keywords: ["recent", "viewer"],
       context: "workspace",
       onSelect: ({ openPanel }) => openPanel(DOCUMENTS_PANEL_ID),
@@ -25,7 +26,7 @@ export default function contribute(client: PluginClientContext) {
     client.addWorkspacePanel({
       id: DOCUMENTS_PANEL_ID,
       title: "Documents",
-      icon: "Files",
+      icon: "FileStack",
       context: "workspace",
       locations: ["workspace", "explorer"],
       Component: createDocumentsPanel((input) => client.openScreen(input)),
@@ -37,6 +38,7 @@ export default function contribute(client: PluginClientContext) {
       context: "workspace",
       onSubmit: openByPath,
     }),
+    addDocumentsHeaderButtons(client),
   ];
   return () => {
     for (const cleanup of cleanups) cleanup();

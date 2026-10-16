@@ -59,7 +59,7 @@ export function createDocumentsPanel(openScreen: (input: PluginOpenScreenInput) 
           <MessageState
             theme={theme}
             styles={styles}
-            icon="Files"
+            icon="FileStack"
             title="No documents yet"
             detail="PDF, Word, Excel, PowerPoint, image, and video files in this workspace appear here"
           />

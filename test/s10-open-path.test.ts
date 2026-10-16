@@ -70,12 +70,28 @@ async function loadClient(): Promise<Registered> {
     list.push(contribution);
     return () => {};
   };
+  const subscription = {
+    subscribe: (observer: { snapshot(snapshot: { entries: { id: string }[] }): void }) => {
+      observer.snapshot({ entries: [{ id: "ws-1" }] });
+      return () => {};
+    },
+    release: async () => {},
+  };
   contribute(
     new Proxy(
-      { addScreen: record(registered.screens), addCommandCenterItem: record(registered.commands) },
+      {
+        addScreen: record(registered.screens),
+        addCommandCenterItem: record(registered.commands),
+        addHeaderButton: (contribution: { button: unknown }) => {
+          record([])(contribution.button);
+          return { update() {}, remove() {} };
+        },
+        paseo: { workspaces: { list: async () => ({ entries: [], subscription }) } },
+      },
       { get: (target, key) => (key in target ? target[key as keyof typeof target] : record([])) },
     ),
   );
+  await new Promise((resolve) => setTimeout(resolve, 0));
   return registered;
 }
 

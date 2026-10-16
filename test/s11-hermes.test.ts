@@ -68,9 +68,12 @@ function hostRequire(name) {
 }
 var evaluate = globalThis.eval;
 var setup = evaluate(${JSON.stringify(bundle)})(hostRequire)["default"];
-var registered = { screen: [], cc: [], panel: [], slash: [] };
+var registered = { screen: [], cc: [], panel: [], slash: [], header: [] };
 function record(kind) { return function (c) { registered[kind].push(c); return noop; }; }
-var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), openScreen: noop });
+var subscription = { subscribe: function (observer) { observer.snapshot({ entries: [{ id: "ws" }] }); return noop; }, release: function () { return Promise.resolve(); } };
+var paseo = { workspaces: { list: function () { return Promise.resolve({ entries: [], subscription: subscription }); } } };
+function addHeaderButton(c) { registered.header.push(c); return { update: noop, remove: noop }; }
+var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addHeaderButton: addHeaderButton, openScreen: noop, openPanel: noop, paseo: paseo });
 var opened = [];
 var context = {
   args: "", context: "workspace", workspace: { id: "ws" },
@@ -79,7 +82,7 @@ var context = {
 };
 log(JSON.stringify({ step: "contribute", cleanup: typeof cleanup, screens: registered.screen.length, commands: registered.cc.length, panels: registered.panel.length, slash: registered.slash.length, title: registered.screen[0].title({ path: "report/main.pdf" }) }));
 registered.slash[0].onSubmit(context).then(
-  function () { log(JSON.stringify({ step: "slash", opened: opened })); },
+  function () { log(JSON.stringify({ step: "slash", opened: opened, headerButtons: registered.header.map(function (c) { return c.workspaceId + ":" + c.button.icon; }) })); },
   function (error) { log(JSON.stringify({ step: "slash", error: String(error) })); }
 );
 `;
@@ -102,7 +105,7 @@ describe("S11: client bundle runs on the Hermes VM", () => {
     const steps = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
     expect(steps).toEqual([
       { step: "contribute", cleanup: "function", screens: 1, commands: 2, panels: 1, slash: 1, title: "main.pdf" },
-      { step: "slash", opened: [{ screenId: "document", params: { workspaceId: "ws", path: "b/new.pdf" } }] },
+      { step: "slash", opened: [{ screenId: "document", params: { workspaceId: "ws", path: "b/new.pdf" } }], headerButtons: ["ws:FileStack"] },
     ]);
   }, 120_000);
 });
