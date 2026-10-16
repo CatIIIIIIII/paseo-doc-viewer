@@ -11,7 +11,7 @@ import { pdfPageCount } from "../server/pdf";
 import { SLIDE_TEXT_TRUNCATED } from "../server/pptx";
 import { decodeEntities } from "../server/html";
 import { ERROR_MESSAGES, errorCode } from "../shared/errors";
-import { MAX_RESPONSE_BYTES } from "../shared/limits";
+import { MAX_RESPONSE_BYTES, RPC_DEADLINE_MS } from "../shared/limits";
 import { blankGrayPng, deckPptx, noisePng, textPdf } from "./fixtures/generators.ts";
 import { responseBytes, timed, workspace } from "./helpers";
 import { docxEntries, pptxEntries, rawZip, worksheetXml, xlsxEntries } from "./zip-builder";
@@ -230,6 +230,20 @@ describe("R1e: heavy work is serialized", () => {
       ),
     );
     expect(peak).toBe(2);
+  });
+
+  it("times out a job that never settles and frees its slot for later jobs", async () => {
+    vi.useFakeTimers();
+    try {
+      const hung = [0, 1].map(() => failure(() => heavy(() => new Promise(() => {}))));
+      await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS / 2);
+      const later = heavy(async () => "done");
+      await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS / 2);
+      for (const error of await Promise.all(hung)) expect(errorCode(error)).toBe("timeout");
+      expect(await later).toBe("done");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

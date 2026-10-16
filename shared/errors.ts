@@ -74,6 +74,7 @@ export const ERROR_MESSAGES = {
   unsupportedImage: (format = "This image format") => tagged("unsupported_format", `${format} is not supported for rendering yet`),
   imageBudgetExhausted: () => tagged("timeout", "Image skipped: this page already used its decoding budget"),
   busy: () => tagged("timeout", "The viewer is busy with other documents; try again"),
+  tooSlow: () => tagged("timeout", "This document took too long to read; try again"),
   slowWindow: () => tagged("timeout", "This part of the sheet is too far in to read in time"),
   unavailable: (rpc: string, kind: string) => tagged("invalid_request", `${rpc} is not available for ${kind} documents`),
 } as const;
