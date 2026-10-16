@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { environmentManager, focusManager, QueryClient, QueryObserver } from "@tanstack/query-core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { omittedImagesNote, pageTextNote } from "../client/paging";
 import { animationQueryKey, blocksQueryKey, documentQueryOptions, pageQueryKey, recentQueryOptions, rowsQueryKey, textQueryKey } from "../client/queries";
 
@@ -33,12 +34,10 @@ describe("client query keys and polling", () => {
     expect(new Set(keys.map((key) => JSON.stringify(key))).size).toBe(keys.length);
   });
 
-  it("polls the open document so a rewritten file shows its new revision", () => {
+  it("keys the open document by unlock attempt and waits for a path", () => {
     const options = documentQueryOptions("ws", "a.pdf");
     expect(options.queryKey).toEqual(["doc.open", "ws", "a.pdf", 0]);
     expect(documentQueryOptions("ws", "a.pdf", 1).queryKey).not.toEqual(options.queryKey);
-    expect(options.refetchInterval).toBeGreaterThan(0);
-    expect(options.refetchInterval).toBeLessThanOrEqual(10_000);
     expect(options.enabled).toBe(true);
     expect(documentQueryOptions("", "a.pdf").enabled).toBe(false);
   });
@@ -57,6 +56,60 @@ describe("client query keys and polling", () => {
     expect(recentQueryOptions("ws", {}).request).toEqual({ workspaceId: "ws" });
     const previous = { entries: [], truncated: false, counts: { pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0 } };
     expect(options.placeholderData(previous)).toBe(previous);
+  });
+});
+
+describe("open document polling", () => {
+  const clients: QueryClient[] = [];
+  const runsOnServer = environmentManager.isServer();
+  afterEach(() => {
+    for (const client of clients.splice(0)) client.unmount();
+    vi.useRealTimers();
+    focusManager.setFocused(undefined);
+    environmentManager.setIsServer(() => runsOnServer);
+  });
+
+  function observe(unlockAttempt: number, open: () => Promise<{ revision: string }>) {
+    vi.useFakeTimers();
+    environmentManager.setIsServer(() => false);
+    const client = new QueryClient();
+    client.mount();
+    clients.push(client);
+    const queryFn = vi.fn(open);
+    const observer = new QueryObserver(client, { ...documentQueryOptions("ws", "a.pdf", unlockAttempt), queryFn, retry: false });
+    const statuses: string[] = [];
+    const unsubscribe = observer.subscribe((result) => statuses.push(result.status));
+    return { observer, queryFn, statuses, unsubscribe };
+  }
+
+  it("polls an open document so a rewritten file shows its new revision", async () => {
+    const revisions = ["r1", "r1", "r2"];
+    const { observer, queryFn, unsubscribe } = observe(0, async () => ({ revision: revisions.shift() ?? "r2" }));
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(queryFn.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(observer.getCurrentResult().data).toEqual({ revision: "r2" });
+    unsubscribe();
+  });
+
+  it("does not refetch a locked document, so the password prompt is never swapped for a loading state", async () => {
+    const { queryFn, statuses, unsubscribe } = observe(0, async () => {
+      throw new Error("Request failed: [doc:password_required] PDF is encrypted and needs a password");
+    });
+    await vi.advanceTimersByTimeAsync(16_000);
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    expect(statuses.slice(statuses.indexOf("error"))).not.toContain("pending");
+    unsubscribe();
+  });
+
+  it("keeps polling after unlock, so a locked file rewritten on disk shows its new revision", async () => {
+    const revisions = ["r1", "r2"];
+    const { observer, unsubscribe } = observe(1, async () => ({ revision: revisions.shift() ?? "r2" }));
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(observer.getCurrentResult().data).toEqual({ revision: "r2" });
+    unsubscribe();
   });
 });
 

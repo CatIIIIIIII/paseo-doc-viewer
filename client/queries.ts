@@ -4,12 +4,16 @@ import type { DocsRecentInput, DocsRecentOutput } from "../shared/rpc";
 export const REVISION_POLL_MS = 5_000;
 export const RECENT_POLL_MS = 5_000;
 
+// Without data, a refetch resets the query to pending, which would unmount the password prompt
+// and drop what was typed, so a document that failed to open is only refetched on request.
+const opened = (query: { state: { data: unknown } }) => query.state.data !== undefined;
+
 export function documentQueryOptions(workspaceId: string, path: string, unlockAttempt = 0) {
   return {
     queryKey: ["doc.open", workspaceId, path, unlockAttempt] as const,
     enabled: workspaceId !== "" && path !== "",
-    refetchInterval: REVISION_POLL_MS,
-    refetchOnWindowFocus: true,
+    refetchInterval: (query: { state: { data: unknown } }) => (opened(query) ? REVISION_POLL_MS : false),
+    refetchOnWindowFocus: opened,
   };
 }
 
