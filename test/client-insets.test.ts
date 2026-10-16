@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANDROID_NAV_BAR_DP, bottomInsetFor } from "../client/insets";
+import { ANDROID_NAV_BAR_DP, bottomInsetFor, navBarHeightFrom } from "../client/insets";
 
 describe("bottom inset", () => {
   it("pads an Android view that reaches the bottom of the screen by the navigation bar height", () => {
@@ -19,5 +19,32 @@ describe("bottom inset", () => {
     expect(bottomInsetFor({ os: "android", frameBottom: null, screenHeight: 844 })).toBe(0);
     expect(bottomInsetFor({ os: "ios", frameBottom: 844, screenHeight: 844 })).toBe(0);
     expect(bottomInsetFor({ os: "web", frameBottom: 844, screenHeight: 844 })).toBe(0);
+  });
+
+  // Pixel 10 Pro, 3-button nav, edge-to-edge host: window and screen are both 1083.1 dp.
+  // measureInWindow put the panel at y=63.8 (below the 77.3 dp status bar), bottom 1005.8,
+  // so the old rule padded 0. measure pageY gives 141.1 + 942.0 = 1083.1.
+  it("pads by the navigation bar when the frame bottom is in screen coordinates", () => {
+    const screenHeight = 1083.146;
+    expect(bottomInsetFor({ os: "android", frameBottom: 63.82 + 942.02, screenHeight })).toBe(0);
+    expect(bottomInsetFor({ os: "android", frameBottom: 141.12 + 942.02, screenHeight, navBarHeight: 48.09 })).toBe(48);
+  });
+
+  it("uses the reported navigation bar height, so gesture navigation pads less", () => {
+    expect(bottomInsetFor({ os: "android", frameBottom: 844, screenHeight: 844, navBarHeight: 24 })).toBe(24);
+    expect(bottomInsetFor({ os: "android", frameBottom: 830, screenHeight: 844, navBarHeight: 24 })).toBe(10);
+    expect(bottomInsetFor({ os: "android", frameBottom: 800, screenHeight: 844, navBarHeight: 24 })).toBe(0);
+    expect(bottomInsetFor({ os: "android", frameBottom: 844, screenHeight: 844, navBarHeight: null })).toBe(ANDROID_NAV_BAR_DP);
+  });
+
+  it("reads the bottom inset from the safe-area native constants", () => {
+    const constants = (bottom: unknown) => ({ initialWindowMetrics: { frame: {}, insets: { top: 77.3, bottom } } });
+    expect(navBarHeightFrom(constants(48.09))).toBe(48.09);
+    expect(navBarHeightFrom(constants(24))).toBe(24);
+    expect(navBarHeightFrom(constants(0))).toBeNull();
+    expect(navBarHeightFrom(constants("48"))).toBeNull();
+    expect(navBarHeightFrom({})).toBeNull();
+    expect(navBarHeightFrom(undefined)).toBeNull();
+    expect(navBarHeightFrom(null)).toBeNull();
   });
 });

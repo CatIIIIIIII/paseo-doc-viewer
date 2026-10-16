@@ -1,6 +1,19 @@
 import { useCallback, useRef, useState } from "react";
-import { Dimensions, Platform, useWindowDimensions, type View } from "react-native";
-import { bottomInsetFor } from "./insets";
+import { Dimensions, Platform, TurboModuleRegistry, useWindowDimensions, type View } from "react-native";
+import { bottomInsetFor, navBarHeightFrom } from "./insets";
+
+let navBarHeight: number | null | undefined;
+
+function androidNavBarHeight(): number | null {
+  if (navBarHeight === undefined) {
+    try {
+      navBarHeight = navBarHeightFrom(TurboModuleRegistry.get("RNCSafeAreaContext")?.getConstants?.());
+    } catch {
+      navBarHeight = null;
+    }
+  }
+  return navBarHeight;
+}
 
 export function useBottomInset() {
   const ref = useRef<View>(null);
@@ -8,8 +21,17 @@ export function useBottomInset() {
   const window = useWindowDimensions();
   const onLayout = useCallback(() => {
     if (Platform.OS !== "android") return;
-    ref.current?.measureInWindow((_x, y, _width, height) => setFrameBottom(y + height));
+    ref.current?.measure((_x, _y, _width, height, _pageX, pageY) => setFrameBottom(pageY + height));
   }, []);
   const screenHeight = Math.max(window.height, Dimensions.get("screen").height);
-  return { ref, onLayout, bottomInset: bottomInsetFor({ os: Platform.OS, frameBottom, screenHeight }) };
+  return {
+    ref,
+    onLayout,
+    bottomInset: bottomInsetFor({
+      os: Platform.OS,
+      frameBottom,
+      screenHeight,
+      navBarHeight: Platform.OS === "android" ? androidNavBarHeight() : null,
+    }),
+  };
 }

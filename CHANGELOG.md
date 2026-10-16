@@ -6,7 +6,7 @@
 - Documents panel: type filter buttons and a search box (name or folder, case-insensitive, every word must match). `docs.recent` takes optional `query` and `group` and filters the whole scan before the 50-entry cap, so older files are found. It also returns per-type `counts`.
 - A Documents button in the workspace header opens the panel (icon only on phones). The panel uses the FileStack icon so it no longer looks like the built-in Files tab.
 - CSV and TSV open in the sheet grid, paged with the Excel row, column and cell caps, 64 MB file cap. They are listed under Spreadsheets (was Excel) and found by search, the type filter, the Command Center and `/doc`.
-- Android: lists, grids and pages end above the system navigation bar. The SDK has no safe-area insets for plugins, so the viewer pads the part of its frame that overlaps the bottom 48 dp of the screen.
+- Android: lists, grids and pages end above the system navigation bar. The SDK has no safe-area insets for plugins, so the viewer pads the part of its frame that overlaps the navigation bar, using the bottom inset the app reported at launch (48 dp if unknown).
 - Zoomed pages, slides and images: the viewer takes one-finger drags from touch start and pans itself, with a short fling on release, so a fast swipe should no longer open the sidebar drawer on Android.
 - PowerPoint: slide text scales with zoom, and text-only slides can be zoomed.
 - Images smaller than the view, such as a small animated WebP, are enlarged to fit it instead of showing at pixel size.
