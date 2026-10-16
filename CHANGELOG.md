@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Documents panel: files are grouped under collapsible PDF, Word, Excel, PowerPoint, Images and Video headings with counts, newest first within each group.
+- Documents panel: type filter buttons and a search box (name or folder, case-insensitive, every word must match). `docs.recent` takes optional `query` and `group` and filters the whole scan before the 50-entry cap, so older files are found. It also returns per-type `counts`.
+- A Documents button in the workspace header opens the panel (icon only on phones). The panel uses the FileStack icon so it no longer looks like the built-in Files tab.
+
 ## 0.2.0 (2026-10-16)
 
 - Excel: numbers follow the cell's number format (percent, currency, fixed decimals, thousands separators, custom codes) using SheetJS ssf. General numbers no longer show float noise (0.1 + 0.2 shows 0.3). Times, durations and date-times follow their format (18:00, 36:00, 2026-01-14 18:00); pure dates still show as YYYY-MM-DD.

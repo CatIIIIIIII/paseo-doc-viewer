@@ -4,7 +4,9 @@ Documents are rendered on the machine that runs your Paseo daemon, and the app o
 
 ## Opening documents
 
-- The Documents panel, in the workspace and (on desktop and web) in the explorer, lists the most recently changed documents in the workspace, newest first, and refreshes every few seconds.
+- The Documents button in the workspace header opens the Documents panel. On a phone it shows as an icon. The panel can also be opened from the new tab menu, and on desktop and web it can sit in the explorer.
+- The Documents panel lists the documents in the workspace under PDF, Word, Excel, PowerPoint, Images and Video headings, newest first within each, and refreshes every few seconds. Tap a heading to collapse it. Each heading shows how many files of that type the workspace has.
+- Type buttons above the list show one type at a time, and the search box finds files whose name or folder contains every word you type, ignoring case. Search and type filters cover the whole workspace, not only the files in the list.
 - The Command Center has two workspace actions: "Open recent document" opens the newest one, and "Show documents" opens the panel.
 - The `/doc` slash command opens a document by its path in the workspace, or the newest one when you give no path.
 
@@ -31,4 +33,4 @@ An open document checks for changes every few seconds and shows the new version 
 
 ## What it reads
 
-The plugin reads files inside the workspace directory and nothing else. Paths that lead outside it, including through symbolic links, are refused. To build the recent list it scans the workspace, newest folders first, skipping hidden folders, `node_modules`, `__pycache__`, `venv`, `target`, `vendor`, and Office lock files. Build output in `build`, `dist` and `out` is scanned last. In very large workspaces it stops after 50,000 entries, and it reuses a scan for a few seconds (longer when scanning is slow) instead of repeating it for every request. It does not write files, and it makes no network requests: rendered pages go only to your Paseo app.
+The plugin reads files inside the workspace directory and nothing else. Paths that lead outside it, including through symbolic links, are refused. To build the recent list it scans the workspace, newest folders first, skipping hidden folders, `node_modules`, `__pycache__`, `venv`, `target`, `vendor`, and Office lock files. Build output in `build`, `dist` and `out` is scanned last. The list shows at most 50 files at a time; search or pick a type to reach older ones. In very large workspaces it stops after 50,000 entries, so search does not find files beyond that, and it reuses a scan for a few seconds (longer when scanning is slow) instead of repeating it for every request. It does not write files, and it makes no network requests: rendered pages go only to your Paseo app.
