@@ -28,3 +28,9 @@ export function bottomInsetFor({
   const overlap = frameBottom - (screenHeight - navBar);
   return Math.round(Math.min(navBar, Math.max(0, overlap)));
 }
+
+// Both values in screen coordinates: measure pageY + height, and the keyboard event's endCoordinates.screenY.
+export function keyboardInsetFor({ frameBottom, keyboardTop }: { frameBottom: number | null; keyboardTop: number | null }): number {
+  if (frameBottom === null || keyboardTop === null) return 0;
+  return Math.round(Math.max(0, frameBottom - keyboardTop));
+}

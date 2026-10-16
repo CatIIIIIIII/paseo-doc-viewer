@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANDROID_NAV_BAR_DP, bottomInsetFor, navBarHeightFrom } from "../client/insets";
+import { ANDROID_NAV_BAR_DP, bottomInsetFor, keyboardInsetFor, navBarHeightFrom } from "../client/insets";
 
 describe("bottom inset", () => {
   it("pads an Android view that reaches the bottom of the screen by the navigation bar height", () => {
@@ -46,5 +46,18 @@ describe("bottom inset", () => {
     expect(navBarHeightFrom({})).toBeNull();
     expect(navBarHeightFrom(undefined)).toBeNull();
     expect(navBarHeightFrom(null)).toBeNull();
+  });
+});
+
+describe("keyboard inset", () => {
+  it("pads a view by the part the keyboard covers, both in screen coordinates", () => {
+    expect(keyboardInsetFor({ frameBottom: 1083, keyboardTop: 700 })).toBe(383);
+    expect(keyboardInsetFor({ frameBottom: 1035.4, keyboardTop: 700 })).toBe(335);
+  });
+
+  it("does not pad a view that ends above the keyboard, or when the keyboard is hidden or the view unmeasured", () => {
+    expect(keyboardInsetFor({ frameBottom: 650, keyboardTop: 700 })).toBe(0);
+    expect(keyboardInsetFor({ frameBottom: 1083, keyboardTop: null })).toBe(0);
+    expect(keyboardInsetFor({ frameBottom: null, keyboardTop: 700 })).toBe(0);
   });
 });
