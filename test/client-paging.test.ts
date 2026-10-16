@@ -110,7 +110,7 @@ describe("client fit width", () => {
   it("requests a sharper render at the zoomed width, still in coarse steps and under the server edge", () => {
     expect(renderWidthFor(390, 3, 1)).toBe(renderWidthFor(390, 3));
     expect(renderWidthFor(390, 3, 2)).toBe(2560);
-    expect(renderWidthFor(390, 3, 3)).toBe(3584);
+    expect(renderWidthFor(390, 3, 3)).toBe(3072);
     expect(renderWidthFor(800, 2, 3)).toBe(MAX_RENDER_EDGE_PX);
     expect(renderWidthFor(0, 3, 2)).toBeNull();
   });

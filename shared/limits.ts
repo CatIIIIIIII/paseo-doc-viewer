@@ -1,6 +1,6 @@
 export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 export const RPC_DEADLINE_MS = 20_000;
-export const MAX_RENDER_EDGE_PX = 4096;
+export const MAX_RENDER_EDGE_PX = 3072;
 export const DEFAULT_RENDER_WIDTH_PX = 1600;
 export const XLSX_MAX_ROWS = 200;
 export const XLSX_MAX_COLUMNS = 50;
