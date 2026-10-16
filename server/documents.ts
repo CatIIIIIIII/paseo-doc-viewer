@@ -1,4 +1,5 @@
 import { open, readFile, stat } from "node:fs/promises";
+import { basename } from "node:path";
 import { DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, XLSX_MAX_COLUMNS } from "../shared/limits";
 import { KIND_REGISTRY, detectKind, extensionOf, kindForPath, type DocumentKind, type PagedRpc } from "../shared/kinds";
 import type {
@@ -13,6 +14,7 @@ import type {
 } from "../shared/rpc";
 import { estimateBytes, memo } from "./cache";
 import { isEncryptedOoxml } from "./cfb";
+import { csvWindow, indexCsv } from "./csv";
 import { blockPage, docxModelBytes, fitDocxImage, loadDocx, type DocxModel } from "./docx";
 import { heavy } from "./heavy";
 import { imageSize, renderImage, type ImageFamily } from "./images";
@@ -59,6 +61,7 @@ const MAX_FILE_BYTES: { readonly [K in DocumentKind]: number } = {
   pdf: 512 * MiB,
   docx: 64 * MiB,
   xlsx: 64 * MiB,
+  csv: 64 * MiB,
   pptx: 64 * MiB,
   video: Number.POSITIVE_INFINITY,
   "image-raster": 128 * MiB,
@@ -133,6 +136,7 @@ const sharedStrings = (file: DocumentFile, model: Workbook) =>
   heavyCached(file, "shared-strings", () => loadSharedStrings(model), (strings) =>
     strings.reduce((total, text) => total + 64 + text.length * 2, 0),
   );
+const csvIndex = (file: DocumentFile) => heavyCached(file, "csv-index", () => indexCsv(file.path, file.extension));
 const deck = (file: DocumentFile) =>
   heavyCached(
     file,
@@ -215,6 +219,21 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
         rowWindow(model, strings, model.sheets[sheet], rowOffset, columnOffset, columns),
       );
       return { kind: "xlsx", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
+    },
+  },
+  csv: {
+    open: async (file) => {
+      const { rowCount, columnCount } = await csvIndex(file);
+      return { kind: "csv", revision: file.revision, sheets: [{ name: basename(file.path), rowCount, columnCount, countsApproximate: false }] };
+    },
+    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns }) => {
+      inRange(sheet, 1, "Sheet");
+      const index = await csvIndex(file);
+      const columns = Math.min(maxColumns ?? XLSX_MAX_COLUMNS, XLSX_MAX_COLUMNS);
+      const window = await heavyCached(file, `rows\0${rowOffset}\0${columnOffset}\0${columns}`, () =>
+        csvWindow(file.path, index, rowOffset, columnOffset, columns),
+      );
+      return { kind: "csv", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
     },
   },
   pptx: {

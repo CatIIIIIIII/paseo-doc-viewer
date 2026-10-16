@@ -1,4 +1,4 @@
-export const DOCUMENT_KINDS = ["pdf", "docx", "xlsx", "pptx", "video", "image-raster", "image-decoded"] as const;
+export const DOCUMENT_KINDS = ["pdf", "docx", "xlsx", "csv", "pptx", "video", "image-raster", "image-decoded"] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 
 export type PagedRpc = "doc.page" | "doc.text" | "doc.rows" | "doc.blocks" | "media.chunk";
@@ -10,7 +10,7 @@ export interface MagicSignature {
 
 export interface KindSpec {
   extensions: readonly string[];
-  magic: readonly MagicSignature[];
+  magic: readonly MagicSignature[] | "text";
   rpcs: readonly PagedRpc[];
 }
 
@@ -24,6 +24,7 @@ export const KIND_REGISTRY: { readonly [K in DocumentKind]: KindSpec } = {
   pdf: { extensions: ["pdf"], magic: [ascii(0, "%PDF-")], rpcs: ["doc.page", "doc.text"] },
   docx: { extensions: ["docx"], magic: [zip], rpcs: ["doc.blocks"] },
   xlsx: { extensions: ["xlsx"], magic: [zip], rpcs: ["doc.rows"] },
+  csv: { extensions: ["csv", "tsv"], magic: "text", rpcs: ["doc.rows"] },
   pptx: { extensions: ["pptx"], magic: [zip], rpcs: ["doc.page"] },
   video: {
     extensions: ["mp4", "m4v", "mov", "webm"],
@@ -67,8 +68,14 @@ export function matchesMagic(signature: MagicSignature, head: Uint8Array): boole
   return signature.bytes.every((byte, i) => head[signature.offset + i] === byte);
 }
 
+export function looksLikeText(head: Uint8Array): boolean {
+  return !head.includes(0);
+}
+
 export function detectKind(path: string, head: Uint8Array): DocumentKind | null {
   const kind = kindForPath(path);
   if (!kind) return null;
-  return KIND_REGISTRY[kind].magic.some((signature) => matchesMagic(signature, head)) ? kind : null;
+  const { magic } = KIND_REGISTRY[kind];
+  const matches = magic === "text" ? looksLikeText(head) : magic.some((signature) => matchesMagic(signature, head));
+  return matches ? kind : null;
 }

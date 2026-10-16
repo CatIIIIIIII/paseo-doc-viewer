@@ -9,7 +9,7 @@ import { columnName, gridReducer, INITIAL_GRID, rangeLabel, reconcileGrid, retry
 import { rowsQueryKey } from "./queries";
 import { ErrorState, LoadingState, MessageState, type Styles, ToolbarButton } from "./ui";
 
-type Sheet = Extract<DocOpenOutput, { kind: "xlsx" }>["sheets"][number];
+type Sheet = Extract<DocOpenOutput, { sheets: unknown }>["sheets"][number];
 
 export interface SheetViewerProps {
   workspaceId: string;

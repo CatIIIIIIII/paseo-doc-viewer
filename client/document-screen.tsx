@@ -81,6 +81,7 @@ function DocumentBody({
     case "docx":
       return <BlocksViewer {...common} />;
     case "xlsx":
+    case "csv":
       return <SheetViewer {...common} sheets={document.sheets} />;
     case "video":
       return <VideoViewer {...common} mimeType={document.mimeType} size={document.size} />;

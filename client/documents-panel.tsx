@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { type DocumentGroup, filterEntries, queryTerms } from "../shared/browse";
 import { docsRecentRpc } from "../shared/rpc";
-import { baseName, GROUP_LABEL, humanSize, KIND_ICON, KIND_LABEL, parentDir, relativeTime } from "./format";
+import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, KIND_LABEL, parentDir, relativeTime } from "./format";
 import { recentQueryOptions } from "./queries";
 import { type BrowseRow, browseRows, documentScreen, filterChips, listFooter, noMatchDetail, type RecentEntry } from "./recent";
 import { ErrorState, LoadingState, makeStyles, MessageState, type Styles } from "./ui";
@@ -78,7 +78,7 @@ function DocumentsList({
           styles={styles}
           icon="FileStack"
           title="No documents yet"
-          detail="PDF, Word, Excel, PowerPoint, image, and video files in this workspace appear here"
+          detail="PDF, Word, Excel, CSV, PowerPoint, image, and video files in this workspace appear here"
         />
       </View>
     );
@@ -290,7 +290,7 @@ function GroupHeader({
       {row.shown < row.total ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Show all ${row.total} ${label} files`}
+          accessibilityLabel={`Show all ${row.total} ${GROUP_FILES[row.group]}`}
           onPress={onShowAll}
           hitSlop={6}
           style={{ paddingHorizontal: 8, paddingVertical: 6 }}

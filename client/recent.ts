@@ -9,7 +9,7 @@ import {
 } from "../shared/browse";
 import { RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { docsRecentRpc, type DocsRecentOutput } from "../shared/rpc";
-import { formatCount, GROUP_LABEL } from "./format";
+import { formatCount, GROUP_FILES } from "./format";
 
 export const DOCUMENT_SCREEN_ID = "document";
 export const DOCUMENTS_PANEL_ID = "documents";
@@ -45,7 +45,7 @@ export function filterChips(counts: GroupCounts, selected: DocumentGroup | null)
 }
 
 export function noMatchDetail({ query = "", group = null }: BrowseFilter, scanIncomplete: boolean): string {
-  const files = group ? `${GROUP_LABEL[group]} files` : "files";
+  const files = group ? GROUP_FILES[group] : "files";
   const text = query.trim();
   const detail = text ? `No ${files} match "${text}"` : `No ${files} in this workspace`;
   return scanIncomplete

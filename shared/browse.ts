@@ -8,6 +8,7 @@ export const KIND_GROUP: { readonly [K in DocumentKind]: DocumentGroup } = {
   pdf: "pdf",
   docx: "word",
   xlsx: "excel",
+  csv: "excel",
   pptx: "powerpoint",
   "image-raster": "image",
   "image-decoded": "image",

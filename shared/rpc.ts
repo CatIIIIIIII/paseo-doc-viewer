@@ -20,7 +20,7 @@ export const docOpenRpc = defineRpc({
     z.object({ kind: z.literal("pdf"), revision, pageCount: z.number().int().nonnegative() }),
     z.object({ kind: z.literal("docx"), revision }),
     z.object({
-      kind: z.literal("xlsx"),
+      kind: z.enum(["xlsx", "csv"]),
       revision,
       sheets: z.array(
         z.object({
@@ -101,7 +101,7 @@ export const docRowsRpc = defineRpc({
     maxColumns: z.number().int().positive().optional(),
   }),
   output: z.object({
-    kind: z.literal("xlsx"),
+    kind: z.enum(["xlsx", "csv"]),
     revision,
     sheet: z.number().int().nonnegative(),
     rowOffset: z.number().int().nonnegative(),

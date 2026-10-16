@@ -47,6 +47,7 @@ export const KIND_ICON: { readonly [K in DocumentKind]: string } = {
   pdf: "FileText",
   docx: "FileType",
   xlsx: "FileSpreadsheet",
+  csv: "FileSpreadsheet",
   pptx: "Presentation",
   video: "FileVideoCamera",
   "image-raster": "FileImage",
@@ -57,6 +58,7 @@ export const KIND_LABEL: { readonly [K in DocumentKind]: string } = {
   pdf: "PDF",
   docx: "Word document",
   xlsx: "Spreadsheet",
+  csv: "CSV table",
   pptx: "Presentation",
   video: "Video",
   "image-raster": "Image",
@@ -66,10 +68,19 @@ export const KIND_LABEL: { readonly [K in DocumentKind]: string } = {
 export const GROUP_LABEL: { readonly [G in DocumentGroup]: string } = {
   pdf: "PDF",
   word: "Word",
-  excel: "Excel",
+  excel: "Spreadsheets",
   powerpoint: "PowerPoint",
   image: "Images",
   video: "Video",
+};
+
+export const GROUP_FILES: { readonly [G in DocumentGroup]: string } = {
+  pdf: "PDF files",
+  word: "Word files",
+  excel: "spreadsheets",
+  powerpoint: "PowerPoint files",
+  image: "images",
+  video: "Video files",
 };
 
 export interface ErrorState {
