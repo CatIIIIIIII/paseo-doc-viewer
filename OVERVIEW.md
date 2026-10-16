@@ -19,7 +19,8 @@ An open document checks for changes every few seconds and shows the new version 
 - Excel (.xlsx): sheet tabs and a grid of cell values, paged 200 rows and up to 50 columns at a time, fewer columns on a phone. Numbers follow the cell's number format, such as percentages, currency, fixed decimals, thousands separators, times and durations. Dates show as year-month-day. A formula without a saved result shows as its formula text.
 - CSV and TSV: the same grid as Excel, one sheet per file. Quoted fields, line breaks inside quotes and a UTF-8 byte order mark are handled; .csv splits on commas and .tsv on tabs. Text that is not UTF-8 is read as Latin-1.
 - PowerPoint (.pptx): each slide's text and pictures in order. Zooming enlarges the text too. It does not reproduce the slide layout.
-- Images: PNG, JPEG (with camera orientation applied), the first frame of a GIF or animated WebP, WebP, TIFF and HEIC/HEIF. Images smaller than the view are enlarged to fit it. TIFF, HEIC, WebP and GIF are converted on the daemon so every device can show them.
+- Images: PNG, JPEG (with camera orientation applied), GIF, WebP, TIFF and HEIC/HEIF. Images smaller than the view are enlarged to fit it. TIFF, HEIC, WebP and GIF are converted on the daemon so every device can show them.
+- Animated GIF and WebP play in the desktop and web apps. In the mobile app GIFs play and animated WebP shows its first frame. Animations larger than 16 MB show their first frame everywhere.
 - Video: MP4, M4V, MOV and WebM play in the desktop and web apps. The file is streamed from the daemon in chunks.
 
 ## Limits

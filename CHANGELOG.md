@@ -11,6 +11,7 @@
 - PowerPoint: slide text scales with zoom, and text-only slides can be zoomed.
 - Images smaller than the view, such as a small animated WebP, are enlarged to fit it instead of showing at pixel size.
 - PDF text view: the copy button takes the zoom controls' slot, so the page counter and next button no longer move.
+- Animated GIF and WebP play on desktop and web, and animated GIF plays on iOS and Android, where animated WebP keeps its first frame. `doc.open` reports `animation` for files with more than one frame up to 16 MB, and `media.chunk` serves their original bytes. Larger files keep the first frame.
 
 ## 0.2.0 (2026-10-16)
 

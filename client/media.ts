@@ -6,6 +6,9 @@ export const MAX_PLAYABLE_BYTES = 256 * 1024 * 1024;
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const LOOKUP = new Int16Array(128).fill(-1);
 for (let index = 0; index < ALPHABET.length; index++) LOOKUP[ALPHABET.charCodeAt(index)] = index;
+const CODES = Uint8Array.from(ALPHABET, (char) => char.charCodeAt(0));
+const PAD = 61;
+const STRING_CHUNK = 8192;
 
 export function decodeBase64(input: string): Uint8Array {
   const clean = input.replace(/[\s=]/g, "");
@@ -25,6 +28,41 @@ export function decodeBase64(input: string): Uint8Array {
     }
   }
   return output.subarray(0, written);
+}
+
+export function encodeBase64(parts: readonly Uint8Array[]): string {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const output = new Uint8Array(Math.ceil(total / 3) * 4);
+  let group = 0;
+  let filled = 0;
+  let written = 0;
+  const flush = () => {
+    output[written++] = CODES[group >> 18]!;
+    output[written++] = CODES[(group >> 12) & 63]!;
+    output[written++] = CODES[(group >> 6) & 63]!;
+    output[written++] = CODES[group & 63]!;
+  };
+  for (const part of parts) {
+    for (let index = 0; index < part.length; index++) {
+      group = (group << 8) | part[index]!;
+      if (++filled === 3) {
+        flush();
+        group = 0;
+        filled = 0;
+      }
+    }
+  }
+  if (filled > 0) {
+    group <<= 8 * (3 - filled);
+    flush();
+    output[written - 1] = PAD;
+    if (filled === 1) output[written - 2] = PAD;
+  }
+  const strings: string[] = [];
+  for (let index = 0; index < output.length; index += STRING_CHUNK) {
+    strings.push(String.fromCharCode(...output.subarray(index, index + STRING_CHUNK)));
+  }
+  return strings.join("");
 }
 
 export interface MediaProgress {

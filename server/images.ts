@@ -3,7 +3,7 @@ import libheif from "libheif-js/libheif-wasm/libheif-bundle.mjs";
 import { decode as decodeWithImagescript } from "imagescript";
 import UTIF from "utif2";
 import { matchesMagic, type MagicSignature } from "../shared/kinds";
-import { decodeGif, gifSize } from "./gif";
+import { decodeGif, gifFrameCount, gifSize } from "./gif";
 import { decodePngScaled, pngHeader } from "./png";
 import {
   MAX_STREAMED_PIXELS,
@@ -22,16 +22,20 @@ import {
   type Rgba,
 } from "./raster";
 import { ERROR_MESSAGES, errorCode, errorText } from "../shared/errors";
+import { ANIMATION_MAX_BYTES } from "../shared/limits";
 
 interface Size {
   width: number;
   height: number;
 }
 
+export type AnimationMimeType = "image/gif" | "image/webp";
+
 interface ImageCodec {
   name: string;
   magic: readonly MagicSignature[];
   passthrough?: EncodedImage["mimeType"];
+  animation?: { mimeType: AnimationMimeType; frames(bytes: Buffer): number };
   size(bytes: Buffer): Size | Promise<Size>;
   decode?(bytes: Buffer): Rgba | Promise<Rgba>;
   scaled?(bytes: Buffer, width: number, height: number): Promise<Rgba> | null;
@@ -169,6 +173,17 @@ function webpSize(bytes: Buffer): Size {
   return canvas;
 }
 
+function webpFrameCount(bytes: Buffer): number {
+  let frames = 0;
+  for (let at = 12; at + 8 <= bytes.length && frames < 2; ) {
+    const size = bytes.readUInt32LE(at + 4);
+    const end = at + 8 + size;
+    if (end <= bytes.length && bytes.toString("latin1", at, at + 4) === "ANMF") frames++;
+    at = end + (size & 1);
+  }
+  return frames;
+}
+
 async function decodeWebp(bytes: Buffer): Promise<Rgba> {
   for (const { width, height } of webpImages(bytes.subarray(12))) assertDecodable(width, height);
   const decoded = await decodeWithImagescript(bytes, true);
@@ -196,7 +211,13 @@ const RASTER_CODECS: readonly ImageCodec[] = [
     decode: decodeJpegBytes,
     orientation: exifOrientation,
   },
-  { name: "GIF", magic: [ascii(0, "GIF8")], size: gifSize, decode: decodeGif },
+  {
+    name: "GIF",
+    magic: [ascii(0, "GIF8")],
+    animation: { mimeType: "image/gif", frames: (bytes) => gifFrameCount(bytes, 2) },
+    size: gifSize,
+    decode: decodeGif,
+  },
 ];
 
 const DECODED_CODECS: readonly ImageCodec[] = [
@@ -226,7 +247,13 @@ const DECODED_CODECS: readonly ImageCodec[] = [
       return { width: image.width, height: image.height, data: new Uint8Array(image.data.buffer) };
     },
   },
-  { name: "WebP", magic: [ascii(8, "WEBPVP8")], size: webpSize, decode: decodeWebp },
+  {
+    name: "WebP",
+    magic: [ascii(8, "WEBPVP8")],
+    animation: { mimeType: "image/webp", frames: webpFrameCount },
+    size: webpSize,
+    decode: decodeWebp,
+  },
 ];
 
 export type ImageFamily = "raster" | "decoded";
@@ -246,6 +273,12 @@ function requireCodec(bytes: Buffer, family: ImageFamily): ImageCodec {
 
 export async function imageSize(bytes: Buffer, family: ImageFamily): Promise<Size> {
   return sizeOf(requireCodec(bytes, family), bytes);
+}
+
+export function imageAnimation(bytes: Buffer, family: ImageFamily): { mimeType: AnimationMimeType; size: number } | undefined {
+  const { animation } = requireCodec(bytes, family);
+  if (!animation || bytes.length > ANIMATION_MAX_BYTES || animation.frames(bytes) < 2) return undefined;
+  return { mimeType: animation.mimeType, size: bytes.length };
 }
 
 function passesThrough(codec: ImageCodec, bytes: Buffer, size: Size, fit: Fit): boolean {

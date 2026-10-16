@@ -39,6 +39,7 @@ export const docOpenRpc = defineRpc({
       revision,
       width: z.number().int().positive(),
       height: z.number().int().positive(),
+      animation: z.object({ mimeType: z.enum(["image/gif", "image/webp"]), size: z.number().int().positive() }).optional(),
     }),
   ]),
 });
@@ -144,7 +145,7 @@ export const mediaChunkRpc = defineRpc({
     length: z.number().int().positive(),
   }),
   output: z.object({
-    kind: z.literal("video"),
+    kind: z.enum(["video", "image-raster", "image-decoded"]),
     revision,
     mimeType: z.string(),
     offset: z.number().int().nonnegative(),

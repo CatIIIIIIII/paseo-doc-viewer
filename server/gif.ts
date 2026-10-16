@@ -90,6 +90,34 @@ function interlacedRows(height: number): number[] {
   return rows;
 }
 
+function skipSubBlocks(bytes: Buffer, at: number): number {
+  while (at < bytes.length) {
+    const length = bytes[at++];
+    if (length === 0) return at;
+    at += length;
+  }
+  return -1;
+}
+
+export function gifFrameCount(bytes: Buffer, stopAt: number): number {
+  if (bytes.length < 13) return 0;
+  let at = 13 + (bytes[10] & 0x80 ? 3 * (1 << ((bytes[10] & 7) + 1)) : 0);
+  let frames = 0;
+  while (at > 0 && at < bytes.length && frames < stopAt) {
+    const marker = bytes[at++];
+    if (marker === 0x21) {
+      at = skipSubBlocks(bytes, at + 1);
+    } else if (marker === 0x2c) {
+      const flags = bytes[at + 8];
+      at = skipSubBlocks(bytes, at + 10 + (flags & 0x80 ? 3 * (1 << ((flags & 7) + 1)) : 0));
+      if (at > 0) frames++;
+    } else {
+      break;
+    }
+  }
+  return frames;
+}
+
 export function decodeGif(bytes: Buffer): Rgba {
   const { width, height } = gifSize(bytes);
   assertDecodable(width, height);

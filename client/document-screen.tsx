@@ -77,7 +77,7 @@ function DocumentBody({
       return <PageViewer key={key} {...common} kind="pptx" count={document.slideCount} />;
     case "image-raster":
     case "image-decoded":
-      return <PageViewer key={key} {...common} kind="image" count={1} />;
+      return <PageViewer key={key} {...common} kind="image" count={1} animation={document.animation} />;
     case "docx":
       return <BlocksViewer {...common} />;
     case "xlsx":
