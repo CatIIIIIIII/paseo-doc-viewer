@@ -39,8 +39,8 @@ const ROWS_BUDGET_BYTES = MAX_RESPONSE_BYTES - 64 * 1024;
 const MAX_PENDING_CHARS = 4 * 1024 * 1024;
 const DIMENSION_SCAN_CHARS = 64 * 1024;
 const WINDOW_DEADLINE_MS = 20_000;
-const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 45, 46, 47, 50, 51, 52, 53, 54, 55, 56, 57, 58]);
-const BUILTIN_NUMBER_FORMATS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 37, 38, 39, 40, 41, 42, 43, 44, 48]);
+const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 50, 51, 52, 53, 54, 55, 56, 57, 58]);
+const BUILTIN_NUMBER_FORMATS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 18, 19, 20, 21, 22, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48]);
 const SHEET = /<sheet\b[^>]*>/g;
 const RELATIONSHIP = /<Relationship\b[^>]*>/g;
 const SHEET_TOKEN = /<row\b[^>]*?(\/?)>|<\/row>|<c\b[^>]*?\/>|<c\b[^>]*>[\s\S]*?<\/c>|<\/sheetData>/g;
@@ -94,9 +94,16 @@ function columnIndex(reference: string): number {
   return column - 1;
 }
 
+const unquoted = (code: string) => code.replace(/"[^"]*"/g, "").replace(/\\./g, "");
+
 function isDateFormat(code: string): boolean {
-  const stripped = code.replace(/"[^"]*"/g, "").replace(/\\./g, "").replace(/\[[^\]]*\]/g, "");
+  const stripped = unquoted(code).replace(/\[[^\]]*\]/g, "");
   return /[dmyhs]/i.test(stripped) && !/^general$/i.test(stripped.trim());
+}
+
+function hasTime(code: string): boolean {
+  const text = unquoted(code);
+  return /\[(?:h+|m+|s+)\]/i.test(text) || /[hs]/i.test(text.replace(/\[[^\]]*\]/g, ""));
 }
 
 const MAX_FORMAT_CODE_CHARS = 255;
@@ -117,7 +124,7 @@ function cellFormats(styles: string | null): Pick<Workbook, "dateStyles" | "numb
     if (code === undefined) {
       if (BUILTIN_DATE_FORMATS.has(id)) result.dateStyles.add(index);
       else if (BUILTIN_NUMBER_FORMATS.has(id)) result.numberFormats.set(index, id);
-    } else if (isDateFormat(code)) result.dateStyles.add(index);
+    } else if (isDateFormat(code) && !hasTime(code)) result.dateStyles.add(index);
     else if (!isGeneral(code)) result.numberFormats.set(index, code);
     index++;
   }
@@ -213,10 +220,10 @@ function excelDate(serial: number, date1904: boolean): string {
 
 const general = (value: number) => String(Number(value.toPrecision(15)));
 
-function formatNumber(format: string | number | undefined, value: number): string {
+function formatNumber(format: string | number | undefined, value: number, date1904: boolean): string {
   if (format === undefined) return general(value);
   try {
-    return SSF.format(format, value);
+    return SSF.format(format, value, { date1904 });
   } catch {
     return general(value);
   }
@@ -251,7 +258,7 @@ function cellText(cell: string, workbook: Workbook, strings: string[]): string {
       if (value.trim() === "" || Number.isNaN(number)) return clip(value);
       const style = Number(attribute(open, "s") ?? 0);
       if (workbook.dateStyles.has(style)) return excelDate(number, workbook.date1904);
-      return clip(formatNumber(workbook.numberFormats.get(style), number));
+      return clip(formatNumber(workbook.numberFormats.get(style), number, workbook.date1904));
     }
   }
 }

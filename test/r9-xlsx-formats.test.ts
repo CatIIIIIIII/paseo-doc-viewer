@@ -5,16 +5,20 @@ import { workspace } from "./helpers";
 import { rawZip, worksheetXml, xlsxEntries } from "./zip-builder";
 
 const STYLES = `<styleSheet>
-  <numFmts count="5">
+  <numFmts count="8">
     <numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/>
     <numFmt numFmtId="165" formatCode="0.000"/>
     <numFmt numFmtId="166" formatCode="yyyy-mm-dd"/>
     <numFmt numFmtId="167" formatCode="0.00&quot;"/>
     <numFmt numFmtId="168" formatCode="${"0".repeat(10_000)}"/>
+    <numFmt numFmtId="169" formatCode="h:mm:ss"/>
+    <numFmt numFmtId="170" formatCode="[h]:mm"/>
+    <numFmt numFmtId="171" formatCode="yyyy-mm-dd hh:mm"/>
   </numFmts>
-  <cellXfs count="11">
+  <cellXfs count="16">
     <xf numFmtId="0"/><xf numFmtId="10"/><xf numFmtId="9"/><xf numFmtId="164"/><xf numFmtId="165"/>
     <xf numFmtId="3"/><xf numFmtId="4"/><xf numFmtId="14"/><xf numFmtId="166"/><xf numFmtId="167"/><xf numFmtId="168"/>
+    <xf numFmtId="169"/><xf numFmtId="170"/><xf numFmtId="171"/><xf numFmtId="20"/><xf numFmtId="45"/>
   </cellXfs>
 </styleSheet>`;
 
@@ -41,6 +45,26 @@ describe("R9: xlsx numbers follow their number format", () => {
 
   it("keeps dates as ISO dates for built-in and custom date formats", async () => {
     expect(await row([cell(7, 46036), cell(8, 46036.75)].join(""))).toEqual(["2026-01-14", "2026-01-14"]);
+  });
+
+  it("renders times, durations and date-times through their format code", async () => {
+    expect(await row([cell(11, 0.5104166666666666), cell(12, 1.5), cell(13, 46036.75), cell(14, 0.75), cell(15, 181 / 86400)].join(""))).toEqual([
+      "12:15:00",
+      "36:00",
+      "2026-01-14 18:00",
+      "18:00",
+      "03:01",
+    ]);
+  });
+
+  it("applies the 1904 date system to date-times", async () => {
+    const xml = worksheetXml(`<row r="1">${cell(13, 46036.75)}${cell(8, 46036)}</row>`);
+    const entries = xlsxEntries([{ name: "F", xml }], [{ name: "xl/styles.xml", data: STYLES }]).map((entry) =>
+      entry.name === "xl/workbook.xml" ? { ...entry, data: String(entry.data).replace("<sheets>", '<workbookPr date1904="1"/><sheets>') } : entry,
+    );
+    const root = workspace({ "mac.xlsx": rawZip(entries) });
+    const window = await readRows({ root, path: "mac.xlsx" }, { sheet: 0, rowOffset: 0, columnOffset: 0 });
+    expect(window.rows[0]).toEqual(["2030-01-15 18:00", "2030-01-15"]);
   });
 
   it("shows General numbers without float noise and keeps long integers whole", async () => {
