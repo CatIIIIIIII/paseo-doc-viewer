@@ -1,6 +1,7 @@
 import { defineRpc } from "@getpaseo/plugin";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { z } from "zod";
+import { DOCUMENT_GROUPS } from "./browse";
 import { DOCUMENT_KINDS } from "./kinds";
 
 const documentRef = { workspaceId: z.string().min(1), path: z.string().min(1) };
@@ -155,7 +156,12 @@ export const mediaChunkRpc = defineRpc({
 
 export const docsRecentRpc = defineRpc({
   name: "docs.recent",
-  input: z.object({ workspaceId: z.string().min(1), limit: z.number().int().positive().optional() }),
+  input: z.object({
+    workspaceId: z.string().min(1),
+    limit: z.number().int().positive().optional(),
+    query: z.string().max(200).optional(),
+    group: z.enum(DOCUMENT_GROUPS).optional(),
+  }),
   output: z.object({
     entries: z.array(
       z.object({
@@ -166,6 +172,7 @@ export const docsRecentRpc = defineRpc({
       }),
     ),
     truncated: z.boolean(),
+    counts: z.record(z.enum(DOCUMENT_GROUPS), z.number().int().nonnegative()),
   }),
 });
 

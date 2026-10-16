@@ -1,0 +1,62 @@
+import { utimesSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { listRecent } from "../server/documents";
+import { RECENT_MAX_ENTRIES } from "../shared/limits";
+import { docsRecentRpc } from "../shared/rpc";
+import { workspace } from "./helpers";
+
+function crowdedWorkspace(): string {
+  const files: Record<string, string> = { "archive/invoice-2019.pdf": "%PDF-1.4", "old/notes.docx": "docx" };
+  for (let i = 0; i < RECENT_MAX_ENTRIES + 10; i++) files[`shots/shot-${i}.png`] = "png";
+  const root = workspace(files);
+  utimesSync(join(root, "archive/invoice-2019.pdf"), 1000, 1000);
+  utimesSync(join(root, "old/notes.docx"), 2000, 2000);
+  return root;
+}
+
+describe("R12: docs.recent searches and filters the whole scan, not just the newest page", () => {
+  it("finds an old document by name that the newest-first cap leaves out", async () => {
+    const root = crowdedWorkspace();
+    const newest = await listRecent(root, {});
+    expect(newest.entries).toHaveLength(RECENT_MAX_ENTRIES);
+    expect(newest.entries.map((entry) => entry.path)).not.toContain("archive/invoice-2019.pdf");
+    expect(newest.truncated).toBe(true);
+
+    const found = await listRecent(root, { query: "INVOICE" });
+    expect(found.entries.map((entry) => entry.path)).toEqual(["archive/invoice-2019.pdf"]);
+    expect(found.truncated).toBe(false);
+  });
+
+  it("filters by type before the cap, so an old Word file shows under Word", async () => {
+    const root = crowdedWorkspace();
+    const word = await listRecent(root, { group: "word" });
+    expect(word.entries.map((entry) => entry.path)).toEqual(["old/notes.docx"]);
+    const images = await listRecent(root, { group: "image" });
+    expect(images.entries.every((entry) => entry.kind === "image-raster")).toBe(true);
+    expect(images.truncated).toBe(true);
+  });
+
+  it("counts every type that matches the search across the scan, ignoring the type filter", async () => {
+    const root = crowdedWorkspace();
+    const all = await listRecent(root, { group: "pdf" });
+    expect(all.counts).toEqual({ pdf: 1, word: 1, excel: 0, powerpoint: 0, image: RECENT_MAX_ENTRIES + 10, video: 0 });
+    const searched = await listRecent(root, { query: "o", group: "pdf" });
+    expect(searched.counts).toEqual({ pdf: 1, word: 1, excel: 0, powerpoint: 0, image: RECENT_MAX_ENTRIES + 10, video: 0 });
+    const narrow = await listRecent(root, { query: "notes" });
+    expect(narrow.counts).toEqual({ pdf: 0, word: 1, excel: 0, powerpoint: 0, image: 0, video: 0 });
+  });
+
+  it("returns nothing, not everything, when no document matches", async () => {
+    const root = crowdedWorkspace();
+    const none = await listRecent(root, { query: "no such file" });
+    expect(none.entries).toEqual([]);
+    expect(none.truncated).toBe(false);
+  });
+
+  it("validates the search input at the RPC boundary", () => {
+    expect(docsRecentRpc.input.safeParse({ workspaceId: "ws", query: "report", group: "excel" }).success).toBe(true);
+    expect(docsRecentRpc.input.safeParse({ workspaceId: "ws", group: "spreadsheet" }).success).toBe(false);
+    expect(docsRecentRpc.input.safeParse({ workspaceId: "ws", query: "x".repeat(201) }).success).toBe(false);
+  });
+});

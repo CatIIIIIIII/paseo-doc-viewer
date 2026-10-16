@@ -2,7 +2,8 @@ import type { PluginWorkspaceCommandContext } from "@getpaseo/plugin/client";
 import { describe, expect, it, vi } from "vitest";
 import { describeError, relativeTime } from "../client/format";
 import { ERROR_MESSAGES } from "../shared/errors";
-import { DOCUMENTS_PANEL_ID, newestFirst, openByPath, openMostRecent } from "../client/recent";
+import { DOCUMENTS_PANEL_ID, openByPath, openMostRecent } from "../client/recent";
+import { newestFirst } from "../shared/browse";
 
 function commandContext(entries: { path: string; mtimeMs: number }[]) {
   return {

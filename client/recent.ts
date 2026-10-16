@@ -1,4 +1,5 @@
 import type { PluginOpenScreenInput, PluginWorkspaceCommandContext } from "@getpaseo/plugin/client";
+import { DOCUMENT_GROUPS, type DocumentGroup, type GroupCounts, groupEntries, newestFirst } from "../shared/browse";
 import { docsRecentRpc, type DocsRecentOutput } from "../shared/rpc";
 
 export const DOCUMENT_SCREEN_ID = "document";
@@ -6,8 +7,32 @@ export const DOCUMENTS_PANEL_ID = "documents";
 
 export type RecentEntry = DocsRecentOutput["entries"][number];
 
-export function newestFirst(entries: readonly RecentEntry[]): RecentEntry[] {
-  return [...entries].sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
+export type BrowseRow =
+  | { type: "header"; group: DocumentGroup; shown: number; total: number; collapsed: boolean }
+  | { type: "entry"; entry: RecentEntry };
+
+export function browseRows(
+  entries: readonly RecentEntry[],
+  { counts, collapsed, headers }: { counts: GroupCounts; collapsed: ReadonlySet<DocumentGroup>; headers: boolean },
+): BrowseRow[] {
+  if (!headers) return newestFirst(entries).map((entry) => ({ type: "entry", entry }));
+  return groupEntries(entries).flatMap(({ group, entries: members }): BrowseRow[] => {
+    const isCollapsed = collapsed.has(group);
+    const header: BrowseRow = {
+      type: "header",
+      group,
+      shown: members.length,
+      total: Math.max(members.length, counts[group]),
+      collapsed: isCollapsed,
+    };
+    return isCollapsed ? [header] : [header, ...members.map((entry): BrowseRow => ({ type: "entry", entry }))];
+  });
+}
+
+export function filterChips(counts: GroupCounts, selected: DocumentGroup | null): { group: DocumentGroup | null; count: number }[] {
+  const total = DOCUMENT_GROUPS.reduce((sum, group) => sum + counts[group], 0);
+  const present = DOCUMENT_GROUPS.filter((group) => counts[group] > 0 || group === selected);
+  return [{ group: null, count: total }, ...present.map((group) => ({ group, count: counts[group] }))];
 }
 
 export function documentScreen(workspaceId: string, path: string): PluginOpenScreenInput {

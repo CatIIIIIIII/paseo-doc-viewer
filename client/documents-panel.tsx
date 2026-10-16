@@ -6,7 +6,8 @@ import { Pressable, Text, View } from "react-native";
 import { docsRecentRpc } from "../shared/rpc";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir, relativeTime } from "./format";
 import { recentQueryOptions } from "./queries";
-import { documentScreen, newestFirst } from "./recent";
+import { newestFirst } from "../shared/browse";
+import { documentScreen } from "./recent";
 import { ErrorState, LoadingState, makeStyles, MessageState } from "./ui";
 
 export function createDocumentsPanel(openScreen: (input: PluginOpenScreenInput) => void) {

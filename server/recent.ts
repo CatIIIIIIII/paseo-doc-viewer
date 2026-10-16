@@ -1,5 +1,6 @@
 import { opendir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, newestFirst } from "../shared/browse";
 import { RECENT_MAX_ENTRIES } from "../shared/limits";
 import { kindForPath, type DocumentKind } from "../shared/kinds";
 
@@ -69,15 +70,20 @@ class Queue {
 
 interface Scan {
   entries: RecentEntry[];
-  truncated: boolean;
+  complete: boolean;
 }
 
 const scans = new Map<string, { result: Promise<Scan>; expiresAt: number }>();
 
-export async function recentDocuments(root: string, limit: number = RECENT_MAX_ENTRIES): Promise<Scan> {
+export async function recentDocuments(
+  root: string,
+  { limit = RECENT_MAX_ENTRIES, query, group }: BrowseFilter & { limit?: number } = {},
+): Promise<{ entries: RecentEntry[]; truncated: boolean; counts: GroupCounts }> {
   const scan = await sharedScan(root);
   const cap = Math.max(1, Math.min(limit, RECENT_MAX_ENTRIES));
-  return { entries: scan.entries.slice(0, cap), truncated: scan.truncated || scan.entries.length > cap };
+  const matched = filterEntries(scan.entries, { query });
+  const shown = group ? filterEntries(matched, { group }) : matched;
+  return { entries: shown.slice(0, cap), truncated: !scan.complete || shown.length > cap, counts: countGroups(matched) };
 }
 
 function sharedScan(root: string): Promise<Scan> {
@@ -151,6 +157,5 @@ async function scanWorkspace(root: string): Promise<Scan> {
     }
   }
   if (queue.size > 0) complete = false;
-  found.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
-  return { entries: found.slice(0, RECENT_MAX_ENTRIES), truncated: found.length > RECENT_MAX_ENTRIES || !complete };
+  return { entries: newestFirst(found), complete };
 }

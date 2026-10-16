@@ -7,6 +7,7 @@ import type {
   DocPageOutput,
   DocRowsOutput,
   DocTextOutput,
+  DocsRecentInput,
   DocsRecentOutput,
   MediaChunkOutput,
 } from "../shared/rpc";
@@ -282,6 +283,6 @@ export async function readMediaChunk(ref: DocumentRef, request: ChunkRequest): P
   return operation(file, "media.chunk", "chunk")(file, request);
 }
 
-export async function listRecent(root: string, request: { limit?: number }): Promise<DocsRecentOutput> {
-  return recentDocuments(root, request.limit);
+export async function listRecent(root: string, request: Omit<DocsRecentInput, "workspaceId">): Promise<DocsRecentOutput> {
+  return recentDocuments(root, request);
 }
