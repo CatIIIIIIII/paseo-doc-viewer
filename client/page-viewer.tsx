@@ -17,6 +17,7 @@ import {
   retryPage,
   stripItems,
   zoomedText,
+  zoomGroupWidth,
   zoomLabel,
 } from "./paging";
 import { pageQueryKey, textQueryKey } from "./queries";
@@ -38,6 +39,7 @@ export interface PageViewerProps {
 
 const NOUN = { pdf: "Page", pptx: "Slide", image: "Image" } as const;
 const ZOOM_LABEL_WIDTH = 44;
+const ICON_BUTTON_WIDTH = 30;
 const IMAGE_LABEL_SPACE = 28;
 
 function dataUri(image: EncodedImage): string {
@@ -166,45 +168,52 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
               onPress={() => setShowText(!showText)}
             />
           ) : null}
-          {textMode ? (
-            <ToolbarButton
-              theme={theme}
-              styles={styles}
-              icon="Copy"
-              accessibilityLabel="Copy page text"
-              disabled={copyable === null}
-              onPress={copyPageText}
-            />
-          ) : (
-            <>
+          <View
+            style={[
+              styles.toolbarGroup,
+              { width: zoomGroupWidth({ button: ICON_BUTTON_WIDTH, label: ZOOM_LABEL_WIDTH, gap: 8 }), justifyContent: "flex-end" },
+            ]}
+          >
+            {textMode ? (
               <ToolbarButton
                 theme={theme}
                 styles={styles}
-                icon="ZoomOut"
-                accessibilityLabel="Zoom out"
-                disabled={!zoomable || zoom === 1}
-                onPress={() => zoomTo(previousZoomStep(zoom))}
+                icon="Copy"
+                accessibilityLabel="Copy page text"
+                disabled={copyable === null}
+                onPress={copyPageText}
               />
-              <View style={{ width: ZOOM_LABEL_WIDTH }}>
+            ) : (
+              <>
                 <ToolbarButton
                   theme={theme}
                   styles={styles}
-                  label={zoomLabel(zoom)}
-                  accessibilityLabel="Fit to width"
+                  icon="ZoomOut"
+                  accessibilityLabel="Zoom out"
                   disabled={!zoomable || zoom === 1}
-                  onPress={() => zoomTo(1)}
+                  onPress={() => zoomTo(previousZoomStep(zoom))}
                 />
-              </View>
-              <ToolbarButton
-                theme={theme}
-                styles={styles}
-                icon="ZoomIn"
-                accessibilityLabel="Zoom in"
-                disabled={!zoomable || zoom === nextZoomStep(zoom)}
-                onPress={() => zoomTo(nextZoomStep(zoom))}
-              />
-            </>
-          )}
+                <View style={{ width: ZOOM_LABEL_WIDTH }}>
+                  <ToolbarButton
+                    theme={theme}
+                    styles={styles}
+                    label={zoomLabel(zoom)}
+                    accessibilityLabel="Fit to width"
+                    disabled={!zoomable || zoom === 1}
+                    onPress={() => zoomTo(1)}
+                  />
+                </View>
+                <ToolbarButton
+                  theme={theme}
+                  styles={styles}
+                  icon="ZoomIn"
+                  accessibilityLabel="Zoom in"
+                  disabled={!zoomable || zoom === nextZoomStep(zoom)}
+                  onPress={() => zoomTo(nextZoomStep(zoom))}
+                />
+              </>
+            )}
+          </View>
         </View>
       ) : null}
       <View {...frameProps}>

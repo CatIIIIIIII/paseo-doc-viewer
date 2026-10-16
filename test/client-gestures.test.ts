@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FLING_SECONDS, flingOffset, keepsResponder, panOffset, imageFitWidth, responderClaim, zoomedText } from "../client/paging";
+import { FLING_SECONDS, flingOffset, keepsResponder, panOffset, imageFitWidth, responderClaim, zoomedText, zoomGroupWidth } from "../client/paging";
 
 describe("zoomed page gestures", () => {
   it("claims a single finger as a pan only when the page is zoomed in", () => {
@@ -68,5 +68,11 @@ describe("image fit", () => {
 
   it("keeps the source width until the panel height is known", () => {
     expect(imageFitWidth({ panelWidth: 366, panelHeight: 0, source: { width: 64, height: 48 } })).toBe(64);
+  });
+});
+
+describe("page toolbar", () => {
+  it("reserves the zoom controls' width so the copy button does not shift the page counter", () => {
+    expect(zoomGroupWidth({ button: 28, label: 44, gap: 8 })).toBe(28 + 8 + 44 + 8 + 28);
   });
 });

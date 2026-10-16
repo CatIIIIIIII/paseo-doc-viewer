@@ -147,6 +147,10 @@ export function imageFitWidth({
   return Math.round(Math.max(native, contained));
 }
 
+export function zoomGroupWidth({ button, label, gap }: { button: number; label: number; gap: number }): number {
+  return button * 2 + label + gap * 2;
+}
+
 export function fitSize(
   containerWidth: number,
   image: { width: number; height: number },
