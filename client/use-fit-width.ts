@@ -6,6 +6,7 @@ const RESIZE_SETTLE_MS = 250;
 
 export function useFitWidth(inset = 0, zoom = 1) {
   const [layoutWidth, setLayoutWidth] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
   const [settledWidth, setSettledWidth] = useState(0);
 
   useEffect(() => {
@@ -15,9 +16,12 @@ export function useFitWidth(inset = 0, zoom = 1) {
   }, [layoutWidth, settledWidth]);
 
   const onLayout = useCallback(
-    (event: LayoutChangeEvent) => setLayoutWidth(Math.max(0, Math.floor(event.nativeEvent.layout.width - inset))),
+    (event: LayoutChangeEvent) => {
+      setLayoutWidth(Math.max(0, Math.floor(event.nativeEvent.layout.width - inset)));
+      setContentHeight(Math.max(0, Math.floor(event.nativeEvent.layout.height - inset)));
+    },
     [inset],
   );
 
-  return { contentWidth: layoutWidth, requestWidth: renderWidthFor(settledWidth, PixelRatio.get(), zoom), onLayout };
+  return { contentWidth: layoutWidth, contentHeight, requestWidth: renderWidthFor(settledWidth, PixelRatio.get(), zoom), onLayout };
 }

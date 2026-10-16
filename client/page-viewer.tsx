@@ -8,6 +8,7 @@ import { docPageRpc, docTextRpc, type DocPageOutput, type DocTextOutput } from "
 import {
   clampIndex,
   fitSize,
+  imageFitWidth,
   nextZoomStep,
   omittedImagesNote,
   pageRequests,
@@ -37,6 +38,7 @@ export interface PageViewerProps {
 
 const NOUN = { pdf: "Page", pptx: "Slide", image: "Image" } as const;
 const ZOOM_LABEL_WIDTH = 44;
+const IMAGE_LABEL_SPACE = 28;
 
 function dataUri(image: EncodedImage): string {
   return `data:${image.mimeType};base64,${image.data}`;
@@ -51,7 +53,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
   const [zoom, setZoom] = useState(1);
   const [showText, setShowText] = useState(false);
   const textMode = kind === "pdf" && showText;
-  const { contentWidth, requestWidth, onLayout } = useFitWidth(styles.gutter * 2, kind === "pptx" ? 1 : zoom);
+  const { contentWidth, contentHeight, requestWidth, onLayout } = useFitWidth(styles.gutter * 2, kind === "pptx" ? 1 : zoom);
 
   const active = clampIndex(index, count);
   const requests = pageRequests(active, count);
@@ -224,7 +226,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
           ) : (
             <ScrollView {...panProps} horizontal showsHorizontalScrollIndicator={zoom > 1}>
               <View {...bodyProps}>
-                <PageBody page={page.data} contentWidth={contentWidth} zoom={zoom} theme={theme} styles={styles} noun={noun} />
+                <PageBody page={page.data} contentWidth={contentWidth} contentHeight={contentHeight} zoom={zoom} theme={theme} styles={styles} noun={noun} />
               </View>
             </ScrollView>
           )}
@@ -251,6 +253,7 @@ function PageText({ page, width, styles }: { page: DocTextOutput; width: number;
 const PageBody = memo(function PageBody({
   page,
   contentWidth,
+  contentHeight,
   zoom,
   theme,
   styles,
@@ -258,6 +261,7 @@ const PageBody = memo(function PageBody({
 }: {
   page: DocPageOutput;
   contentWidth: number;
+  contentHeight: number;
   zoom: number;
   theme: PluginTheme;
   styles: Styles;
@@ -304,7 +308,8 @@ const PageBody = memo(function PageBody({
       </View>
     );
   }
-  const width = zoomed(Math.min(contentWidth, page.sourceWidth));
+  const source = { width: page.sourceWidth, height: page.sourceHeight };
+  const width = zoomed(imageFitWidth({ panelWidth: contentWidth, panelHeight: contentHeight - IMAGE_LABEL_SPACE - styles.bottomInset, source }));
   return (
     <View style={{ alignItems: "center", gap: 8, width: Math.max(contentWidth, width) }}>
       <FittedImage image={page.image} width={width} label="Image" />

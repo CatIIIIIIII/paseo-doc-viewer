@@ -131,6 +131,22 @@ export function zoomedText(
   return { fontSize: base.fontSize * zoom, lineHeight: base.lineHeight * zoom, maxWidth: Math.round(width * zoom) };
 }
 
+export function imageFitWidth({
+  panelWidth,
+  panelHeight,
+  source,
+}: {
+  panelWidth: number;
+  panelHeight: number;
+  source: { width: number; height: number };
+}): number {
+  if (!(panelWidth > 0) || source.width <= 0 || source.height <= 0) return 0;
+  const native = Math.min(panelWidth, source.width);
+  if (!(panelHeight > 0)) return native;
+  const contained = Math.min(panelWidth, (panelHeight * source.width) / source.height);
+  return Math.round(Math.max(native, contained));
+}
+
 export function fitSize(
   containerWidth: number,
   image: { width: number; height: number },

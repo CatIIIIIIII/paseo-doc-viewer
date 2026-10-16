@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FLING_SECONDS, flingOffset, keepsResponder, panOffset, responderClaim, zoomedText } from "../client/paging";
+import { FLING_SECONDS, flingOffset, keepsResponder, panOffset, imageFitWidth, responderClaim, zoomedText } from "../client/paging";
 
 describe("zoomed page gestures", () => {
   it("claims a single finger as a pan only when the page is zoomed in", () => {
@@ -47,5 +47,26 @@ describe("zoomed slide text", () => {
 
   it("leaves text at fit size unchanged", () => {
     expect(zoomedText({ fontSize: 15, lineHeight: 22 }, 360, 1)).toEqual({ fontSize: 15, lineHeight: 22, maxWidth: 360 });
+  });
+});
+
+describe("image fit", () => {
+  const panel = { panelWidth: 366, panelHeight: 600 };
+
+  it("scales a small image up until it fills the panel width", () => {
+    expect(imageFitWidth({ ...panel, source: { width: 64, height: 48 } })).toBe(366);
+  });
+
+  it("stops scaling a small image up when it would be taller than the panel", () => {
+    expect(imageFitWidth({ ...panel, source: { width: 30, height: 100 } })).toBe(180);
+  });
+
+  it("shows a large image at the panel width and a tall one no narrower than its own width", () => {
+    expect(imageFitWidth({ ...panel, source: { width: 1600, height: 1000 } })).toBe(366);
+    expect(imageFitWidth({ ...panel, source: { width: 300, height: 2000 } })).toBe(300);
+  });
+
+  it("keeps the source width until the panel height is known", () => {
+    expect(imageFitWidth({ panelWidth: 366, panelHeight: 0, source: { width: 64, height: 48 } })).toBe(64);
   });
 });
