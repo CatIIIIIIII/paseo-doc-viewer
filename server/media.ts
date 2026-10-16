@@ -13,6 +13,12 @@ export function videoMimeType(extension: string): string {
   return VIDEO_MIME_TYPES[extension] ?? "application/octet-stream";
 }
 
+export function sliceChunk(bytes: Buffer, offset: number, length: number): { data: string; nextOffset: number | null } {
+  if (offset > bytes.length) throw new Error(ERROR_MESSAGES.offsetOutOfRange(offset, bytes.length));
+  const end = offset + Math.min(length, MEDIA_MAX_CHUNK_BYTES, bytes.length - offset);
+  return { data: bytes.subarray(offset, end).toString("base64"), nextOffset: end < bytes.length ? end : null };
+}
+
 export async function readChunk(
   path: string,
   size: number,

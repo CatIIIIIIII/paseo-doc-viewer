@@ -18,8 +18,8 @@ import { isEncryptedOoxml } from "./cfb";
 import { csvWindow, indexCsv } from "./csv";
 import { blockPage, docxModelBytes, fitDocxImage, loadDocx, type DocxModel } from "./docx";
 import { heavy } from "./heavy";
-import { imageAnimation, imageSize, renderImage, type ImageFamily } from "./images";
-import { readChunk, videoMimeType } from "./media";
+import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
+import { readChunk, sliceChunk, videoMimeType } from "./media";
 import { resolveInside } from "./paths";
 import { pdfPageCount, readPdfPageText, renderPdfPage } from "./pdf";
 import { loadDeck, renderSlide, type Deck } from "./pptx";
@@ -49,7 +49,7 @@ type PageRequest = { index: number; maxWidth?: number };
 type TextRequest = { index: number };
 type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number };
 type BlocksRequest = { cursor: number };
-type ChunkRequest = { offset: number; length: number };
+type ChunkRequest = { offset: number; length: number; mimeType?: AnimationMimeType };
 
 interface KindHandler {
   open(file: DocumentFile): Promise<DocOpenOutput>;
@@ -185,18 +185,17 @@ function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamil
         return { kind, revision: file.revision, sourceWidth: source.width, sourceHeight: source.height, image };
       });
     },
-    chunk: async (file, { offset, length }) => {
+    chunk: async (file, { offset, length, mimeType }) => {
       const opened = await openCached(file);
       const animation = "animation" in opened ? opened.animation : undefined;
       if (!animation) throw new Error(ERROR_MESSAGES.unavailable("media.chunk", "still image"));
-      return {
-        kind,
-        revision: file.revision,
-        mimeType: animation.mimeType,
-        offset,
-        size: file.size,
-        ...(await readChunk(file.path, file.size, offset, length)),
-      };
+      if (!mimeType || mimeType === animation.mimeType) {
+        const original = await readChunk(file.path, file.size, offset, length);
+        return { kind, revision: file.revision, mimeType: animation.mimeType, offset, size: file.size, ...original };
+      }
+      if (mimeType !== "image/gif") throw new Error(ERROR_MESSAGES.unavailable(`media.chunk as ${mimeType}`, animation.mimeType));
+      const gif = await heavyCached(file, "gif", async () => animationAsGif(await readFile(file.path), family), (bytes) => bytes.length);
+      return { kind, revision: file.revision, mimeType, offset, size: gif.length, ...sliceChunk(gif, offset, length) };
     },
   };
 }

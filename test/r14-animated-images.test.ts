@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { Animation } from "imagescript";
 import { describe, expect, it } from "vitest";
 import { openDocument, readMediaChunk, renderPage } from "../server/documents";
 import { errorCode } from "../shared/errors";
@@ -12,12 +13,12 @@ const red = Array.from({ length: 30 * 20 }, () => 0);
 const blue = Array.from({ length: 30 * 20 }, () => 1);
 const failure = (run: () => Promise<unknown>) => run().then(() => null, (error: unknown) => error);
 
-async function original(root: string, path: string) {
+async function original(root: string, path: string, wanted?: "image/gif" | "image/webp") {
   const parts: Buffer[] = [];
   let offset: number | null = 0;
   let mimeType = "";
   while (offset !== null) {
-    const chunk = await readMediaChunk({ root, path }, { offset, length: 64 });
+    const chunk = await readMediaChunk({ root, path }, { offset, length: 64, ...(wanted ? { mimeType: wanted } : {}) });
     mimeType = chunk.mimeType;
     parts.push(Buffer.from(chunk.data, "base64"));
     offset = chunk.nextOffset;
@@ -79,5 +80,43 @@ describe("R14: animated GIF and WebP keep their original bytes for the client", 
     const bytes = gif(30, 20, palette, [red, blue]);
     const root = workspace({ "cut.gif": bytes.subarray(0, bytes.length - 20) });
     expect(await openDocument({ root, path: "cut.gif" })).not.toHaveProperty("animation");
+  });
+});
+
+describe("R14: animated WebP is transcoded to GIF for the mobile apps", () => {
+  it("serves every WebP frame as an animated GIF with the frame timing", async () => {
+    const root = workspaceWithFixtures("animated.webp");
+    const served = await original(root, "animated.webp", "image/gif");
+    expect(served.mimeType).toBe("image/gif");
+    expect(served.bytes.subarray(0, 6).toString("latin1")).toBe("GIF89a");
+    const frames = await Animation.decode(served.bytes);
+    expect(frames.loopCount).toBe(-1);
+    expect(frames.map((frame) => frame.duration)).toEqual([100, 100]);
+    expect([...frames[0].bitmap.subarray(0, 3)].map((value) => Math.round(value / 10))).toEqual([22, 3, 3]);
+    expect([...frames[1].bitmap.subarray(0, 3)].map((value) => Math.round(value / 10))).toEqual([3, 3, 22]);
+  });
+
+  it("serves an animated GIF unchanged when GIF is requested", async () => {
+    const bytes = gif(30, 20, palette, [red, blue]);
+    const served = await original(workspace({ "spin.gif": bytes }), "spin.gif", "image/gif");
+    expect(served.mimeType).toBe("image/gif");
+    expect(served.bytes.equals(bytes)).toBe(true);
+  });
+
+  it("refuses to turn a GIF into WebP", async () => {
+    const root = workspace({ "spin.gif": gif(30, 20, palette, [red, blue]) });
+    const error = await failure(() => readMediaChunk({ root, path: "spin.gif" }, { offset: 0, length: 64, mimeType: "image/webp" }));
+    expect(errorCode(error)).toBe("invalid_request");
+  });
+
+  it("keeps the first frame when the composited frames exceed the transcode budget", async () => {
+    const bytes = Buffer.from(readFileSync(join(FIXTURES, "animated.webp")));
+    bytes.writeUIntLE(3999, 24, 3);
+    bytes.writeUIntLE(3999, 27, 3);
+    const root = workspace({ "huge.webp": bytes });
+    expect(await openDocument({ root, path: "huge.webp" })).toMatchObject({ animation: { mimeType: "image/webp" } });
+    const error = await failure(() => readMediaChunk({ root, path: "huge.webp" }, { offset: 0, length: 64, mimeType: "image/gif" }));
+    expect(errorCode(error)).toBe("too_large");
+    expect((await original(root, "huge.webp")).bytes.equals(bytes)).toBe(true);
   });
 });

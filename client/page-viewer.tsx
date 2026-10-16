@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useState } from "react";
 import { ActivityIndicator, Image, type ImageStyle, Platform, ScrollView, Text, View } from "react-native";
 import { docPageRpc, docTextRpc, mediaChunkRpc, type DocPageOutput, type DocTextOutput } from "../shared/rpc";
-import { type ImageAnimation, loadAnimation, playsAnimation } from "./animation";
+import { type ImageAnimation, animationFormat, loadAnimation } from "./animation";
 import {
   clampIndex,
   fitSize,
@@ -86,10 +86,11 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
     retry: retryPage,
   });
 
+  const animationMimeType = animation ? animationFormat(Platform.OS, animation.mimeType) : null;
   const motion = useQuery({
     queryKey: animationQueryKey(workspaceId, path, revision),
-    queryFn: () => loadAnimation((range) => fetchChunk({ workspaceId, path, ...range }), revision),
-    enabled: animation !== undefined && playsAnimation(Platform.OS, animation.mimeType),
+    queryFn: () => loadAnimation((range) => fetchChunk({ workspaceId, path, ...range, mimeType: animationMimeType ?? undefined }), revision),
+    enabled: animationMimeType !== null,
     staleTime: Infinity,
     retry: false,
   });

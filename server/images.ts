@@ -1,6 +1,6 @@
 import heicDecoder from "heic-decode/lib.js";
 import libheif from "libheif-js/libheif-wasm/libheif-bundle.mjs";
-import { decode as decodeWithImagescript } from "imagescript";
+import { Animation, decode as decodeWithImagescript } from "imagescript";
 import UTIF from "utif2";
 import { matchesMagic, type MagicSignature } from "../shared/kinds";
 import { decodeGif, gifFrameCount, gifSize } from "./gif";
@@ -35,7 +35,7 @@ interface ImageCodec {
   name: string;
   magic: readonly MagicSignature[];
   passthrough?: EncodedImage["mimeType"];
-  animation?: { mimeType: AnimationMimeType; frames(bytes: Buffer): number };
+  animation?: { mimeType: AnimationMimeType; frames(bytes: Buffer): number; gif?(bytes: Buffer): Promise<Buffer> };
   size(bytes: Buffer): Size | Promise<Size>;
   decode?(bytes: Buffer): Rgba | Promise<Rgba>;
   scaled?(bytes: Buffer, width: number, height: number): Promise<Rgba> | null;
@@ -191,6 +191,19 @@ async function decodeWebp(bytes: Buffer): Promise<Rgba> {
   return { width, height, data: new Uint8Array(bitmap.buffer, bitmap.byteOffset, bitmap.byteLength) };
 }
 
+const GIF_MAX_FRAMES = 500;
+const GIF_MAX_DECODED_PIXELS = 32_000_000;
+
+async function webpToGif(bytes: Buffer): Promise<Buffer> {
+  const [canvas, ...frames] = webpImages(bytes.subarray(12));
+  if (!canvas) throw new Error(ERROR_MESSAGES.imageDamaged("WebP", "no image data"));
+  const pixels = frames.reduce((total, frame) => total + canvas.width * canvas.height + frame.width * frame.height, 0);
+  if (frames.length > GIF_MAX_FRAMES || pixels > GIF_MAX_DECODED_PIXELS) throw new Error(ERROR_MESSAGES.tooLargeForBudget("This animation"));
+  const gif = await (await Animation.decode(bytes)).encodeGIF();
+  if (gif.length > ANIMATION_MAX_BYTES) throw new Error(ERROR_MESSAGES.tooLargeForBudget("This animation"));
+  return Buffer.from(gif.buffer, gif.byteOffset, gif.byteLength);
+}
+
 const RASTER_CODECS: readonly ImageCodec[] = [
   {
     name: "PNG",
@@ -250,7 +263,7 @@ const DECODED_CODECS: readonly ImageCodec[] = [
   {
     name: "WebP",
     magic: [ascii(8, "WEBPVP8")],
-    animation: { mimeType: "image/webp", frames: webpFrameCount },
+    animation: { mimeType: "image/webp", frames: webpFrameCount, gif: webpToGif },
     size: webpSize,
     decode: decodeWebp,
   },
@@ -279,6 +292,13 @@ export function imageAnimation(bytes: Buffer, family: ImageFamily): { mimeType: 
   const { animation } = requireCodec(bytes, family);
   if (!animation || bytes.length > ANIMATION_MAX_BYTES || animation.frames(bytes) < 2) return undefined;
   return { mimeType: animation.mimeType, size: bytes.length };
+}
+
+export async function animationAsGif(bytes: Buffer, family: ImageFamily): Promise<Buffer> {
+  const codec = requireCodec(bytes, family);
+  const gif = codec.animation?.gif;
+  if (!gif) throw new Error(ERROR_MESSAGES.unsupportedImage(`${codec.name} to GIF conversion`));
+  return guarded(codec, () => gif(bytes));
 }
 
 function passesThrough(codec: ImageCodec, bytes: Buffer, size: Size, fit: Fit): boolean {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadAnimation, playsAnimation } from "../client/animation";
+import { animationFormat, loadAnimation } from "../client/animation";
 import { encodeBase64 } from "../client/media";
 import type { MediaChunkOutput } from "../shared/rpc";
 
@@ -18,18 +18,18 @@ function server(bytes: Uint8Array, { chunk = 7, revision = "r1", mimeType = "ima
   };
 }
 
-describe("animated image playback gate", () => {
+describe("animated image playback format", () => {
   it.each([
-    ["web", "image/gif", true],
-    ["web", "image/webp", true],
-    ["ios", "image/gif", true],
-    ["ios", "image/webp", false],
-    ["android", "image/gif", true],
-    ["android", "image/webp", false],
-    ["windows", "image/gif", false],
-    ["macos", "image/gif", false],
-  ] as const)("%s plays %s: %s", (os, mimeType, expected) => {
-    expect(playsAnimation(os, mimeType)).toBe(expected);
+    ["web", "image/gif", "image/gif"],
+    ["web", "image/webp", "image/webp"],
+    ["ios", "image/gif", "image/gif"],
+    ["ios", "image/webp", "image/gif"],
+    ["android", "image/gif", "image/gif"],
+    ["android", "image/webp", "image/gif"],
+    ["windows", "image/gif", null],
+    ["macos", "image/webp", null],
+  ] as const)("%s plays %s as %s", (os, mimeType, expected) => {
+    expect(animationFormat(os, mimeType)).toBe(expected);
   });
 });
 

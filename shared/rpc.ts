@@ -7,6 +7,7 @@ import { DOCUMENT_KINDS } from "./kinds";
 const documentRef = { workspaceId: z.string().min(1), path: z.string().min(1) };
 const password = z.string().min(1).max(1024).optional();
 const revision = z.string();
+const animationMimeType = z.enum(["image/gif", "image/webp"]);
 const encodedImage = z.object({
   mimeType: z.enum(["image/png", "image/jpeg"]),
   width: z.number().int().positive(),
@@ -40,7 +41,7 @@ export const docOpenRpc = defineRpc({
       revision,
       width: z.number().int().positive(),
       height: z.number().int().positive(),
-      animation: z.object({ mimeType: z.enum(["image/gif", "image/webp"]), size: z.number().int().positive() }).optional(),
+      animation: z.object({ mimeType: animationMimeType, size: z.number().int().positive() }).optional(),
     }),
   ]),
 });
@@ -145,6 +146,7 @@ export const mediaChunkRpc = defineRpc({
     ...documentRef,
     offset: z.number().int().nonnegative(),
     length: z.number().int().positive(),
+    mimeType: animationMimeType.optional(),
   }),
   output: z.object({
     kind: z.enum(["video", "image-raster", "image-decoded"]),
