@@ -1,0 +1,22 @@
+{
+  "id": "paseo-doc-viewer",
+  "name": "Document viewer",
+  "description": "View PDF, Word, Excel, PowerPoint, image and video files from your workspace inside Paseo, on desktop, web and mobile.",
+  "icon": "assets/icon.png",
+  "media": [
+    "assets/screenshot-docx.png",
+    "assets/screenshot-pdf.png",
+    "assets/screenshot-xlsx.png"
+  ],
+  "requirements": {
+    "paseo": ">=0.11.2"
+  },
+  "build": [
+    [
+      "npm",
+      "ci",
+      "--omit=dev",
+      "--ignore-scripts"
+    ]
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "name": "paseo-doc-viewer",
+  "private": true,
+  "version": "0.1.0",
+  "description": "View PDF, Word, Excel, PowerPoint, image and video files from your workspace inside Paseo.",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "paseo-plugin.json",
+    "OVERVIEW.md",
+    "NOTICE",
+    "LICENSE",
+    "assets/",
+    "index.client.ts",
+    "index.client.tsx",
+    "index.server.ts",
+    "index.server.tsx",
+    "client/",
+    "server/",
+    "shared/"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --dir test",
+    "fixtures": "node test/fixtures/make.ts"
+  },
+  "dependencies": {
+    "@hyzyla/pdfium": "^3.0.0",
+    "@types/node": "~22.20.5",
+    "heic-decode": "^2.1.0",
+    "imagescript": "^3.1.0",
+    "libheif-js": "^1.23.5",
+    "mammoth": "^1.13.0",
+    "pngjs": "^7.0.0",
+    "utif2": "^4.1.0"
+  },
+  "devDependencies": {
+    "@getpaseo/plugin": "0.11.2",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "~19.2.0",
+    "esbuild": "^0.28.2",
+    "exceljs": "^4.4.0",
+    "jszip": "^3.10.2",
+    "pdf-lib": "^1.17.1",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5",
+    "zod": "^4.4.3"
+  }
+}

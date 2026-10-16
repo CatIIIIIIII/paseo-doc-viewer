@@ -1,0 +1,63 @@
+import { describe, expect, it } from "vitest";
+import { omittedImagesNote } from "../client/paging";
+import { blocksQueryKey, documentQueryOptions, pageQueryKey, recentQueryOptions, rowsQueryKey } from "../client/queries";
+
+describe("client query keys and polling", () => {
+  it("keys every page, block and row request by the document revision", () => {
+    expect(pageQueryKey("ws", "a.pdf", "r1", 2, 1024)).toContain("r1");
+    expect(pageQueryKey("ws", "a.pdf", "r1", 2, 1024)).not.toEqual(pageQueryKey("ws", "a.pdf", "r2", 2, 1024));
+    expect(blocksQueryKey("ws", "a.docx", "r1")).toContain("r1");
+    expect(blocksQueryKey("ws", "a.docx", "r1")).not.toEqual(blocksQueryKey("ws", "a.docx", "r2"));
+    expect(rowsQueryKey("ws", "a.xlsx", "r1", { sheet: 0, rowOffset: 0, columnOffset: 0 }, 8)).toContain("r1");
+    expect(rowsQueryKey("ws", "a.xlsx", "r1", { sheet: 0, rowOffset: 0, columnOffset: 0 }, 8)).not.toEqual(
+      rowsQueryKey("ws", "a.xlsx", "r2", { sheet: 0, rowOffset: 0, columnOffset: 0 }, 8),
+    );
+  });
+
+  it("separates page keys by index and render width, and row keys by sheet, offsets and column window", () => {
+    const keys = [
+      pageQueryKey("ws", "a.pdf", "r1", 0, 1024),
+      pageQueryKey("ws", "a.pdf", "r1", 1, 1024),
+      pageQueryKey("ws", "a.pdf", "r1", 0, 2048),
+      rowsQueryKey("ws", "a.xlsx", "r1", { sheet: 0, rowOffset: 0, columnOffset: 0 }, 8),
+      rowsQueryKey("ws", "a.xlsx", "r1", { sheet: 1, rowOffset: 0, columnOffset: 0 }, 8),
+      rowsQueryKey("ws", "a.xlsx", "r1", { sheet: 0, rowOffset: 200, columnOffset: 0 }, 8),
+      rowsQueryKey("ws", "a.xlsx", "r1", { sheet: 0, rowOffset: 0, columnOffset: 50 }, 8),
+      rowsQueryKey("ws", "a.xlsx", "r1", { sheet: 0, rowOffset: 0, columnOffset: 0 }, 16),
+    ];
+    expect(new Set(keys.map((key) => JSON.stringify(key))).size).toBe(keys.length);
+  });
+
+  it("polls the open document so a rewritten file shows its new revision", () => {
+    const options = documentQueryOptions("ws", "a.pdf");
+    expect(options.queryKey).toEqual(["doc.open", "ws", "a.pdf"]);
+    expect(options.refetchInterval).toBeGreaterThan(0);
+    expect(options.refetchInterval).toBeLessThanOrEqual(10_000);
+    expect(options.enabled).toBe(true);
+    expect(documentQueryOptions("", "a.pdf").enabled).toBe(false);
+  });
+
+  it("polls the recent documents panel", () => {
+    const options = recentQueryOptions("ws");
+    expect(options.queryKey).toEqual(["docs.recent", "ws"]);
+    expect(options.refetchInterval).toBeGreaterThan(0);
+    expect(options.refetchInterval).toBeLessThanOrEqual(10_000);
+  });
+});
+
+describe("omitted slide images", () => {
+  it("says nothing when no image was left out", () => {
+    expect(omittedImagesNote(0)).toBeNull();
+  });
+
+  it("counts left-out images without guessing why", () => {
+    expect(omittedImagesNote(1)).toBe("1 image is not shown");
+    expect(omittedImagesNote(3)).toBe("3 images are not shown");
+  });
+
+  it("lists distinct reasons when the server gives them", () => {
+    expect(omittedImagesNote(3, ["too large to preview", "unsupported image format", "too large to preview"])).toBe(
+      "3 images are not shown: too large to preview, unsupported image format",
+    );
+  });
+});
