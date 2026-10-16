@@ -1,3 +1,6 @@
+import { type BrowseFilter, queryTerms } from "../shared/browse";
+import type { DocsRecentInput, DocsRecentOutput } from "../shared/rpc";
+
 export const REVISION_POLL_MS = 5_000;
 export const RECENT_POLL_MS = 5_000;
 
@@ -10,11 +13,16 @@ export function documentQueryOptions(workspaceId: string, path: string) {
   };
 }
 
-export function recentQueryOptions(workspaceId: string) {
+export function recentQueryOptions(workspaceId: string, filter: BrowseFilter) {
+  const query = queryTerms(filter.query ?? "").join(" ");
+  const group = filter.group ?? null;
+  const request: DocsRecentInput = { workspaceId, ...(query ? { query } : {}), ...(group ? { group } : {}) };
   return {
-    queryKey: ["docs.recent", workspaceId] as const,
+    queryKey: ["docs.recent", workspaceId, query, group] as const,
+    request,
     refetchInterval: RECENT_POLL_MS,
     refetchOnWindowFocus: true,
+    placeholderData: (previous: DocsRecentOutput | undefined) => previous,
   };
 }
 

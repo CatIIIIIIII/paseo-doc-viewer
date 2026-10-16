@@ -114,8 +114,14 @@ describe("S10: open a document by path despite the missing Files-tree hook", () 
       const { icons } = await loadClient();
       expect(icons.length).toBeGreaterThan(0);
       const rendered = ["index.client.tsx", ...readdirSync(join(PLUGIN_ROOT, "client")).map((name) => join("client", name))]
-        .flatMap((file) => [...readFileSync(join(PLUGIN_ROOT, file), "utf8").matchAll(/\bicon(?:=|: )"(\w+)"/g)])
-        .map((match) => match[1]);
+        .flatMap((file) => {
+          const source = readFileSync(join(PLUGIN_ROOT, file), "utf8");
+          const props = [...source.matchAll(/\bicon(?:=|: )"(\w+)"/g)].map((match) => match[1]);
+          const elements = [...source.matchAll(/<Icon name=(\{[^}]*\}|"\w+")/g)].flatMap((match) =>
+            [...match[1].matchAll(/"(\w+)"/g)].map((quoted) => quoted[1]),
+          );
+          return [...props, ...elements];
+        });
       for (const icon of [...icons, ...rendered, ...Object.values(KIND_ICON)]) {
         expect.soft(LUCIDE_ICONS!.has(icon), icon).toBe(true);
       }

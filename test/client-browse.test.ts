@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browseRows, filterChips } from "../client/recent";
+import { browseRows, filterChips, listFooter, noMatchDetail } from "../client/recent";
 import { countGroups, DOCUMENT_GROUPS, filterEntries, groupEntries, matchesQuery, queryTerms } from "../shared/browse";
 import { DOCUMENT_KINDS, type DocumentKind } from "../shared/kinds";
 
@@ -131,5 +131,22 @@ describe("documents panel filter chips", () => {
       { group: "pdf", count: 1 },
       { group: "word", count: 0 },
     ]);
+  });
+});
+
+describe("documents panel empty and footer text", () => {
+  it("says what found nothing", () => {
+    expect(noMatchDetail({ query: " Q4 ", group: null }, false)).toBe('No files match "Q4"');
+    expect(noMatchDetail({ query: "q4", group: "excel" }, false)).toBe('No Excel files match "q4"');
+    expect(noMatchDetail({ query: "", group: "video" }, false)).toBe("No Video files in this workspace");
+  });
+
+  it("warns when the workspace was too large to search completely", () => {
+    expect(noMatchDetail({ query: "q4", group: null }, true)).toBe('No files match "q4". Only the first 50,000 entries of this workspace were searched');
+  });
+
+  it("describes a capped list as recent documents or recent matches", () => {
+    expect(listFooter(50, false)).toBe("Showing the 50 most recently changed");
+    expect(listFooter(50, true)).toBe("Showing the 50 most recent matches");
   });
 });

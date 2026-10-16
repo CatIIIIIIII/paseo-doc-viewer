@@ -1,6 +1,15 @@
 import type { PluginOpenScreenInput, PluginWorkspaceCommandContext } from "@getpaseo/plugin/client";
-import { DOCUMENT_GROUPS, type DocumentGroup, type GroupCounts, groupEntries, newestFirst } from "../shared/browse";
+import {
+  type BrowseFilter,
+  DOCUMENT_GROUPS,
+  type DocumentGroup,
+  type GroupCounts,
+  groupEntries,
+  newestFirst,
+} from "../shared/browse";
+import { RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { docsRecentRpc, type DocsRecentOutput } from "../shared/rpc";
+import { formatCount, GROUP_LABEL } from "./format";
 
 export const DOCUMENT_SCREEN_ID = "document";
 export const DOCUMENTS_PANEL_ID = "documents";
@@ -33,6 +42,19 @@ export function filterChips(counts: GroupCounts, selected: DocumentGroup | null)
   const total = DOCUMENT_GROUPS.reduce((sum, group) => sum + counts[group], 0);
   const present = DOCUMENT_GROUPS.filter((group) => counts[group] > 0 || group === selected);
   return [{ group: null, count: total }, ...present.map((group) => ({ group, count: counts[group] }))];
+}
+
+export function noMatchDetail({ query = "", group = null }: BrowseFilter, scanIncomplete: boolean): string {
+  const files = group ? `${GROUP_LABEL[group]} files` : "files";
+  const text = query.trim();
+  const detail = text ? `No ${files} match "${text}"` : `No ${files} in this workspace`;
+  return scanIncomplete
+    ? `${detail}. Only the first ${formatCount(RECENT_MAX_SCANNED_ENTRIES)} entries of this workspace were searched`
+    : detail;
+}
+
+export function listFooter(shown: number, filtered: boolean): string {
+  return filtered ? `Showing the ${shown} most recent matches` : `Showing the ${shown} most recently changed`;
 }
 
 export function documentScreen(workspaceId: string, path: string): PluginOpenScreenInput {

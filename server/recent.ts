@@ -1,7 +1,7 @@
 import { opendir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, newestFirst } from "../shared/browse";
-import { RECENT_MAX_ENTRIES } from "../shared/limits";
+import { RECENT_MAX_ENTRIES, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { kindForPath, type DocumentKind } from "../shared/kinds";
 
 export interface RecentEntry {
@@ -14,7 +14,6 @@ export interface RecentEntry {
 const SKIPPED_DIRECTORIES = new Set(["node_modules", "__pycache__", "venv", "target", "vendor"]);
 const DEFERRED_DIRECTORIES = new Set(["build", "dist", "out"]);
 const SKIPPED_FILE_PREFIXES = ["~$", "._"];
-const MAX_VISITED_ENTRIES = 50_000;
 const MAX_DIRECTORY_ENTRIES = 5_000;
 const MAX_DEPTH = 16;
 const MIN_REUSE_MS = 4_000;
@@ -112,7 +111,7 @@ async function scanWorkspace(root: string): Promise<Scan> {
   let visited = 0;
   let complete = true;
 
-  while (queue.size > 0 && visited < MAX_VISITED_ENTRIES) {
+  while (queue.size > 0 && visited < RECENT_MAX_SCANNED_ENTRIES) {
     const { path: directory, depth, deferred } = queue.pop();
     let entries;
     try {
@@ -122,7 +121,7 @@ async function scanWorkspace(root: string): Promise<Scan> {
     }
     let read = 0;
     for await (const item of entries) {
-      if (++read > MAX_DIRECTORY_ENTRIES || ++visited > MAX_VISITED_ENTRIES) {
+      if (++read > MAX_DIRECTORY_ENTRIES || ++visited > RECENT_MAX_SCANNED_ENTRIES) {
         complete = false;
         break;
       }

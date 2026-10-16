@@ -42,10 +42,19 @@ describe("client query keys and polling", () => {
   });
 
   it("polls the recent documents panel", () => {
-    const options = recentQueryOptions("ws");
-    expect(options.queryKey).toEqual(["docs.recent", "ws"]);
+    const options = recentQueryOptions("ws", {});
+    expect(options.queryKey).toEqual(["docs.recent", "ws", "", null]);
     expect(options.refetchInterval).toBeGreaterThan(0);
     expect(options.refetchInterval).toBeLessThanOrEqual(10_000);
+  });
+
+  it("keys the recent list by normalized search and type, and keeps the last list while a new filter loads", () => {
+    const options = recentQueryOptions("ws", { query: "  Q4   Report ", group: "pdf" });
+    expect(options.queryKey).toEqual(["docs.recent", "ws", "q4 report", "pdf"]);
+    expect(options.request).toEqual({ workspaceId: "ws", query: "q4 report", group: "pdf" });
+    expect(recentQueryOptions("ws", {}).request).toEqual({ workspaceId: "ws" });
+    const previous = { entries: [], truncated: false, counts: { pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0 } };
+    expect(options.placeholderData(previous)).toBe(previous);
   });
 });
 

@@ -1,4 +1,5 @@
 import { errorCode, errorText, type ErrorCode } from "../shared/errors";
+import type { DocumentGroup } from "../shared/browse";
 import type { DocumentKind } from "../shared/kinds";
 
 export function baseName(path: string): string {
@@ -60,6 +61,15 @@ export const KIND_LABEL: { readonly [K in DocumentKind]: string } = {
   video: "Video",
   "image-raster": "Image",
   "image-decoded": "Image",
+};
+
+export const GROUP_LABEL: { readonly [G in DocumentGroup]: string } = {
+  pdf: "PDF",
+  word: "Word",
+  excel: "Excel",
+  powerpoint: "PowerPoint",
+  image: "Images",
+  video: "Video",
 };
 
 export interface ErrorState {
