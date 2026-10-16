@@ -2,6 +2,7 @@ import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { listRecent, openDocument, renderPage } from "../server/documents";
+import { gif } from "./fixtures/generators.ts";
 import { decodePng, workspace } from "./helpers";
 
 const RED_LEFT_BLUE_RIGHT_16X8_JPEG = Buffer.from(
@@ -15,46 +16,6 @@ function withOrientation(jpeg: Buffer, orientation: number): Buffer {
   const length = Buffer.alloc(2);
   length.writeUInt16BE(payload.length + 2);
   return Buffer.concat([jpeg.subarray(0, 2), Buffer.from([0xff, 0xe1]), length, payload, jpeg.subarray(2)]);
-}
-
-function gif(width: number, height: number, palette: number[][], indices: number[], interlaced = false): Buffer {
-  const codes: number[] = [];
-  const clear = 256;
-  for (let i = 0; i < indices.length; i++) {
-    if (i % 200 === 0) codes.push(clear);
-    codes.push(indices[i]);
-  }
-  codes.push(257);
-  const bytes: number[] = [];
-  let buffer = 0;
-  let bits = 0;
-  for (const code of codes) {
-    buffer |= code << bits;
-    bits += 9;
-    while (bits >= 8) {
-      bytes.push(buffer & 0xff);
-      buffer >>>= 8;
-      bits -= 8;
-    }
-  }
-  if (bits > 0) bytes.push(buffer & 0xff);
-  const blocks: number[] = [];
-  for (let i = 0; i < bytes.length; i += 255) {
-    const slice = bytes.slice(i, i + 255);
-    blocks.push(slice.length, ...slice);
-  }
-  const table = Array.from({ length: 256 }, (_, i) => palette[i] ?? [0, 0, 0]).flat();
-  const header = Buffer.alloc(13);
-  header.write("GIF89a", 0, "latin1");
-  header.writeUInt16LE(width, 6);
-  header.writeUInt16LE(height, 8);
-  header[10] = 0x80 | 7;
-  const descriptor = Buffer.alloc(10);
-  descriptor[0] = 0x2c;
-  descriptor.writeUInt16LE(width, 5);
-  descriptor.writeUInt16LE(height, 7);
-  descriptor[9] = interlaced ? 0x40 : 0;
-  return Buffer.concat([header, Buffer.from(table), descriptor, Buffer.from([8, ...blocks, 0, 0x3b])]);
 }
 
 describe("R3: docs.recent finds the newest file in big trees", () => {
@@ -110,7 +71,7 @@ describe("R3: GIF renders", () => {
     const palette = [[255, 0, 0], [0, 0, 255]];
     const indices = Array.from({ length: 30 * 20 }, (_, i) => (i % 30 < 15 ? 0 : 1));
     for (const interlaced of [false, true]) {
-      const root = workspace({ "a.gif": gif(30, 20, palette, indices, interlaced) });
+      const root = workspace({ "a.gif": gif(30, 20, palette, [indices], { interlaced }) });
       expect(await openDocument({ root, path: "a.gif" })).toMatchObject({ width: 30, height: 20 });
       const page = await renderPage({ root, path: "a.gif" }, { index: 0 });
       if (page.kind !== "image-raster") throw new Error("expected image");

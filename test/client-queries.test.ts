@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { omittedImagesNote, pageTextNote } from "../client/paging";
-import { blocksQueryKey, documentQueryOptions, pageQueryKey, recentQueryOptions, rowsQueryKey, textQueryKey } from "../client/queries";
+import { animationQueryKey, blocksQueryKey, documentQueryOptions, pageQueryKey, recentQueryOptions, rowsQueryKey, textQueryKey } from "../client/queries";
 
 describe("client query keys and polling", () => {
   it("keys every page, block and row request by the document revision", () => {
@@ -8,6 +8,7 @@ describe("client query keys and polling", () => {
     expect(pageQueryKey("ws", "a.pdf", "r1", 2, 1024)).not.toEqual(pageQueryKey("ws", "a.pdf", "r2", 2, 1024));
     expect(textQueryKey("ws", "a.pdf", "r1", 2)).toContain("r1");
     expect(textQueryKey("ws", "a.pdf", "r1", 2)).not.toEqual(textQueryKey("ws", "a.pdf", "r2", 2));
+    expect(animationQueryKey("ws", "a.gif", "r1")).not.toEqual(animationQueryKey("ws", "a.gif", "r2"));
     expect(blocksQueryKey("ws", "a.docx", "r1")).toContain("r1");
     expect(blocksQueryKey("ws", "a.docx", "r1")).not.toEqual(blocksQueryKey("ws", "a.docx", "r2"));
     expect(rowsQueryKey("ws", "a.xlsx", "r1", { sheet: 0, rowOffset: 0, columnOffset: 0 }, 8)).toContain("r1");
@@ -34,7 +35,8 @@ describe("client query keys and polling", () => {
 
   it("polls the open document so a rewritten file shows its new revision", () => {
     const options = documentQueryOptions("ws", "a.pdf");
-    expect(options.queryKey).toEqual(["doc.open", "ws", "a.pdf"]);
+    expect(options.queryKey).toEqual(["doc.open", "ws", "a.pdf", 0]);
+    expect(documentQueryOptions("ws", "a.pdf", 1).queryKey).not.toEqual(options.queryKey);
     expect(options.refetchInterval).toBeGreaterThan(0);
     expect(options.refetchInterval).toBeLessThanOrEqual(10_000);
     expect(options.enabled).toBe(true);

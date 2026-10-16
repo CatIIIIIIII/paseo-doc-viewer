@@ -16,7 +16,7 @@ afterEach(() => {
 
 async function pdf(name: string, pages: string[]) {
   const root = workspace({ [name]: await textPdf(pages) });
-  return { path: join(root, name), revision: "1", size: 1024 };
+  return { path: join(root, name), revision: "1", size: 1024, passwordKey: "" };
 }
 
 describe("R11: PDFium is released after a minute without PDF work", () => {

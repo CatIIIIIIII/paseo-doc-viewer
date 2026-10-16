@@ -1,5 +1,6 @@
 export const ERROR_CODES = [
-  "password_protected",
+  "password_required",
+  "password_incorrect",
   "unsupported_encryption",
   "encrypted_office",
   "legacy_format",
@@ -55,7 +56,8 @@ export const ERROR_MESSAGES = {
     tagged("legacy_format", "Legacy Office format (.doc, .xls, .ppt) is not supported; re-save it as .docx, .xlsx, or .pptx"),
   encryptedOffice: () => tagged("encrypted_office", "This Office file is encrypted; remove the password to preview it"),
   contentMismatch: (extension: string) => tagged("damaged", `File content does not match its .${extension} extension`),
-  pdfEncrypted: () => tagged("password_protected", "PDF is encrypted and needs a password"),
+  pdfPasswordRequired: () => tagged("password_required", "PDF is encrypted and needs a password"),
+  pdfPasswordIncorrect: () => tagged("password_incorrect", "The password is incorrect"),
   pdfCertificateSecurity: () =>
     tagged("unsupported_encryption", "PDF is protected with certificate security, which cannot be opened here"),
   pdfUnsupportedSecurity: () => tagged("unsupported_encryption", "PDF is encrypted with an unsupported security scheme"),

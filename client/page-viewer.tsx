@@ -3,8 +3,9 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useState } from "react";
-import { ActivityIndicator, Image, type ImageStyle, ScrollView, Text, View } from "react-native";
-import { docPageRpc, docTextRpc, type DocPageOutput, type DocTextOutput } from "../shared/rpc";
+import { ActivityIndicator, Image, type ImageStyle, Platform, ScrollView, Text, View } from "react-native";
+import { docPageRpc, docTextRpc, mediaChunkRpc, type DocPageOutput, type DocTextOutput } from "../shared/rpc";
+import { type ImageAnimation, loadAnimation, playsAnimation } from "./animation";
 import {
   clampIndex,
   fitSize,
@@ -20,7 +21,7 @@ import {
   zoomGroupWidth,
   zoomLabel,
 } from "./paging";
-import { pageQueryKey, textQueryKey } from "./queries";
+import { animationQueryKey, pageQueryKey, textQueryKey } from "./queries";
 import { ErrorState, LoadingState, type Styles, ToolbarButton } from "./ui";
 import { useFitWidth } from "./use-fit-width";
 import { usePinchZoom } from "./use-pinch-zoom";
@@ -33,6 +34,8 @@ export interface PageViewerProps {
   revision: string;
   kind: "pdf" | "pptx" | "image";
   count: number;
+  password?: string;
+  animation?: ImageAnimation;
   theme: PluginTheme;
   styles: Styles;
 }
@@ -46,9 +49,10 @@ function dataUri(image: EncodedImage): string {
   return `data:${image.mimeType};base64,${image.data}`;
 }
 
-export function PageViewer({ workspaceId, path, revision, kind, count, theme, styles }: PageViewerProps) {
+export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles }: PageViewerProps) {
   const fetchPage = useRpc(docPageRpc);
   const fetchText = useRpc(docTextRpc);
+  const fetchChunk = useRpc(mediaChunkRpc);
   const queryClient = useQueryClient();
   const toast = useToast();
   const [index, setIndex] = useState(0);
@@ -67,7 +71,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
   const pageKey = (target: number) => pageQueryKey(workspaceId, path, revision, target, requestWidth);
   const page = useQuery({
     queryKey: pageKey(active),
-    queryFn: () => fetchPage({ workspaceId, path, index: active, maxWidth: requestWidth ?? undefined }),
+    queryFn: () => fetchPage({ workspaceId, path, password, index: active, maxWidth: requestWidth ?? undefined }),
     enabled: requestWidth !== null && requests.current !== null && !textMode,
     placeholderData: (previous) => previous,
     staleTime: Infinity,
@@ -75,11 +79,19 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
   });
   const pageText = useQuery({
     queryKey: textQueryKey(workspaceId, path, revision, active),
-    queryFn: () => fetchText({ workspaceId, path, index: active }),
+    queryFn: () => fetchText({ workspaceId, path, password, index: active }),
     enabled: textMode && requests.current !== null,
     placeholderData: (previous) => previous,
     staleTime: Infinity,
     retry: retryPage,
+  });
+
+  const motion = useQuery({
+    queryKey: animationQueryKey(workspaceId, path, revision),
+    queryFn: () => loadAnimation((range) => fetchChunk({ workspaceId, path, ...range }), revision),
+    enabled: animation !== undefined && playsAnimation(Platform.OS, animation.mimeType),
+    staleTime: Infinity,
+    retry: false,
   });
 
   useEffect(() => {
@@ -87,11 +99,11 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
     if (requestWidth === null || next === null || textMode) return;
     void queryClient.prefetchQuery({
       queryKey: pageKey(next),
-      queryFn: () => fetchPage({ workspaceId, path, index: next, maxWidth: requestWidth }),
+      queryFn: () => fetchPage({ workspaceId, path, password, index: next, maxWidth: requestWidth }),
       staleTime: Infinity,
       retry: retryPage,
     });
-  }, [queryClient, fetchPage, workspaceId, path, revision, requests.prefetch, requestWidth, textMode]);
+  }, [queryClient, fetchPage, workspaceId, path, password, revision, requests.prefetch, requestWidth, textMode]);
 
   const noun = NOUN[kind];
   const paged = count > 1;
@@ -235,7 +247,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
           ) : (
             <ScrollView {...panProps} horizontal showsHorizontalScrollIndicator={zoom > 1}>
               <View {...bodyProps}>
-                <PageBody page={page.data} contentWidth={contentWidth} contentHeight={contentHeight} zoom={zoom} theme={theme} styles={styles} noun={noun} />
+                <PageBody page={page.data} animationUri={motion.data} contentWidth={contentWidth} contentHeight={contentHeight} zoom={zoom} theme={theme} styles={styles} noun={noun} />
               </View>
             </ScrollView>
           )}
@@ -261,6 +273,7 @@ function PageText({ page, width, styles }: { page: DocTextOutput; width: number;
 
 const PageBody = memo(function PageBody({
   page,
+  animationUri,
   contentWidth,
   contentHeight,
   zoom,
@@ -269,6 +282,7 @@ const PageBody = memo(function PageBody({
   noun,
 }: {
   page: DocPageOutput;
+  animationUri?: string;
   contentWidth: number;
   contentHeight: number;
   zoom: number;
@@ -321,7 +335,7 @@ const PageBody = memo(function PageBody({
   const width = zoomed(imageFitWidth({ panelWidth: contentWidth, panelHeight: contentHeight - IMAGE_LABEL_SPACE - styles.bottomInset, source }));
   return (
     <View style={{ alignItems: "center", gap: 8, width: Math.max(contentWidth, width) }}>
-      <FittedImage image={page.image} width={width} label="Image" />
+      <FittedImage image={page.image} uri={animationUri} width={width} label="Image" />
       <Text style={[styles.label, { color: theme.colors.foregroundMuted }]}>
         {page.sourceWidth} x {page.sourceHeight}
       </Text>
@@ -329,8 +343,20 @@ const PageBody = memo(function PageBody({
   );
 });
 
-function FittedImage({ image, width, label, style }: { image: EncodedImage; width: number; label: string; style?: ImageStyle }) {
+function FittedImage({
+  image,
+  uri,
+  width,
+  label,
+  style,
+}: {
+  image: EncodedImage;
+  uri?: string;
+  width: number;
+  label: string;
+  style?: ImageStyle;
+}) {
   const size = fitSize(width, image);
   if (size.width === 0) return null;
-  return <Image source={{ uri: dataUri(image) }} style={[size, style]} resizeMode="contain" accessibilityLabel={label} />;
+  return <Image source={{ uri: uri ?? dataUri(image) }} style={[size, style]} resizeMode="contain" accessibilityLabel={label} />;
 }

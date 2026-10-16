@@ -8,10 +8,13 @@ export interface PdfFile {
   path: string;
   revision: string;
   size: number;
+  password?: string;
+  passwordKey: string;
 }
 
 interface Held {
   path: string;
+  revision: string;
   bytes: number;
   document: Promise<PDFiumDocument>;
   users: number;
@@ -36,26 +39,28 @@ function pdfium(): Promise<PDFiumLibrary> {
   return library;
 }
 
-function loadError(error: unknown, bytes: Buffer): Error {
+function loadError(error: unknown, bytes: Buffer, withPassword: boolean): Error {
   const message = error instanceof Error ? error.message : String(error);
   if (/password|security/i.test(message)) {
     if (bytes.includes(CERTIFICATE_SECURITY)) {
       return new Error(ERROR_MESSAGES.pdfCertificateSecurity());
     }
-    if (/password/i.test(message)) return new Error(ERROR_MESSAGES.pdfEncrypted());
+    if (/password/i.test(message)) {
+      return new Error(withPassword ? ERROR_MESSAGES.pdfPasswordIncorrect() : ERROR_MESSAGES.pdfPasswordRequired());
+    }
     return new Error(ERROR_MESSAGES.pdfUnsupportedSecurity());
   }
   console.error("[doc-viewer] PDF load failed:", error);
   return new Error(ERROR_MESSAGES.pdfDamaged());
 }
 
-async function load(path: string): Promise<PDFiumDocument> {
+async function load(path: string, password: string | undefined): Promise<PDFiumDocument> {
   const lib = await pdfium();
   const bytes = await readFile(path);
   try {
-    return await lib.loadDocument(bytes);
+    return await lib.loadDocument(bytes, password);
   } catch (error) {
-    throw loadError(error, bytes);
+    throw loadError(error, bytes, Boolean(password));
   }
 }
 
@@ -94,14 +99,23 @@ function recycle(): void {
 async function withDocument<T>(file: PdfFile, use: (document: PDFiumDocument) => Promise<T>): Promise<T> {
   active++;
   clearTimeout(idleTimer);
-  const key = `${file.path}\0${file.revision}`;
+  const key = `${file.path}\0${file.revision}\0${file.passwordKey}`;
   let entry = held.get(key);
   if (entry) {
     held.delete(key);
     held.set(key, entry);
   } else {
-    for (const [other, candidate] of held) if (candidate.path === file.path) evict(other, candidate);
-    const created: Held = { path: file.path, bytes: file.size, document: load(file.path), users: 0, evicted: false };
+    for (const [other, candidate] of held) {
+      if (candidate.path === file.path && candidate.revision !== file.revision) evict(other, candidate);
+    }
+    const created: Held = {
+      path: file.path,
+      revision: file.revision,
+      bytes: file.size,
+      document: load(file.path, file.password),
+      users: 0,
+      evicted: false,
+    };
     created.document.catch(() => evict(key, created));
     held.set(key, created);
     trim(key);

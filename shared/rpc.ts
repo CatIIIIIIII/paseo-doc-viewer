@@ -5,6 +5,7 @@ import { DOCUMENT_GROUPS } from "./browse";
 import { DOCUMENT_KINDS } from "./kinds";
 
 const documentRef = { workspaceId: z.string().min(1), path: z.string().min(1) };
+const password = z.string().min(1).max(1024).optional();
 const revision = z.string();
 const encodedImage = z.object({
   mimeType: z.enum(["image/png", "image/jpeg"]),
@@ -15,7 +16,7 @@ const encodedImage = z.object({
 
 export const docOpenRpc = defineRpc({
   name: "doc.open",
-  input: z.object(documentRef),
+  input: z.object({ ...documentRef, password }),
   output: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("pdf"), revision, pageCount: z.number().int().nonnegative() }),
     z.object({ kind: z.literal("docx"), revision }),
@@ -39,6 +40,7 @@ export const docOpenRpc = defineRpc({
       revision,
       width: z.number().int().positive(),
       height: z.number().int().positive(),
+      animation: z.object({ mimeType: z.enum(["image/gif", "image/webp"]), size: z.number().int().positive() }).optional(),
     }),
   ]),
 });
@@ -47,6 +49,7 @@ export const docPageRpc = defineRpc({
   name: "doc.page",
   input: z.object({
     ...documentRef,
+    password,
     index: z.number().int().nonnegative(),
     maxWidth: z.number().int().positive().optional(),
   }),
@@ -80,7 +83,7 @@ export const docPageRpc = defineRpc({
 
 export const docTextRpc = defineRpc({
   name: "doc.text",
-  input: z.object({ ...documentRef, index: z.number().int().nonnegative() }),
+  input: z.object({ ...documentRef, password, index: z.number().int().nonnegative() }),
   output: z.object({
     kind: z.literal("pdf"),
     revision,
@@ -144,7 +147,7 @@ export const mediaChunkRpc = defineRpc({
     length: z.number().int().positive(),
   }),
   output: z.object({
-    kind: z.literal("video"),
+    kind: z.enum(["video", "image-raster", "image-decoded"]),
     revision,
     mimeType: z.string(),
     offset: z.number().int().nonnegative(),

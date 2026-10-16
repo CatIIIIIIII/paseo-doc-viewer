@@ -306,3 +306,60 @@ export function fakeMp4(size: number): Buffer {
   for (let i = 24; i < size; i += 4) file.writeUInt32LE(next(), Math.min(i, size - 4));
   return file;
 }
+
+function gifImageData(indices: readonly number[]): number[] {
+  const codes: number[] = [];
+  for (let i = 0; i < indices.length; i++) {
+    if (i % 200 === 0) codes.push(256);
+    codes.push(indices[i]!);
+  }
+  codes.push(257);
+  const bytes: number[] = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const code of codes) {
+    buffer |= code << bits;
+    bits += 9;
+    while (bits >= 8) {
+      bytes.push(buffer & 0xff);
+      buffer >>>= 8;
+      bits -= 8;
+    }
+  }
+  if (bits > 0) bytes.push(buffer & 0xff);
+  const blocks: number[] = [8];
+  for (let i = 0; i < bytes.length; i += 255) {
+    const slice = bytes.slice(i, i + 255);
+    blocks.push(slice.length, ...slice);
+  }
+  blocks.push(0);
+  return blocks;
+}
+
+export function gif(
+  width: number,
+  height: number,
+  palette: readonly (readonly number[])[],
+  frames: readonly (readonly number[])[],
+  { interlaced = false, delayCs = 0 } = {},
+): Buffer {
+  const table = Array.from({ length: 256 }, (_, i) => palette[i] ?? [0, 0, 0]).flat();
+  const header = Buffer.alloc(13);
+  header.write("GIF89a", 0, "latin1");
+  header.writeUInt16LE(width, 6);
+  header.writeUInt16LE(height, 8);
+  header[10] = 0x80 | 7;
+  const parts: Buffer[] = [header, Buffer.from(table)];
+  if (frames.length > 1) parts.push(Buffer.from([0x21, 0xff, 11, ...Buffer.from("NETSCAPE2.0", "latin1"), 3, 1, 0, 0, 0]));
+  for (const indices of frames) {
+    if (frames.length > 1) parts.push(Buffer.from([0x21, 0xf9, 4, 0, delayCs & 0xff, delayCs >> 8, 0, 0]));
+    const descriptor = Buffer.alloc(10);
+    descriptor[0] = 0x2c;
+    descriptor.writeUInt16LE(width, 5);
+    descriptor.writeUInt16LE(height, 7);
+    descriptor[9] = interlaced ? 0x40 : 0;
+    parts.push(descriptor, Buffer.from(gifImageData(indices)));
+  }
+  parts.push(Buffer.from([0x3b]));
+  return Buffer.concat(parts);
+}

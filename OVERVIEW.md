@@ -14,12 +14,13 @@ An open document checks for changes every few seconds and shows the new version 
 
 ## Formats
 
-- PDF: each page is rendered as an image at the width of the view, with page buttons to move through the document. Pinch with two fingers on iOS and Android, double tap, or use the zoom buttons to enlarge pages, slides and images up to 3x, re-rendered sharper, and drag with one finger to pan. The text button shows the page's text instead, which you can select or copy in one tap.
+- PDF: each page is rendered as an image at the width of the view, with page buttons to move through the document. Pinch with two fingers on iOS and Android, double tap, or use the zoom buttons to enlarge pages, slides and images up to 3x, re-rendered sharper, and drag with one finger to pan. The text button shows the page's text instead, which you can select or copy in one tap. A password-protected PDF asks for its password first.
 - Word (.docx): a reading view with headings, paragraphs, lists, tables and pictures. It shows the content, not the printed page layout. Long documents are read in pieces as you scroll, and their footnotes are not shown.
 - Excel (.xlsx): sheet tabs and a grid of cell values, paged 200 rows and up to 50 columns at a time, fewer columns on a phone. Numbers follow the cell's number format, such as percentages, currency, fixed decimals, thousands separators, times and durations. Dates show as year-month-day. A formula without a saved result shows as its formula text.
 - CSV and TSV: the same grid as Excel, one sheet per file. Quoted fields, line breaks inside quotes and a UTF-8 byte order mark are handled; .csv splits on commas and .tsv on tabs. Text that is not UTF-8 is read as Latin-1.
 - PowerPoint (.pptx): each slide's text and pictures in order. Zooming enlarges the text too. It does not reproduce the slide layout.
-- Images: PNG, JPEG (with camera orientation applied), the first frame of a GIF or animated WebP, WebP, TIFF and HEIC/HEIF. Images smaller than the view are enlarged to fit it. TIFF, HEIC, WebP and GIF are converted on the daemon so every device can show them.
+- Images: PNG, JPEG (with camera orientation applied), GIF, WebP, TIFF and HEIC/HEIF. Images smaller than the view are enlarged to fit it. TIFF, HEIC, WebP and GIF are converted on the daemon so every device can show them.
+- Animated GIF and WebP play in the desktop and web apps. In the mobile app GIFs play and animated WebP shows its first frame. Animations larger than 16 MB show their first frame everywhere.
 - Video: MP4, M4V, MOV and WebM play in the desktop and web apps. The file is streamed from the daemon in chunks.
 
 ## Limits
@@ -31,7 +32,8 @@ An open document checks for changes every few seconds and shows the new version 
 - Only the first 500 sheets of a workbook are listed. Row and column counts of very large sheets may be estimates.
 - Scanned PDF pages and text drawn as outlines have no text to show or copy.
 - On a zoomed page, a fast swipe toward the right can still open Paseo's sidebar on Android, and on iOS the sidebar gesture takes priority over panning.
-- Password-protected and encrypted files, and the older .doc, .xls and .ppt formats, are not supported. You see a message saying so.
+- The password of a protected PDF is sent to the daemon to open the file and is not stored. The viewer keeps it in memory while the document is open, so you enter it again when you reopen the document.
+- PDFs with certificate security, password-protected Office files, and the older .doc, .xls and .ppt formats are not supported. You see a message saying so.
 
 ## What it reads
 

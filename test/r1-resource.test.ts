@@ -259,8 +259,8 @@ describe("R1f: a PDF is loaded once per revision", () => {
   it("opens a PDF larger than the held budget but never holds it alongside another", async () => {
     const load = vi.spyOn(PDFiumLibrary.prototype, "loadDocument");
     const root = workspace({ "small.pdf": await textPdf(["small"]), "big.pdf": await textPdf(["big"]) });
-    const small = { path: join(root, "small.pdf"), revision: "1", size: MiB };
-    const big = { path: join(root, "big.pdf"), revision: "1", size: 300 * MiB };
+    const small = { path: join(root, "small.pdf"), revision: "1", size: MiB, passwordKey: "" };
+    const big = { path: join(root, "big.pdf"), revision: "1", size: 300 * MiB, passwordKey: "" };
     expect(await pdfPageCount(small)).toBe(1);
     expect(await pdfPageCount(big)).toBe(1);
     expect(await pdfPageCount(small)).toBe(1);

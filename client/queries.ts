@@ -4,9 +4,9 @@ import type { DocsRecentInput, DocsRecentOutput } from "../shared/rpc";
 export const REVISION_POLL_MS = 5_000;
 export const RECENT_POLL_MS = 5_000;
 
-export function documentQueryOptions(workspaceId: string, path: string) {
+export function documentQueryOptions(workspaceId: string, path: string, unlockAttempt = 0) {
   return {
-    queryKey: ["doc.open", workspaceId, path] as const,
+    queryKey: ["doc.open", workspaceId, path, unlockAttempt] as const,
     enabled: workspaceId !== "" && path !== "",
     refetchInterval: REVISION_POLL_MS,
     refetchOnWindowFocus: true,
@@ -42,6 +42,10 @@ export function rowsQueryKey(
   maxColumns: number,
 ) {
   return ["doc.rows", workspaceId, path, revision, sheet, rowOffset, columnOffset, maxColumns] as const;
+}
+
+export function animationQueryKey(workspaceId: string, path: string, revision: string) {
+  return ["media.chunk", workspaceId, path, revision] as const;
 }
 
 export function textQueryKey(workspaceId: string, path: string, revision: string, index: number) {

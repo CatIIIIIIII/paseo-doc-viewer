@@ -1,3 +1,4 @@
+import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, XLSX_MAX_COLUMNS } from "../shared/limits";
@@ -17,7 +18,7 @@ import { isEncryptedOoxml } from "./cfb";
 import { csvWindow, indexCsv } from "./csv";
 import { blockPage, docxModelBytes, fitDocxImage, loadDocx, type DocxModel } from "./docx";
 import { heavy } from "./heavy";
-import { imageSize, renderImage, type ImageFamily } from "./images";
+import { imageAnimation, imageSize, renderImage, type ImageFamily } from "./images";
 import { readChunk, videoMimeType } from "./media";
 import { resolveInside } from "./paths";
 import { pdfPageCount, readPdfPageText, renderPdfPage } from "./pdf";
@@ -31,6 +32,7 @@ import { ERROR_MESSAGES, errorText } from "../shared/errors";
 export interface DocumentRef {
   root: string;
   path: string;
+  password?: string;
 }
 
 interface DocumentFile {
@@ -39,6 +41,8 @@ interface DocumentFile {
   kind: DocumentKind;
   size: number;
   revision: string;
+  password?: string;
+  passwordKey: string;
 }
 
 type PageRequest = { index: number; maxWidth?: number };
@@ -77,6 +81,11 @@ const XLSX_LIMITS: ZipLimits = {
 const DOCX_MAX_MARKUP = 250_000;
 const HEAD_BYTES = 32;
 const OLE2 = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+const PASSWORD_KEY_SECRET = randomBytes(32);
+
+function passwordKey(password: string | undefined): string {
+  return password ? createHmac("sha256", PASSWORD_KEY_SECRET).update(password).digest("base64url") : "";
+}
 
 async function readHead(path: string): Promise<Uint8Array> {
   const handle = await open(path, "r");
@@ -106,11 +115,11 @@ async function locate(ref: DocumentRef): Promise<DocumentFile> {
   }
   const stamp = (value: number) => Math.trunc(value * 1000).toString(36);
   const revision = `${info.size.toString(36)}-${stamp(info.mtimeMs)}-${stamp(info.ctimeMs)}`;
-  return { path, extension, kind, size: info.size, revision };
+  return { path, extension, kind, size: info.size, revision, password: ref.password, passwordKey: passwordKey(ref.password) };
 }
 
 const cached = <T>(file: DocumentFile, name: string, compute: () => Promise<T>, sizeOf?: (value: T) => number) =>
-  memo({ path: file.path, revision: file.revision, name }, compute, sizeOf);
+  memo({ path: file.path, revision: file.revision, name: `${name}\0${file.passwordKey}` }, compute, sizeOf);
 
 const heavyCached = <T>(file: DocumentFile, name: string, compute: () => Promise<T>, sizeOf?: (value: T) => number) =>
   cached(file, name, () => heavy(compute), sizeOf);
@@ -157,7 +166,15 @@ const docx = (file: DocumentFile) =>
 
 function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamily): KindHandler {
   return {
-    open: async (file) => ({ kind, revision: file.revision, ...(await heavy(async () => imageSize(await readFile(file.path), family))) }),
+    open: async (file) => ({
+      kind,
+      revision: file.revision,
+      ...(await heavy(async () => {
+        const bytes = await readFile(file.path);
+        const animation = imageAnimation(bytes, family);
+        return { ...(await imageSize(bytes, family)), ...(animation ? { animation } : {}) };
+      })),
+    }),
     page: async (file, { index, maxWidth }) => {
       inRange(index, 1, "Page");
       const fit = fitFor(maxWidth);
@@ -167,6 +184,19 @@ function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamil
         const image = await renderImage(bytes, family, fit);
         return { kind, revision: file.revision, sourceWidth: source.width, sourceHeight: source.height, image };
       });
+    },
+    chunk: async (file, { offset, length }) => {
+      const opened = await openCached(file);
+      const animation = "animation" in opened ? opened.animation : undefined;
+      if (!animation) throw new Error(ERROR_MESSAGES.unavailable("media.chunk", "still image"));
+      return {
+        kind,
+        revision: file.revision,
+        mimeType: animation.mimeType,
+        offset,
+        size: file.size,
+        ...(await readChunk(file.path, file.size, offset, length)),
+      };
     },
   };
 }
@@ -272,9 +302,12 @@ function operation<K extends Exclude<keyof KindHandler, "open">>(
   return handler;
 }
 
-export async function openDocument(ref: DocumentRef): Promise<DocOpenOutput> {
-  const file = await locate(ref);
+function openCached(file: DocumentFile): Promise<DocOpenOutput> {
   return cached(file, "open", () => HANDLERS[file.kind].open(file));
+}
+
+export async function openDocument(ref: DocumentRef): Promise<DocOpenOutput> {
+  return openCached(await locate(ref));
 }
 
 export async function renderPage(ref: DocumentRef, request: PageRequest): Promise<DocPageOutput> {
