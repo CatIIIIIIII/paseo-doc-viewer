@@ -71,7 +71,7 @@ describe("R3: docs.recent finds the newest file in big trees", () => {
     expect(result.truncated).toBe(true);
   }, 30_000);
 
-  it("skips build output and Office lock files", async () => {
+  it("skips dependency folders and Office lock files but lists build output", async () => {
     const root = workspace({
       "report.pdf": "%PDF-1.4",
       "~$report.docx": "lock",
@@ -79,13 +79,30 @@ describe("R3: docs.recent finds the newest file in big trees", () => {
       "target/out.pdf": "%PDF-1.4",
       "build/out.pdf": "%PDF-1.4",
       "dist/out.pdf": "%PDF-1.4",
+      "out/report.pdf": "%PDF-1.4",
       "vendor/out.pdf": "%PDF-1.4",
       ".next/out.pdf": "%PDF-1.4",
     });
     const result = await listRecent(root, {});
-    expect(result.entries.map((entry) => entry.path)).toEqual(["report.pdf"]);
+    expect(result.entries.map((entry) => entry.path).sort()).toEqual(["build/out.pdf", "dist/out.pdf", "out/report.pdf", "report.pdf"]);
     expect(result.truncated).toBe(false);
   });
+
+  it("scans build output after other folders so it cannot use up the budget", async () => {
+    const root = workspace();
+    for (let d = 0; d < 10; d++) {
+      mkdirSync(join(root, "build", `d${d}`), { recursive: true });
+      for (let i = 0; i < 5_000; i++) writeFileSync(join(root, "build", `d${d}`, `f${i}.txt`), "");
+    }
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src", "report.pdf"), "%PDF-1.4");
+    utimesSync(join(root, "src"), 1000, 1000);
+    const future = Date.now() / 1000 + 3600;
+    utimesSync(join(root, "build"), future, future);
+    const result = await listRecent(root, {});
+    expect(result.entries.map((entry) => entry.path)).toEqual(["src/report.pdf"]);
+    expect(result.truncated).toBe(true);
+  }, 60_000);
 });
 
 describe("R3: GIF renders", () => {

@@ -10,19 +10,25 @@ export interface RecentEntry {
   size: number;
 }
 
-const SKIPPED_DIRECTORIES = new Set(["node_modules", "__pycache__", "venv", "target", "build", "dist", "vendor"]);
+const SKIPPED_DIRECTORIES = new Set(["node_modules", "__pycache__", "venv", "target", "vendor"]);
+const DEFERRED_DIRECTORIES = new Set(["build", "dist", "out"]);
 const SKIPPED_FILE_PREFIXES = ["~$", "._"];
 const MAX_VISITED_ENTRIES = 50_000;
 const MAX_DIRECTORY_ENTRIES = 5_000;
 const MAX_DEPTH = 16;
+const MIN_REUSE_MS = 4_000;
+const REUSE_FACTOR = 10;
 
 interface Pending {
   path: string;
   depth: number;
   mtimeMs: number;
+  deferred: boolean;
 }
 
-class NewestFirst {
+const before = (a: Pending, b: Pending) => (a.deferred === b.deferred ? a.mtimeMs > b.mtimeMs : b.deferred);
+
+class Queue {
   private heap: Pending[] = [];
 
   get size(): number {
@@ -34,7 +40,7 @@ class NewestFirst {
     heap.push(item);
     for (let i = heap.length - 1; i > 0; ) {
       const parent = (i - 1) >> 1;
-      if (heap[parent].mtimeMs >= heap[i].mtimeMs) break;
+      if (!before(heap[i], heap[parent])) break;
       [heap[parent], heap[i]] = [heap[i], heap[parent]];
       i = parent;
     }
@@ -49,30 +55,59 @@ class NewestFirst {
       for (let i = 0; ; ) {
         const left = 2 * i + 1;
         const right = left + 1;
-        let largest = i;
-        if (left < heap.length && heap[left].mtimeMs > heap[largest].mtimeMs) largest = left;
-        if (right < heap.length && heap[right].mtimeMs > heap[largest].mtimeMs) largest = right;
-        if (largest === i) break;
-        [heap[largest], heap[i]] = [heap[i], heap[largest]];
-        i = largest;
+        let first = i;
+        if (left < heap.length && before(heap[left], heap[first])) first = left;
+        if (right < heap.length && before(heap[right], heap[first])) first = right;
+        if (first === i) break;
+        [heap[first], heap[i]] = [heap[i], heap[first]];
+        i = first;
       }
     }
     return top;
   }
 }
 
-export async function recentDocuments(
-  root: string,
-  limit: number = RECENT_MAX_ENTRIES,
-): Promise<{ entries: RecentEntry[]; truncated: boolean }> {
+interface Scan {
+  entries: RecentEntry[];
+  truncated: boolean;
+}
+
+const scans = new Map<string, { result: Promise<Scan>; expiresAt: number }>();
+
+export async function recentDocuments(root: string, limit: number = RECENT_MAX_ENTRIES): Promise<Scan> {
+  const scan = await sharedScan(root);
+  const cap = Math.max(1, Math.min(limit, RECENT_MAX_ENTRIES));
+  return { entries: scan.entries.slice(0, cap), truncated: scan.truncated || scan.entries.length > cap };
+}
+
+function sharedScan(root: string): Promise<Scan> {
+  const started = Date.now();
+  for (const [key, cached] of scans) if (cached.expiresAt <= started) scans.delete(key);
+  const hit = scans.get(root);
+  if (hit) return hit.result;
+  const cached = { result: scanWorkspace(root), expiresAt: Number.POSITIVE_INFINITY };
+  scans.set(root, cached);
+  cached.result.then(
+    () => {
+      const finished = Date.now();
+      cached.expiresAt = finished + Math.max(MIN_REUSE_MS, REUSE_FACTOR * (finished - started));
+    },
+    () => {
+      if (scans.get(root) === cached) scans.delete(root);
+    },
+  );
+  return cached.result;
+}
+
+async function scanWorkspace(root: string): Promise<Scan> {
   const found: RecentEntry[] = [];
-  const queue = new NewestFirst();
-  queue.push({ path: root, depth: 0, mtimeMs: Number.POSITIVE_INFINITY });
+  const queue = new Queue();
+  queue.push({ path: root, depth: 0, mtimeMs: Number.POSITIVE_INFINITY, deferred: false });
   let visited = 0;
   let complete = true;
 
   while (queue.size > 0 && visited < MAX_VISITED_ENTRIES) {
-    const { path: directory, depth } = queue.pop();
+    const { path: directory, depth, deferred } = queue.pop();
     let entries;
     try {
       entries = await opendir(directory, { bufferSize: 256 });
@@ -93,7 +128,12 @@ export async function recentDocuments(
           continue;
         }
         try {
-          queue.push({ path: full, depth: depth + 1, mtimeMs: (await stat(full)).mtimeMs });
+          queue.push({
+            path: full,
+            depth: depth + 1,
+            mtimeMs: (await stat(full)).mtimeMs,
+            deferred: deferred || DEFERRED_DIRECTORIES.has(item.name),
+          });
         } catch {
           continue;
         }
@@ -112,6 +152,5 @@ export async function recentDocuments(
   }
   if (queue.size > 0) complete = false;
   found.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
-  const cap = Math.max(1, Math.min(limit, RECENT_MAX_ENTRIES));
-  return { entries: found.slice(0, cap), truncated: found.length > cap || !complete };
+  return { entries: found.slice(0, RECENT_MAX_ENTRIES), truncated: found.length > RECENT_MAX_ENTRIES || !complete };
 }
