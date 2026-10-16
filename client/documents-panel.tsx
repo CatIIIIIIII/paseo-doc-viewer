@@ -10,6 +10,7 @@ import { baseName, GROUP_LABEL, humanSize, KIND_ICON, KIND_LABEL, parentDir, rel
 import { recentQueryOptions } from "./queries";
 import { type BrowseRow, browseRows, documentScreen, filterChips, listFooter, noMatchDetail, type RecentEntry } from "./recent";
 import { ErrorState, LoadingState, makeStyles, MessageState, type Styles } from "./ui";
+import { useBottomInset } from "./use-bottom-inset";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const NO_GROUPS: ReadonlySet<DocumentGroup> = new Set();
@@ -24,131 +25,146 @@ function useDebounced<T>(value: T, delayMs: number): T {
 }
 
 export function createDocumentsPanel(openScreen: (input: PluginOpenScreenInput) => void) {
-  return function DocumentsPanel({ theme, layout, workspaceId }: PluginWorkspacePanelProps) {
-    const styles = useMemo(() => makeStyles(theme, layout.compact), [theme, layout.compact]);
-    const [query, setQuery] = useState("");
-    const [group, setGroup] = useState<DocumentGroup | null>(null);
-    const [collapsed, setCollapsed] = useState(NO_GROUPS);
-    const searched = useDebounced(query, SEARCH_DEBOUNCE_MS);
-    const listRecent = useRpc(docsRecentRpc);
-    const { request, ...options } = recentQueryOptions(workspaceId, { query: searched, group });
-    const recent = useQuery({ ...options, queryFn: () => listRecent(request) });
-    const filtering = queryTerms(query).length > 0 || group !== null;
-    const pending = recent.isPlaceholderData || searched !== query;
-    const entries = useMemo(() => (recent.data ? filterEntries(recent.data.entries, { query, group }) : []), [recent.data, query, group]);
-    const rows = useMemo(
-      () => (recent.data ? browseRows(entries, { counts: recent.data.counts, collapsed, headers: group === null }) : []),
-      [entries, recent.data, collapsed, group],
-    );
-    const now = recent.dataUpdatedAt || Date.now();
-
-    if (!recent.data) {
-      return (
-        <View style={styles.screen}>
-          {recent.error ? (
-            <ErrorState theme={theme} styles={styles} error={recent.error} onRetry={() => void recent.refetch()} />
-          ) : (
-            <LoadingState theme={theme} styles={styles} />
-          )}
-        </View>
-      );
-    }
-    if (recent.data.entries.length === 0 && !filtering && !pending) {
-      return (
-        <View style={styles.screen}>
-          <MessageState
-            theme={theme}
-            styles={styles}
-            icon="FileStack"
-            title="No documents yet"
-            detail="PDF, Word, Excel, PowerPoint, image, and video files in this workspace appear here"
-          />
-        </View>
-      );
-    }
-
-    const toggle = (target: DocumentGroup) =>
-      setCollapsed((current) => {
-        const next = new Set(current);
-        if (!next.delete(target)) next.add(target);
-        return next;
-      });
-    const clearFilters = () => {
-      setQuery("");
-      setGroup(null);
-    };
-
+  return function DocumentsPanel(props: PluginWorkspacePanelProps) {
+    const { ref, onLayout, bottomInset } = useBottomInset();
+    const styles = useMemo(() => makeStyles(props.theme, props.layout.compact, bottomInset), [props.theme, props.layout.compact, bottomInset]);
     return (
-      <View style={styles.screen}>
-        <View style={{ gap: 8, paddingTop: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-          <SearchBox theme={theme} styles={styles} compact={layout.compact} value={query} onChange={setQuery} />
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            style={{ flexGrow: 0 }}
-            contentContainerStyle={{ gap: 6, paddingHorizontal: styles.gutter }}
-          >
-            {filterChips(recent.data.counts, group).map((chip) => (
-              <Chip
-                key={chip.group ?? "all"}
-                theme={theme}
-                label={chip.group ? GROUP_LABEL[chip.group] : "All"}
-                count={chip.count}
-                selected={chip.group === group}
-                onPress={() => setGroup(chip.group)}
-              />
-            ))}
-          </ScrollView>
-        </View>
-        {entries.length === 0 ? (
-          pending ? (
-            <LoadingState theme={theme} styles={styles} />
-          ) : (
-            <MessageState
-              theme={theme}
-              styles={styles}
-              icon="SearchX"
-              title="No matching documents"
-              detail={noMatchDetail({ query, group }, recent.data.truncated)}
-              action={{ label: "Clear filters", onPress: clearFilters }}
-            />
-          )
-        ) : (
-          <FlatList
-            data={rows}
-            keyExtractor={(row: BrowseRow) => (row.type === "header" ? `group:${row.group}` : row.entry.path)}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ padding: 8 }}
-            renderItem={({ item }: { item: BrowseRow }) =>
-              item.type === "header" ? (
-                <GroupHeader
-                  theme={theme}
-                  styles={styles}
-                  row={item}
-                  onToggle={() => toggle(item.group)}
-                  onShowAll={() => setGroup(item.group)}
-                />
-              ) : (
-                <EntryRow
-                  theme={theme}
-                  styles={styles}
-                  entry={item.entry}
-                  now={now}
-                  onPress={() => openScreen(documentScreen(workspaceId, item.entry.path))}
-                />
-              )
-            }
-            ListFooterComponent={
-              recent.data.truncated ? (
-                <Text style={[styles.muted, { padding: 8 }]}>{listFooter(entries.length, filtering)}</Text>
-              ) : null
-            }
-          />
-        )}
+      <View ref={ref} onLayout={onLayout} style={{ flex: 1 }}>
+        <DocumentsList {...props} styles={styles} openScreen={openScreen} />
       </View>
     );
   };
+}
+
+function DocumentsList({
+  theme,
+  layout,
+  workspaceId,
+  styles,
+  openScreen,
+}: PluginWorkspacePanelProps & { styles: Styles; openScreen(input: PluginOpenScreenInput): void }) {
+  const [query, setQuery] = useState("");
+  const [group, setGroup] = useState<DocumentGroup | null>(null);
+  const [collapsed, setCollapsed] = useState(NO_GROUPS);
+  const searched = useDebounced(query, SEARCH_DEBOUNCE_MS);
+  const listRecent = useRpc(docsRecentRpc);
+  const { request, ...options } = recentQueryOptions(workspaceId, { query: searched, group });
+  const recent = useQuery({ ...options, queryFn: () => listRecent(request) });
+  const filtering = queryTerms(query).length > 0 || group !== null;
+  const pending = recent.isPlaceholderData || searched !== query;
+  const entries = useMemo(() => (recent.data ? filterEntries(recent.data.entries, { query, group }) : []), [recent.data, query, group]);
+  const rows = useMemo(
+    () => (recent.data ? browseRows(entries, { counts: recent.data.counts, collapsed, headers: group === null }) : []),
+    [entries, recent.data, collapsed, group],
+  );
+  const now = recent.dataUpdatedAt || Date.now();
+
+  if (!recent.data) {
+    return (
+      <View style={styles.screen}>
+        {recent.error ? (
+          <ErrorState theme={theme} styles={styles} error={recent.error} onRetry={() => void recent.refetch()} />
+        ) : (
+          <LoadingState theme={theme} styles={styles} />
+        )}
+      </View>
+    );
+  }
+  if (recent.data.entries.length === 0 && !filtering && !pending) {
+    return (
+      <View style={styles.screen}>
+        <MessageState
+          theme={theme}
+          styles={styles}
+          icon="FileStack"
+          title="No documents yet"
+          detail="PDF, Word, Excel, PowerPoint, image, and video files in this workspace appear here"
+        />
+      </View>
+    );
+  }
+
+  const toggle = (target: DocumentGroup) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (!next.delete(target)) next.add(target);
+      return next;
+    });
+  const clearFilters = () => {
+    setQuery("");
+    setGroup(null);
+  };
+
+  return (
+    <View style={styles.screen}>
+      <View style={{ gap: 8, paddingTop: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+        <SearchBox theme={theme} styles={styles} compact={layout.compact} value={query} onChange={setQuery} />
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={{ gap: 6, paddingHorizontal: styles.gutter }}
+        >
+          {filterChips(recent.data.counts, group).map((chip) => (
+            <Chip
+              key={chip.group ?? "all"}
+              theme={theme}
+              label={chip.group ? GROUP_LABEL[chip.group] : "All"}
+              count={chip.count}
+              selected={chip.group === group}
+              onPress={() => setGroup(chip.group)}
+            />
+          ))}
+        </ScrollView>
+      </View>
+      {entries.length === 0 ? (
+        pending ? (
+          <LoadingState theme={theme} styles={styles} />
+        ) : (
+          <MessageState
+            theme={theme}
+            styles={styles}
+            icon="SearchX"
+            title="No matching documents"
+            detail={noMatchDetail({ query, group }, recent.data.truncated)}
+            action={{ label: "Clear filters", onPress: clearFilters }}
+          />
+        )
+      ) : (
+        <FlatList
+          data={rows}
+          keyExtractor={(row: BrowseRow) => (row.type === "header" ? `group:${row.group}` : row.entry.path)}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ padding: 8, paddingBottom: 8 + styles.bottomInset }}
+          renderItem={({ item }: { item: BrowseRow }) =>
+            item.type === "header" ? (
+              <GroupHeader
+                theme={theme}
+                styles={styles}
+                row={item}
+                onToggle={() => toggle(item.group)}
+                onShowAll={() => setGroup(item.group)}
+              />
+            ) : (
+              <EntryRow
+                theme={theme}
+                styles={styles}
+                entry={item.entry}
+                now={now}
+                onPress={() => openScreen(documentScreen(workspaceId, item.entry.path))}
+              />
+            )
+          }
+          ListFooterComponent={
+            recent.data.truncated ? (
+              <Text style={[styles.muted, { padding: 8 }]}>{listFooter(entries.length, filtering)}</Text>
+            ) : null
+          }
+        />
+      )}
+    </View>
+  );
 }
 
 interface ChromeProps {

@@ -178,6 +178,7 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
             </View>
             <FlatList
               data={data.rows}
+              contentContainerStyle={{ paddingBottom: styles.bottomInset }}
               keyExtractor={(_, row) => String(data.rowOffset + row)}
               getItemLayout={(_, row) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * row, index: row })}
               initialNumToRender={layout.rowsPerScreen}

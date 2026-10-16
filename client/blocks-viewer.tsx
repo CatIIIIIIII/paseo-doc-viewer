@@ -47,7 +47,7 @@ export function BlocksViewer({ workspaceId, path, revision, theme, styles }: Blo
         <FlatList
           data={blocks}
           keyExtractor={(_, position) => String(position)}
-          contentContainerStyle={{ padding: styles.gutter, gap: 12, alignItems: "center" }}
+          contentContainerStyle={{ padding: styles.gutter, paddingBottom: styles.gutter + styles.bottomInset, gap: 12, alignItems: "center" }}
           onEndReachedThreshold={0.5}
           onEndReached={() => {
             if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();

@@ -205,7 +205,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
         </View>
       ) : null}
       <View {...frameProps}>
-        <ScrollView {...outerProps} style={{ flex: 1 }} contentContainerStyle={{ padding: styles.gutter, flexGrow: 1 }} onLayout={onLayout}>
+        <ScrollView {...outerProps} style={{ flex: 1 }} contentContainerStyle={{ padding: styles.gutter, paddingBottom: styles.gutter + styles.bottomInset, flexGrow: 1 }} onLayout={onLayout}>
           {count === 0 ? (
             <Text style={[styles.muted, { textAlign: "center" }]}>This document has no {noun.toLowerCase()}s</Text>
           ) : textMode ? (

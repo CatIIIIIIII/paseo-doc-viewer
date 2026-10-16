@@ -4,11 +4,12 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { describeError } from "./format";
 import { canRetry } from "./paging";
 
-export function makeStyles(theme: PluginTheme, compact: boolean) {
+export function makeStyles(theme: PluginTheme, compact: boolean, bottomInset = 0) {
   const c = theme.colors;
   const gutter = compact ? 12 : 16;
   return {
     gutter,
+    bottomInset,
     screen: { flex: 1, backgroundColor: c.surface0 },
     toolbar: {
       flexDirection: "row" as const,

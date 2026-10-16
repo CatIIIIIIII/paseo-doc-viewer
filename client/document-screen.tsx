@@ -1,6 +1,6 @@
 import { type PluginScreenProps, useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import { View } from "react-native";
 import { docOpenRpc, type DocOpenOutput } from "../shared/rpc";
 import { BlocksViewer } from "./blocks-viewer";
@@ -9,6 +9,7 @@ import { PageViewer } from "./page-viewer";
 import { documentQueryOptions } from "./queries";
 import { SheetViewer } from "./sheet-viewer";
 import { ErrorState, LoadingState, makeStyles, MessageState, type Styles } from "./ui";
+import { useBottomInset } from "./use-bottom-inset";
 import { VideoViewer } from "./video-viewer";
 
 export function documentTitle(params: Record<string, string>): string {
@@ -16,7 +17,8 @@ export function documentTitle(params: Record<string, string>): string {
 }
 
 export function DocumentScreen({ theme, layout, params }: PluginScreenProps) {
-  const styles = useMemo(() => makeStyles(theme, layout.compact), [theme, layout.compact]);
+  const { ref, onLayout, bottomInset } = useBottomInset();
+  const styles = useMemo(() => makeStyles(theme, layout.compact, bottomInset), [theme, layout.compact, bottomInset]);
   const workspaceId = params.workspaceId ?? "";
   const path = params.path ?? "";
   const openDocument = useRpc(docOpenRpc);
@@ -26,15 +28,15 @@ export function DocumentScreen({ theme, layout, params }: PluginScreenProps) {
     retry: false,
   });
 
+  let body: ReactNode;
   if (!workspaceId || !path) {
-    return (
+    body = (
       <View style={styles.screen}>
         <MessageState theme={theme} styles={styles} icon="FileX" title="No document selected" />
       </View>
     );
-  }
-  if (!opened.data) {
-    return (
+  } else if (!opened.data) {
+    body = (
       <View style={styles.screen}>
         {opened.error ? (
           <ErrorState theme={theme} styles={styles} error={opened.error} onRetry={() => void opened.refetch()} />
@@ -43,8 +45,14 @@ export function DocumentScreen({ theme, layout, params }: PluginScreenProps) {
         )}
       </View>
     );
+  } else {
+    body = <DocumentBody document={opened.data} workspaceId={workspaceId} path={path} theme={theme} styles={styles} />;
   }
-  return <DocumentBody document={opened.data} workspaceId={workspaceId} path={path} theme={theme} styles={styles} />;
+  return (
+    <View ref={ref} onLayout={onLayout} style={{ flex: 1 }}>
+      {body}
+    </View>
+  );
 }
 
 function DocumentBody({
