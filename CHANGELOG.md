@@ -12,6 +12,7 @@
 - Images smaller than the view, such as a small animated WebP, are enlarged to fit it instead of showing at pixel size.
 - PDF text view: the copy button takes the zoom controls' slot, so the page counter and next button no longer move.
 - Animated GIF and WebP play on desktop and web, and animated GIF plays on iOS and Android, where animated WebP keeps its first frame. `doc.open` reports `animation` for files with more than one frame up to 16 MB, and `media.chunk` serves their original bytes. Larger files keep the first frame.
+- PDF: a password-protected PDF shows a password field and opens with the right password; a wrong one shows an error. `doc.open`, `doc.page` and `doc.text` take an optional `password`, and the error codes `password_required` and `password_incorrect` replace `password_protected`. The app keeps the password in memory for the open document and sends it with each request. The daemon uses it only to open the file: it is not logged or stored, and caches are keyed by a salted hash, so the 60 s PDFium recycle reopens the file with the resent password.
 
 ## 0.2.0 (2026-10-16)
 

@@ -63,7 +63,7 @@ describe("client recent documents", () => {
 
 describe("client error states", () => {
   it.each([
-    [ERROR_MESSAGES.pdfEncrypted(), "This PDF is password protected"],
+    [ERROR_MESSAGES.pdfPasswordRequired(), "This PDF is password protected"],
     [ERROR_MESSAGES.legacyOffice(), "Legacy Office format"],
     [ERROR_MESSAGES.tooLargeForBudget("Page"), "Too large to preview"],
     [ERROR_MESSAGES.outsideWorkspace(), "Outside the workspace"],

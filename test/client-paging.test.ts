@@ -81,7 +81,7 @@ describe("client page requests", () => {
   });
 
   it("offers a manual retry only for transient failures or a stopped viewer", () => {
-    expect(canRetry(new Error(ERROR_MESSAGES.pdfEncrypted()))).toBe(false);
+    expect(canRetry(new Error(ERROR_MESSAGES.pdfPasswordRequired()))).toBe(false);
     expect(canRetry(new Error(ERROR_MESSAGES.tooLargeForBudget("Workbook")))).toBe(false);
     expect(canRetry(new Error("Request failed: Plugin RPC timed out"))).toBe(true);
     expect(canRetry(new Error("Request failed: Plugin process exited: code 1"))).toBe(true);

@@ -90,7 +90,8 @@ export interface ErrorState {
 }
 
 const ERROR_STATES: { readonly [C in ErrorCode]: { icon: string; title: string; detail?: string } } = {
-  password_protected: { icon: "Lock", title: "This PDF is password protected", detail: "Remove the password to preview it here" },
+  password_required: { icon: "Lock", title: "This PDF is password protected", detail: "Enter its password to open it" },
+  password_incorrect: { icon: "Lock", title: "Incorrect password" },
   unsupported_encryption: { icon: "Lock", title: "This file is encrypted" },
   encrypted_office: { icon: "Lock", title: "This file is password protected", detail: "Remove the password in Office to preview it here" },
   legacy_format: { icon: "FileX", title: "Legacy Office format", detail: "Save it as .docx, .xlsx, or .pptx to preview it here" },

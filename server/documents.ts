@@ -1,3 +1,4 @@
+import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, XLSX_MAX_COLUMNS } from "../shared/limits";
@@ -31,6 +32,7 @@ import { ERROR_MESSAGES, errorText } from "../shared/errors";
 export interface DocumentRef {
   root: string;
   path: string;
+  password?: string;
 }
 
 interface DocumentFile {
@@ -39,6 +41,8 @@ interface DocumentFile {
   kind: DocumentKind;
   size: number;
   revision: string;
+  password?: string;
+  passwordKey: string;
 }
 
 type PageRequest = { index: number; maxWidth?: number };
@@ -77,6 +81,11 @@ const XLSX_LIMITS: ZipLimits = {
 const DOCX_MAX_MARKUP = 250_000;
 const HEAD_BYTES = 32;
 const OLE2 = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+const PASSWORD_KEY_SECRET = randomBytes(32);
+
+function passwordKey(password: string | undefined): string {
+  return password ? createHmac("sha256", PASSWORD_KEY_SECRET).update(password).digest("base64url") : "";
+}
 
 async function readHead(path: string): Promise<Uint8Array> {
   const handle = await open(path, "r");
@@ -106,11 +115,11 @@ async function locate(ref: DocumentRef): Promise<DocumentFile> {
   }
   const stamp = (value: number) => Math.trunc(value * 1000).toString(36);
   const revision = `${info.size.toString(36)}-${stamp(info.mtimeMs)}-${stamp(info.ctimeMs)}`;
-  return { path, extension, kind, size: info.size, revision };
+  return { path, extension, kind, size: info.size, revision, password: ref.password, passwordKey: passwordKey(ref.password) };
 }
 
 const cached = <T>(file: DocumentFile, name: string, compute: () => Promise<T>, sizeOf?: (value: T) => number) =>
-  memo({ path: file.path, revision: file.revision, name }, compute, sizeOf);
+  memo({ path: file.path, revision: file.revision, name: `${name}\0${file.passwordKey}` }, compute, sizeOf);
 
 const heavyCached = <T>(file: DocumentFile, name: string, compute: () => Promise<T>, sizeOf?: (value: T) => number) =>
   cached(file, name, () => heavy(compute), sizeOf);

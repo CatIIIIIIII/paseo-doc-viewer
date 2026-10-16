@@ -67,7 +67,7 @@ describe("R2: errors carry a parseable code", () => {
     ["protected.docx", "encrypted_office", () => compoundFile(["EncryptionInfo", "EncryptedPackage"])],
     ["old.xlsx", "legacy_format", () => compoundFile(["Workbook", "\u0005SummaryInformation"])],
     ["legacy.docx", "legacy_format", () => readFileSync(join(FIXTURES, "legacy-format.docx"))],
-    ["locked.pdf", "password_protected", () => readFileSync(join(FIXTURES, "locked.pdf"))],
+    ["locked.pdf", "password_required", () => readFileSync(join(FIXTURES, "locked.pdf"))],
     ["truncated.pdf", "damaged", () => readFileSync(join(FIXTURES, "truncated.pdf"))],
     ["not-really.xlsx", "damaged", () => readFileSync(join(FIXTURES, "not-really.xlsx"))],
   ])("%s fails with %s", async (name, code, bytes) => {
@@ -112,8 +112,8 @@ describe("R2: errors carry a parseable code", () => {
 
 describe("R2: the client maps errors by code", () => {
   it("reads the code through the host's Request failed prefix", () => {
-    const error = new Error(`Request failed: ${ERROR_MESSAGES.pdfEncrypted()}`);
-    expect(errorCode(error)).toBe("password_protected");
+    const error = new Error(`Request failed: ${ERROR_MESSAGES.pdfPasswordRequired()}`);
+    expect(errorCode(error)).toBe("password_required");
     expect(describeError(error).title).toBe("This PDF is password protected");
   });
 

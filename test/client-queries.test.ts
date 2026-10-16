@@ -35,7 +35,8 @@ describe("client query keys and polling", () => {
 
   it("polls the open document so a rewritten file shows its new revision", () => {
     const options = documentQueryOptions("ws", "a.pdf");
-    expect(options.queryKey).toEqual(["doc.open", "ws", "a.pdf"]);
+    expect(options.queryKey).toEqual(["doc.open", "ws", "a.pdf", 0]);
+    expect(documentQueryOptions("ws", "a.pdf", 1).queryKey).not.toEqual(options.queryKey);
     expect(options.refetchInterval).toBeGreaterThan(0);
     expect(options.refetchInterval).toBeLessThanOrEqual(10_000);
     expect(options.enabled).toBe(true);

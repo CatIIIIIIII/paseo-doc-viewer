@@ -4,14 +4,14 @@ import { workspaceRoot } from "./server/paths";
 import { docBlocksRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docTextRpc, mediaChunkRpc } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
-  server.handle(docOpenRpc, async ({ workspaceId, path }, { paseo }) =>
-    openDocument({ root: await workspaceRoot(paseo, workspaceId), path }),
+  server.handle(docOpenRpc, async ({ workspaceId, path, password }, { paseo }) =>
+    openDocument({ root: await workspaceRoot(paseo, workspaceId), path, password }),
   );
-  server.handle(docPageRpc, async ({ workspaceId, path, ...request }, { paseo }) =>
-    renderPage({ root: await workspaceRoot(paseo, workspaceId), path }, request),
+  server.handle(docPageRpc, async ({ workspaceId, path, password, ...request }, { paseo }) =>
+    renderPage({ root: await workspaceRoot(paseo, workspaceId), path, password }, request),
   );
-  server.handle(docTextRpc, async ({ workspaceId, path, ...request }, { paseo }) =>
-    readPageText({ root: await workspaceRoot(paseo, workspaceId), path }, request),
+  server.handle(docTextRpc, async ({ workspaceId, path, password, ...request }, { paseo }) =>
+    readPageText({ root: await workspaceRoot(paseo, workspaceId), path, password }, request),
   );
   server.handle(docRowsRpc, async ({ workspaceId, path, ...request }, { paseo }) =>
     readRows({ root: await workspaceRoot(paseo, workspaceId), path }, request),

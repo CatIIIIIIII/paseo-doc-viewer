@@ -34,6 +34,7 @@ export interface PageViewerProps {
   revision: string;
   kind: "pdf" | "pptx" | "image";
   count: number;
+  password?: string;
   animation?: ImageAnimation;
   theme: PluginTheme;
   styles: Styles;
@@ -48,7 +49,7 @@ function dataUri(image: EncodedImage): string {
   return `data:${image.mimeType};base64,${image.data}`;
 }
 
-export function PageViewer({ workspaceId, path, revision, kind, count, animation, theme, styles }: PageViewerProps) {
+export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles }: PageViewerProps) {
   const fetchPage = useRpc(docPageRpc);
   const fetchText = useRpc(docTextRpc);
   const fetchChunk = useRpc(mediaChunkRpc);
@@ -70,7 +71,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, animation
   const pageKey = (target: number) => pageQueryKey(workspaceId, path, revision, target, requestWidth);
   const page = useQuery({
     queryKey: pageKey(active),
-    queryFn: () => fetchPage({ workspaceId, path, index: active, maxWidth: requestWidth ?? undefined }),
+    queryFn: () => fetchPage({ workspaceId, path, password, index: active, maxWidth: requestWidth ?? undefined }),
     enabled: requestWidth !== null && requests.current !== null && !textMode,
     placeholderData: (previous) => previous,
     staleTime: Infinity,
@@ -78,7 +79,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, animation
   });
   const pageText = useQuery({
     queryKey: textQueryKey(workspaceId, path, revision, active),
-    queryFn: () => fetchText({ workspaceId, path, index: active }),
+    queryFn: () => fetchText({ workspaceId, path, password, index: active }),
     enabled: textMode && requests.current !== null,
     placeholderData: (previous) => previous,
     staleTime: Infinity,
@@ -98,11 +99,11 @@ export function PageViewer({ workspaceId, path, revision, kind, count, animation
     if (requestWidth === null || next === null || textMode) return;
     void queryClient.prefetchQuery({
       queryKey: pageKey(next),
-      queryFn: () => fetchPage({ workspaceId, path, index: next, maxWidth: requestWidth }),
+      queryFn: () => fetchPage({ workspaceId, path, password, index: next, maxWidth: requestWidth }),
       staleTime: Infinity,
       retry: retryPage,
     });
-  }, [queryClient, fetchPage, workspaceId, path, revision, requests.prefetch, requestWidth, textMode]);
+  }, [queryClient, fetchPage, workspaceId, path, password, revision, requests.prefetch, requestWidth, textMode]);
 
   const noun = NOUN[kind];
   const paged = count > 1;
