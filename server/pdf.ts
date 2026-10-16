@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
-import { PDFiumLibrary, type PDFiumDocument } from "@hyzyla/pdfium/inline";
+import { PDFiumLibrary, type PDFiumDocument, type PDFiumPage } from "@hyzyla/pdfium/inline";
 import { fitRendered, type EncodedImage, type Fit } from "./raster";
 import { ERROR_MESSAGES } from "../shared/errors";
+import { PDF_MAX_TEXT_CHARS } from "../shared/limits";
 
 export interface PdfFile {
   path: string;
@@ -104,21 +105,37 @@ export function pdfPageCount(file: PdfFile): Promise<number> {
   return withDocument(file, async (document) => document.getPageCount());
 }
 
-export function renderPdfPage(file: PdfFile, index: number, fit: Fit): Promise<{ pageCount: number; image: EncodedImage }> {
+function withPage<T>(file: PdfFile, index: number, use: (page: PDFiumPage, pageCount: number) => Promise<T>): Promise<T> {
   return withDocument(file, async (document) => {
     const pageCount = document.getPageCount();
     if (index >= pageCount) throw new Error(ERROR_MESSAGES.outOfRange("Page", index, pageCount));
     const page = document.getPage(index);
     try {
-      const { originalWidth, originalHeight } = page.getOriginalSize();
-      const image = await fitRendered(
-        { width: originalWidth, height: originalHeight },
-        async (width, height) => page.render({ width, height, scale: 1, render: "bitmap", colorSpace: "RGBA" }),
-        fit,
-      );
-      return { pageCount, image };
+      return await use(page, pageCount);
     } finally {
       page.close();
     }
   });
+}
+
+export function renderPdfPage(file: PdfFile, index: number, fit: Fit): Promise<{ pageCount: number; image: EncodedImage }> {
+  return withPage(file, index, async (page, pageCount) => {
+    const { originalWidth, originalHeight } = page.getOriginalSize();
+    const image = await fitRendered(
+      { width: originalWidth, height: originalHeight },
+      async (width, height) => page.render({ width, height, scale: 1, render: "bitmap", colorSpace: "RGBA" }),
+      fit,
+    );
+    return { pageCount, image };
+  });
+}
+
+function capText(text: string): { text: string; truncated: boolean } {
+  if (text.length <= PDF_MAX_TEXT_CHARS) return { text, truncated: false };
+  const end = /[\uD800-\uDBFF]/.test(text[PDF_MAX_TEXT_CHARS - 1]!) ? PDF_MAX_TEXT_CHARS - 1 : PDF_MAX_TEXT_CHARS;
+  return { text: text.slice(0, end), truncated: true };
+}
+
+export function readPdfPageText(file: PdfFile, index: number): Promise<{ pageCount: number; text: string; truncated: boolean }> {
+  return withPage(file, index, async (page, pageCount) => ({ pageCount, ...capText(page.getText().replace(/\r\n?/g, "\n")) }));
 }

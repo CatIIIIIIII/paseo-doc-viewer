@@ -1,11 +1,23 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
+import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useState } from "react";
 import { ActivityIndicator, Image, type ImageStyle, ScrollView, Text, View } from "react-native";
-import { docPageRpc, type DocPageOutput } from "../shared/rpc";
-import { clampIndex, fitSize, nextZoomStep, omittedImagesNote, pageRequests, previousZoomStep, retryPage, stripItems, zoomLabel } from "./paging";
-import { pageQueryKey } from "./queries";
+import { docPageRpc, docTextRpc, type DocPageOutput, type DocTextOutput } from "../shared/rpc";
+import {
+  clampIndex,
+  fitSize,
+  nextZoomStep,
+  omittedImagesNote,
+  pageRequests,
+  pageTextNote,
+  previousZoomStep,
+  retryPage,
+  stripItems,
+  zoomLabel,
+} from "./paging";
+import { pageQueryKey, textQueryKey } from "./queries";
 import { ErrorState, LoadingState, type Styles, ToolbarButton } from "./ui";
 import { useFitWidth } from "./use-fit-width";
 import { usePinchZoom } from "./use-pinch-zoom";
@@ -31,9 +43,13 @@ function dataUri(image: EncodedImage): string {
 
 export function PageViewer({ workspaceId, path, revision, kind, count, theme, styles }: PageViewerProps) {
   const fetchPage = useRpc(docPageRpc);
+  const fetchText = useRpc(docTextRpc);
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [index, setIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const [showText, setShowText] = useState(false);
+  const textMode = kind === "pdf" && showText;
   const { contentWidth, requestWidth, onLayout } = useFitWidth(styles.gutter * 2, kind === "pptx" ? 1 : zoom);
 
   const active = clampIndex(index, count);
@@ -47,7 +63,15 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
   const page = useQuery({
     queryKey: pageKey(active),
     queryFn: () => fetchPage({ workspaceId, path, index: active, maxWidth: requestWidth ?? undefined }),
-    enabled: requestWidth !== null && requests.current !== null,
+    enabled: requestWidth !== null && requests.current !== null && !textMode,
+    placeholderData: (previous) => previous,
+    staleTime: Infinity,
+    retry: retryPage,
+  });
+  const pageText = useQuery({
+    queryKey: textQueryKey(workspaceId, path, revision, active),
+    queryFn: () => fetchText({ workspaceId, path, index: active }),
+    enabled: textMode && requests.current !== null,
     placeholderData: (previous) => previous,
     staleTime: Infinity,
     retry: retryPage,
@@ -55,18 +79,27 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
 
   useEffect(() => {
     const next = requests.prefetch;
-    if (requestWidth === null || next === null) return;
+    if (requestWidth === null || next === null || textMode) return;
     void queryClient.prefetchQuery({
       queryKey: pageKey(next),
       queryFn: () => fetchPage({ workspaceId, path, index: next, maxWidth: requestWidth }),
       staleTime: Infinity,
       retry: retryPage,
     });
-  }, [queryClient, fetchPage, workspaceId, path, revision, requests.prefetch, requestWidth]);
+  }, [queryClient, fetchPage, workspaceId, path, revision, requests.prefetch, requestWidth, textMode]);
 
   const noun = NOUN[kind];
   const paged = count > 1;
-  const zoomable = page.data?.kind !== "pptx" || page.data.images.length > 0;
+  const zoomable = !textMode && (page.data?.kind !== "pptx" || page.data.images.length > 0);
+  const shownText = pageText.data?.index === active ? pageText.data : undefined;
+  const copyable = shownText && shownText.text.trim() !== "" ? shownText.text : null;
+  const copyPageText = () => {
+    if (copyable === null) return;
+    copyText(copyable).then(
+      () => toast.show("Page text copied"),
+      () => toast.error("Could not copy the page text"),
+    );
+  };
   const { zoomTo, frameProps, outerProps, panProps, bodyProps } = usePinchZoom(zoom, setZoom, zoomable && page.data !== undefined, styles.gutter);
 
   return (
@@ -118,40 +151,71 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
             <View style={styles.toolbarSpacer} />
           )}
           <View style={{ width: 16, alignItems: "center" }}>
-            {page.isFetching ? <ActivityIndicator size="small" color={theme.colors.foregroundMuted} /> : null}
+            {(textMode ? pageText.isFetching : page.isFetching) ? <ActivityIndicator size="small" color={theme.colors.foregroundMuted} /> : null}
           </View>
-          <ToolbarButton
-            theme={theme}
-            styles={styles}
-            icon="ZoomOut"
-            accessibilityLabel="Zoom out"
-            disabled={!zoomable || zoom === 1}
-            onPress={() => zoomTo(previousZoomStep(zoom))}
-          />
-          <View style={{ width: ZOOM_LABEL_WIDTH }}>
+          {kind === "pdf" ? (
             <ToolbarButton
               theme={theme}
               styles={styles}
-              label={zoomLabel(zoom)}
-              accessibilityLabel="Fit to width"
-              disabled={!zoomable || zoom === 1}
-              onPress={() => zoomTo(1)}
+              icon="FileText"
+              accessibilityLabel={showText ? "Show page image" : "Show page text"}
+              selected={showText}
+              onPress={() => setShowText(!showText)}
             />
-          </View>
-          <ToolbarButton
-            theme={theme}
-            styles={styles}
-            icon="ZoomIn"
-            accessibilityLabel="Zoom in"
-            disabled={!zoomable || zoom === nextZoomStep(zoom)}
-            onPress={() => zoomTo(nextZoomStep(zoom))}
-          />
+          ) : null}
+          {textMode ? (
+            <ToolbarButton
+              theme={theme}
+              styles={styles}
+              icon="Copy"
+              accessibilityLabel="Copy page text"
+              disabled={copyable === null}
+              onPress={copyPageText}
+            />
+          ) : (
+            <>
+              <ToolbarButton
+                theme={theme}
+                styles={styles}
+                icon="ZoomOut"
+                accessibilityLabel="Zoom out"
+                disabled={!zoomable || zoom === 1}
+                onPress={() => zoomTo(previousZoomStep(zoom))}
+              />
+              <View style={{ width: ZOOM_LABEL_WIDTH }}>
+                <ToolbarButton
+                  theme={theme}
+                  styles={styles}
+                  label={zoomLabel(zoom)}
+                  accessibilityLabel="Fit to width"
+                  disabled={!zoomable || zoom === 1}
+                  onPress={() => zoomTo(1)}
+                />
+              </View>
+              <ToolbarButton
+                theme={theme}
+                styles={styles}
+                icon="ZoomIn"
+                accessibilityLabel="Zoom in"
+                disabled={!zoomable || zoom === nextZoomStep(zoom)}
+                onPress={() => zoomTo(nextZoomStep(zoom))}
+              />
+            </>
+          )}
         </View>
       ) : null}
       <View {...frameProps}>
         <ScrollView {...outerProps} style={{ flex: 1 }} contentContainerStyle={{ padding: styles.gutter, flexGrow: 1 }} onLayout={onLayout}>
           {count === 0 ? (
             <Text style={[styles.muted, { textAlign: "center" }]}>This document has no {noun.toLowerCase()}s</Text>
+          ) : textMode ? (
+            pageText.error && !shownText ? (
+              <ErrorState theme={theme} styles={styles} error={pageText.error} onRetry={() => void pageText.refetch()} />
+            ) : !shownText ? (
+              <LoadingState theme={theme} styles={styles} />
+            ) : (
+              <PageText page={shownText} width={contentWidth} styles={styles} />
+            )
           ) : page.error && !page.data ? (
             <ErrorState theme={theme} styles={styles} error={page.error} onRetry={() => void page.refetch()} />
           ) : !page.data ? (
@@ -165,6 +229,20 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
           )}
         </ScrollView>
       </View>
+    </View>
+  );
+}
+
+function PageText({ page, width, styles }: { page: DocTextOutput; width: number; styles: Styles }) {
+  const note = pageTextNote(page);
+  return (
+    <View style={{ gap: 12, maxWidth: width }}>
+      {note ? <Text style={styles.muted}>{note}</Text> : null}
+      {page.text.trim() === "" ? null : (
+        <Text style={styles.content} selectable>
+          {page.text}
+        </Text>
+      )}
     </View>
   );
 }

@@ -77,6 +77,19 @@ export const docPageRpc = defineRpc({
   ]),
 });
 
+export const docTextRpc = defineRpc({
+  name: "doc.text",
+  input: z.object({ ...documentRef, index: z.number().int().nonnegative() }),
+  output: z.object({
+    kind: z.literal("pdf"),
+    revision,
+    index: z.number().int().nonnegative(),
+    pageCount: z.number().int().nonnegative(),
+    text: z.string(),
+    truncated: z.boolean(),
+  }),
+});
+
 export const docRowsRpc = defineRpc({
   name: "doc.rows",
   input: z.object({
@@ -156,12 +169,14 @@ export const docsRecentRpc = defineRpc({
   }),
 });
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;
 export type DocPageInput = RpcInput<typeof docPageRpc>;
 export type DocPageOutput = RpcOutput<typeof docPageRpc>;
+export type DocTextInput = RpcInput<typeof docTextRpc>;
+export type DocTextOutput = RpcOutput<typeof docTextRpc>;
 export type DocRowsInput = RpcInput<typeof docRowsRpc>;
 export type DocRowsOutput = RpcOutput<typeof docRowsRpc>;
 export type DocBlocksInput = RpcInput<typeof docBlocksRpc>;

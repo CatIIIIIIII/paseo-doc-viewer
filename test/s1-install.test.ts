@@ -144,6 +144,8 @@ describe("S1: plugin installs on Paseo 0.11", () => {
     expect(page.kind).toBe("pdf");
     expect(decodePng(page.image.data).width).toBeGreaterThan(0);
     expect(responseBytes(page)).toBeLessThanOrEqual(MAX_RESPONSE_BYTES);
+    const text = await handlers.get("doc.text")!({ workspaceId: "ws-1", path: "statement.pdf", index: 2 }, { paseo });
+    expect(text).toMatchObject({ kind: "pdf", index: 2, pageCount: 3, truncated: false });
   }, 60_000);
 
   it.skipIf(!PASEO_SOURCE)(

@@ -6,6 +6,7 @@ import type {
   DocOpenOutput,
   DocPageOutput,
   DocRowsOutput,
+  DocTextOutput,
   DocsRecentOutput,
   MediaChunkOutput,
 } from "../shared/rpc";
@@ -16,7 +17,7 @@ import { heavy } from "./heavy";
 import { imageSize, renderImage, type ImageFamily } from "./images";
 import { readChunk, videoMimeType } from "./media";
 import { resolveInside } from "./paths";
-import { pdfPageCount, renderPdfPage } from "./pdf";
+import { pdfPageCount, readPdfPageText, renderPdfPage } from "./pdf";
 import { loadDeck, renderSlide, type Deck } from "./pptx";
 import { IMAGE_BUDGET_BYTES, decodeBudget, type Fit } from "./raster";
 import { recentDocuments } from "./recent";
@@ -38,6 +39,7 @@ interface DocumentFile {
 }
 
 type PageRequest = { index: number; maxWidth?: number };
+type TextRequest = { index: number };
 type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number };
 type BlocksRequest = { cursor: number };
 type ChunkRequest = { offset: number; length: number };
@@ -45,6 +47,7 @@ type ChunkRequest = { offset: number; length: number };
 interface KindHandler {
   open(file: DocumentFile): Promise<DocOpenOutput>;
   page?(file: DocumentFile, request: PageRequest): Promise<DocPageOutput>;
+  text?(file: DocumentFile, request: TextRequest): Promise<DocTextOutput>;
   rows?(file: DocumentFile, request: RowsRequest): Promise<DocRowsOutput>;
   blocks?(file: DocumentFile, request: BlocksRequest): Promise<DocBlocksOutput>;
   chunk?(file: DocumentFile, request: ChunkRequest): Promise<MediaChunkOutput>;
@@ -171,6 +174,12 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       const { pageCount, image } = await heavyCached(file, `page\0${index}\0${fit.maxWidth}`, () => renderPdfPage(file, index, fit));
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
+    text: async (file, { index }) => ({
+      kind: "pdf",
+      revision: file.revision,
+      index,
+      ...(await heavyCached(file, `text\0${index}`, () => readPdfPageText(file, index))),
+    }),
   },
   docx: {
     open: async (file) => {
@@ -251,6 +260,11 @@ export async function openDocument(ref: DocumentRef): Promise<DocOpenOutput> {
 export async function renderPage(ref: DocumentRef, request: PageRequest): Promise<DocPageOutput> {
   const file = await locate(ref);
   return operation(file, "doc.page", "page")(file, request);
+}
+
+export async function readPageText(ref: DocumentRef, request: TextRequest): Promise<DocTextOutput> {
+  const file = await locate(ref);
+  return operation(file, "doc.text", "text")(file, request);
 }
 
 export async function readRows(ref: DocumentRef, request: RowsRequest): Promise<DocRowsOutput> {

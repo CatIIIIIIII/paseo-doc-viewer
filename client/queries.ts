@@ -35,3 +35,7 @@ export function rowsQueryKey(
 ) {
   return ["doc.rows", workspaceId, path, revision, sheet, rowOffset, columnOffset, maxColumns] as const;
 }
+
+export function textQueryKey(workspaceId: string, path: string, revision: string, index: number) {
+  return ["doc.text", workspaceId, path, revision, index] as const;
+}

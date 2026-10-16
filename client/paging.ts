@@ -226,3 +226,8 @@ export function omittedImagesNote(count: number, reasons: readonly string[] = []
   const distinct = [...new Set(reasons.filter((reason) => reason.trim() !== ""))];
   return distinct.length ? `${subject} not shown: ${distinct.join(", ")}` : `${subject} not shown`;
 }
+
+export function pageTextNote({ text, truncated }: { text: string; truncated: boolean }): string | null {
+  if (text.trim() === "") return "This page has no selectable text. It may be a scan or outlined text.";
+  return truncated ? "Text is cut short: this page has more text than the viewer shows." : null;
+}
