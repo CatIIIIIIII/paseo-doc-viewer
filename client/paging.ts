@@ -123,6 +123,14 @@ export function flingOffset(offset: number, velocityPerMs: number, content: numb
   return clampOffset(offset - velocityPerMs * 1000 * FLING_SECONDS, content, viewport);
 }
 
+export function zoomedText(
+  base: { fontSize: number; lineHeight: number },
+  width: number,
+  zoom: number,
+): { fontSize: number; lineHeight: number; maxWidth: number } {
+  return { fontSize: base.fontSize * zoom, lineHeight: base.lineHeight * zoom, maxWidth: Math.round(width * zoom) };
+}
+
 export function fitSize(
   containerWidth: number,
   image: { width: number; height: number },

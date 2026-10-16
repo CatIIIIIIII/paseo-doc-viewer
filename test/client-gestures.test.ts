@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FLING_SECONDS, flingOffset, keepsResponder, panOffset, responderClaim } from "../client/paging";
+import { FLING_SECONDS, flingOffset, keepsResponder, panOffset, responderClaim, zoomedText } from "../client/paging";
 
 describe("zoomed page gestures", () => {
   it("claims a single finger as a pan only when the page is zoomed in", () => {
@@ -36,5 +36,16 @@ describe("zoomed page gestures", () => {
     expect(flingOffset(500, 2, 4000, 400)).toBe(Math.max(0, 500 - 2000 * FLING_SECONDS));
     expect(flingOffset(3500, -5, 4000, 400)).toBe(3600);
     expect(flingOffset(500, 0, 4000, 400)).toBe(500);
+  });
+});
+
+describe("zoomed slide text", () => {
+  it("scales font size, line height and width with the zoom", () => {
+    expect(zoomedText({ fontSize: 15, lineHeight: 22 }, 360, 2)).toEqual({ fontSize: 30, lineHeight: 44, maxWidth: 720 });
+    expect(zoomedText({ fontSize: 16, lineHeight: 24 }, 300, 1.5)).toEqual({ fontSize: 24, lineHeight: 36, maxWidth: 450 });
+  });
+
+  it("leaves text at fit size unchanged", () => {
+    expect(zoomedText({ fontSize: 15, lineHeight: 22 }, 360, 1)).toEqual({ fontSize: 15, lineHeight: 22, maxWidth: 360 });
   });
 });

@@ -15,6 +15,7 @@ import {
   previousZoomStep,
   retryPage,
   stripItems,
+  zoomedText,
   zoomLabel,
 } from "./paging";
 import { pageQueryKey, textQueryKey } from "./queries";
@@ -90,7 +91,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, theme, st
 
   const noun = NOUN[kind];
   const paged = count > 1;
-  const zoomable = !textMode && (page.data?.kind !== "pptx" || page.data.images.length > 0);
+  const zoomable = !textMode && (page.data?.kind !== "pptx" || page.data.images.length + page.data.texts.length > 0);
   const shownText = pageText.data?.index === active ? pageText.data : undefined;
   const copyable = shownText && shownText.text.trim() !== "" ? shownText.text : null;
   const copyPageText = () => {
@@ -276,15 +277,16 @@ const PageBody = memo(function PageBody({
   if (page.kind === "pptx") {
     const omitted = omittedImagesNote(page.omittedImages);
     const widths = page.images.map((image) => zoomed(Math.min(contentWidth, image.width)));
+    const textStyle = zoomedText(styles.content, contentWidth, zoom);
     return (
-      <View style={{ gap: 16, width: Math.max(contentWidth, ...widths) }}>
+      <View style={{ gap: 16 * zoom, width: Math.max(contentWidth, textStyle.maxWidth, ...widths) }}>
         {page.texts.length === 0 && page.images.length === 0 ? (
           <Text style={styles.muted}>This slide has no text or images</Text>
         ) : null}
         {page.texts.map((text, position) => (
           <Text
             key={`text-${position}`}
-            style={[styles.content, { maxWidth: contentWidth }, position === 0 ? { fontWeight: "500" } : null]}
+            style={[styles.content, textStyle, position === 0 ? { fontWeight: "500" } : null]}
             selectable
           >
             {text}
