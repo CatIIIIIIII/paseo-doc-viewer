@@ -30,6 +30,7 @@ An open document checks for changes every few seconds and shows the new version 
 - File size caps: 512 MB for PDF, 64 MB for Word, Excel, CSV and PowerPoint, 128 MB for images. Office files that would unpack to more than the plugin can safely hold are refused. Images above 40 megapixels are not decoded.
 - Only the first 500 sheets of a workbook are listed. Row and column counts of very large sheets may be estimates.
 - Scanned PDF pages and text drawn as outlines have no text to show or copy.
+- On a zoomed page, a fast swipe toward the right can still open Paseo's sidebar on Android, and on iOS the sidebar gesture takes priority over panning.
 - Password-protected and encrypted files, and the older .doc, .xls and .ppt formats, are not supported. You see a message saying so.
 
 ## What it reads
