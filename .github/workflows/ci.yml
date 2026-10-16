@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  paseo-main:
+    name: install on Paseo main
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      PASEO_SOURCE: ${{ github.workspace }}/paseo
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+
+      - uses: actions/checkout@v4
+        with:
+          repository: getpaseo/paseo
+          ref: main
+          path: paseo
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            plugin/package-lock.json
+            paseo/package-lock.json
+
+      - name: Install Paseo
+        working-directory: paseo
+        run: npm ci
+
+      - name: Build Paseo protocol and plugin SDK
+        working-directory: paseo
+        run: npm run build:client && npm run build:plugin
+
+      - name: Check the Paseo checkout is usable
+        run: |
+          test -f "$PASEO_SOURCE/packages/server/src/server/plugins/compiler.ts"
+          test -x "$PASEO_SOURCE/node_modules/.bin/tsx"
+
+      - name: Install plugin with the latest SDK
+        working-directory: plugin
+        run: |
+          npm ci
+          npm install --save-dev @getpaseo/plugin@latest
+
+      - name: Typecheck
+        working-directory: plugin
+        run: npm run typecheck
+
+      - name: Install test against Paseo main
+        working-directory: plugin
+        run: npx vitest run --dir test test/s1-install.test.ts
