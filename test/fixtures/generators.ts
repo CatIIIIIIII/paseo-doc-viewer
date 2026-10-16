@@ -88,6 +88,19 @@ export async function wideWorkbook(columns: number, rows: number, longCellChars 
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
+export async function formattedWorkbook(cells: { value: number | Date; numFmt?: string }[]): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.created = EPOCH;
+  workbook.modified = EPOCH;
+  const sheet = workbook.addWorksheet("Formats");
+  cells.forEach(({ value, numFmt }, i) => {
+    const cell = sheet.getCell(1, i + 1);
+    cell.value = value;
+    if (numFmt) cell.numFmt = numFmt;
+  });
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
 export async function streamedWorkbook(rows: number, columns: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   const stream = new Writable({

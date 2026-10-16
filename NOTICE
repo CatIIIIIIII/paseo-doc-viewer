@@ -43,5 +43,9 @@ License notes for packages with more than one license or with embedded code:
   FreeType (FreeType License), OpenJPEG (BSD-2-Clause), Anti-Grain Geometry
   and the other third-party code PDFium ships with. Source:
   https://pdfium.googlesource.com/pdfium/
+- ssf (SheetJS spreadsheet number formats) and its dependency frac:
+  Apache-2.0, Copyright (C) 2013-present SheetJS LLC. Used unmodified as
+  published on npm. License text: https://www.apache.org/licenses/LICENSE-2.0
+  Source: https://github.com/SheetJS/ssf
 - mammoth: BSD-2-Clause. heic-decode: ISC. utif2, pngjs: MIT. pako (dependency
   of jszip): MIT AND Zlib.

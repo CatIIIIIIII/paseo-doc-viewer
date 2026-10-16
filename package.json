@@ -32,6 +32,7 @@
     "libheif-js": "^1.23.5",
     "mammoth": "^1.13.0",
     "pngjs": "^7.0.0",
+    "ssf": "^0.11.2",
     "utif2": "^4.1.0"
   },
   "devDependencies": {

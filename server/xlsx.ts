@@ -1,5 +1,6 @@
 import { posix } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import SSF from "ssf";
 import { MAX_RESPONSE_BYTES, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS } from "../shared/limits";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { decodeEntities } from "./html";
@@ -21,6 +22,7 @@ export interface Workbook {
   sheetsTruncated: boolean;
   date1904: boolean;
   dateStyles: Set<number>;
+  numberFormats: Map<number, string | number>;
   sharedStringsPart: string | null;
 }
 
@@ -38,6 +40,7 @@ const MAX_PENDING_CHARS = 4 * 1024 * 1024;
 const DIMENSION_SCAN_CHARS = 64 * 1024;
 const WINDOW_DEADLINE_MS = 20_000;
 const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 45, 46, 47, 50, 51, 52, 53, 54, 55, 56, 57, 58]);
+const BUILTIN_NUMBER_FORMATS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 37, 38, 39, 40, 41, 42, 43, 44, 48]);
 const SHEET = /<sheet\b[^>]*>/g;
 const RELATIONSHIP = /<Relationship\b[^>]*>/g;
 const SHEET_TOKEN = /<row\b[^>]*?(\/?)>|<\/row>|<c\b[^>]*?\/>|<c\b[^>]*>[\s\S]*?<\/c>|<\/sheetData>/g;
@@ -96,8 +99,11 @@ function isDateFormat(code: string): boolean {
   return /[dmyhs]/i.test(stripped) && !/^general$/i.test(stripped.trim());
 }
 
-function dateStyles(styles: string | null): Set<number> {
-  const result = new Set<number>();
+const MAX_FORMAT_CODE_CHARS = 255;
+const isGeneral = (code: string) => code.length > MAX_FORMAT_CODE_CHARS || /^(general|@)?$/i.test(code.trim());
+
+function cellFormats(styles: string | null): Pick<Workbook, "dateStyles" | "numberFormats"> {
+  const result = { dateStyles: new Set<number>(), numberFormats: new Map<number, string | number>() };
   if (!styles) return result;
   const custom = new Map<number, string>();
   for (const [tag] of styles.matchAll(/<numFmt\b[^>]*>/g)) {
@@ -107,7 +113,12 @@ function dateStyles(styles: string | null): Set<number> {
   let index = 0;
   for (const [tag] of cellXfs.matchAll(/<xf\b[^>]*>/g)) {
     const id = Number(attribute(tag, "numFmtId") ?? 0);
-    if (BUILTIN_DATE_FORMATS.has(id) || (custom.has(id) && isDateFormat(custom.get(id)!))) result.add(index);
+    const code = custom.get(id);
+    if (code === undefined) {
+      if (BUILTIN_DATE_FORMATS.has(id)) result.dateStyles.add(index);
+      else if (BUILTIN_NUMBER_FORMATS.has(id)) result.numberFormats.set(index, id);
+    } else if (isDateFormat(code)) result.dateStyles.add(index);
+    else if (!isGeneral(code)) result.numberFormats.set(index, code);
     index++;
   }
   return result;
@@ -176,7 +187,7 @@ export async function loadWorkbook(index: ZipIndex): Promise<Workbook> {
     sheets,
     sheetsTruncated: declared.length > listed.length,
     date1904: /<workbookPr\b[^>]*\sdate1904="(?:1|true)"/.test(xml),
-    dateStyles: dateStyles(stylesPart ? await readText(index, stylesPart, "xlsx") : null),
+    ...cellFormats(stylesPart ? await readText(index, stylesPart, "xlsx") : null),
     sharedStringsPart: find("/sharedStrings", "xl/sharedStrings.xml"),
   };
 }
@@ -198,6 +209,17 @@ export async function loadSharedStrings(workbook: Workbook): Promise<string[]> {
 function excelDate(serial: number, date1904: boolean): string {
   const date = new Date(Math.round((serial - (date1904 ? -1462 : 0) - 25569) * 86_400_000));
   return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+}
+
+const general = (value: number) => String(Number(value.toPrecision(15)));
+
+function formatNumber(format: string | number | undefined, value: number): string {
+  if (format === undefined) return general(value);
+  try {
+    return SSF.format(format, value);
+  } catch {
+    return general(value);
+  }
 }
 
 function cellText(cell: string, workbook: Workbook, strings: string[]): string {
@@ -228,7 +250,8 @@ function cellText(cell: string, workbook: Workbook, strings: string[]): string {
       const number = Number(value);
       if (value.trim() === "" || Number.isNaN(number)) return clip(value);
       const style = Number(attribute(open, "s") ?? 0);
-      return workbook.dateStyles.has(style) ? excelDate(number, workbook.date1904) : String(number);
+      if (workbook.dateStyles.has(style)) return excelDate(number, workbook.date1904);
+      return clip(formatNumber(workbook.numberFormats.get(style), number));
     }
   }
 }
