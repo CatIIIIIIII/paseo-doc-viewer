@@ -1,4 +1,4 @@
-Document viewer opens the PDF, Word, Excel, PowerPoint, image and video files in your workspace inside Paseo. It is meant for the files your agents produce: a report they rebuilt, a spreadsheet they exported, a deck they generated. You can check the result without leaving Paseo or copying the file to another machine.
+PDF and Office viewer opens the PDF, Word, Excel, PowerPoint, image and video files in your workspace inside Paseo. It is meant for the files your agents produce: a report they rebuilt, a spreadsheet they exported, a deck they generated. You can check the result without leaving Paseo or copying the file to another machine.
 
 Documents are rendered on the machine that runs your Paseo daemon, and the app only receives page images, text and table cells. This works on desktop, web and mobile, and over a relay connection, because the file never has to reach the device first. Everything it needs ships with the plugin: there is nothing to set up, and it does not use LibreOffice, Poppler, ffmpeg or any other program on the host.
 

@@ -1,9 +1,10 @@
 {
   "id": "paseo-doc-viewer",
-  "name": "Document viewer",
+  "name": "PDF and Office viewer",
   "description": "View PDF, Word, Excel, PowerPoint, image and video files from your workspace inside Paseo, on desktop, web and mobile.",
   "icon": "assets/icon.png",
   "media": [
+    "assets/screenshot-overview.png",
     "assets/screenshot-docx.png",
     "assets/screenshot-pdf.png",
     "assets/screenshot-xlsx.png"

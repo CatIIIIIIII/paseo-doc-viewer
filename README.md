@@ -1,4 +1,6 @@
-# Document viewer for Paseo
+# PDF and Office viewer for Paseo
+
+![PDF, Word and Excel files open in Paseo on desktop, iOS and Android](assets/screenshot-overview.png)
 
 A [Paseo](https://github.com/getpaseo/paseo) plugin that shows PDF, Word, Excel, PowerPoint, image and video files from your workspace inside the app, on desktop, web and mobile. Documents are rendered on the daemon host with pure JavaScript and WebAssembly, so nothing needs to be installed there. [OVERVIEW.md](OVERVIEW.md) describes what users see and the limits.
 
