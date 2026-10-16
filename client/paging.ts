@@ -101,6 +101,28 @@ export function clampOffset(offset: number, content: number, viewport: number): 
   return Math.min(Math.max(0, offset), Math.max(0, content - viewport));
 }
 
+export type ResponderClaim = "pan" | "pinch";
+
+export function responderClaim({ touches, zoom, pinchable }: { touches: number; zoom: number; pinchable: boolean }): ResponderClaim | null {
+  if (!pinchable) return null;
+  if (touches >= 2) return "pinch";
+  return touches === 1 && zoom > MIN_ZOOM ? "pan" : null;
+}
+
+export function keepsResponder(claim: ResponderClaim | null): boolean {
+  return claim !== null;
+}
+
+export function panOffset(start: number, delta: number, content: number, viewport: number): number {
+  return clampOffset(start - delta, content, viewport);
+}
+
+export const FLING_SECONDS = 0.3;
+
+export function flingOffset(offset: number, velocityPerMs: number, content: number, viewport: number): number {
+  return clampOffset(offset - velocityPerMs * 1000 * FLING_SECONDS, content, viewport);
+}
+
 export function fitSize(
   containerWidth: number,
   image: { width: number; height: number },

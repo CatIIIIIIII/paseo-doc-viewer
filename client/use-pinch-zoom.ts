@@ -9,23 +9,37 @@ import {
   type ScrollView,
   type View,
 } from "react-native";
-import { clampOffset, clampZoom, focalOffset, pinchScale, scaleShift, tapZoom } from "./paging";
+import {
+  clampOffset,
+  clampZoom,
+  flingOffset,
+  focalOffset,
+  keepsResponder,
+  panOffset,
+  pinchScale,
+  type ResponderClaim,
+  responderClaim,
+  scaleShift,
+  tapZoom,
+} from "./paging";
 
 const PENDING_SCROLL_MS = 500;
 const TAP_MS = 250;
 const TAP_SLOP_DP = 10;
 const DOUBLE_TAP_MS = 300;
 const DOUBLE_TAP_SLOP_DP = 30;
+const FLING_IDLE_MS = 80;
 
 type Point = { x: number; y: number };
 type Live = { scale: number; shift: Point };
 type Pinch = { distance: number; anchor: Point; focal: Point; scale: number };
 type Touch = { at: number; point: Point };
+type Drag = { start: Point; offset: Point; last: Touch; velocity: Point };
 
 const midpoint = (a: NativeTouchEvent, b: NativeTouchEvent): Point => ({ x: (a.pageX + b.pageX) / 2, y: (a.pageY + b.pageY) / 2 });
 const distance = (a: NativeTouchEvent, b: NativeTouchEvent) => Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
 const near = (a: Point, b: Point, slop: number) => Math.abs(a.x - b.x) <= slop && Math.abs(a.y - b.y) <= slop;
-const twoFingers = (event: GestureResponderEvent) => event.nativeEvent.touches.length >= 2;
+const touchPoint = (touch: NativeTouchEvent): Point => ({ x: touch.pageX, y: touch.pageY });
 
 function scrollSoon(scroll: () => void) {
   scroll();
@@ -44,6 +58,9 @@ export function usePinchZoom(zoom: number, setZoom: (zoom: number) => void, enab
   const pending = useRef<Partial<Point>>({});
   const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pinch = useRef<Pinch | null>(null);
+  const drag = useRef<Drag | null>(null);
+  const claim = useRef<ResponderClaim | null>(null);
+  const outerContent = useRef(0);
   const touchStart = useRef<Touch | null>(null);
   const lastTap = useRef<Touch | null>(null);
   const multiTouch = useRef(false);
@@ -71,10 +88,75 @@ export function usePinchZoom(zoom: number, setZoom: (zoom: number) => void, enab
     setZoom(next);
   };
 
-  const endPinch = () => {
+  const claimFor = (event: GestureResponderEvent) => responderClaim({ touches: event.nativeEvent.touches.length, zoom, pinchable });
+
+  const startPinch = (a: NativeTouchEvent, b: NativeTouchEvent) => {
+    const anchor = anchorAt(midpoint(a, b));
+    claim.current = "pinch";
+    drag.current = null;
+    pinch.current = {
+      distance: distance(a, b),
+      anchor,
+      focal: { x: scroll.current.x + anchor.x, y: scroll.current.y + anchor.y },
+      scale: 1,
+    };
+  };
+
+  const movePinch = (a: NativeTouchEvent, b: NativeTouchEvent) => {
     const current = pinch.current;
+    if (!current) return;
+    const scale = pinchScale(current.distance, distance(a, b), zoom);
+    current.scale = scale;
+    setLive({
+      scale,
+      shift: {
+        x: scaleShift(current.focal.x, body.current.width / 2, scale),
+        y: scaleShift(current.focal.y, body.current.height / 2, scale),
+      },
+    });
+  };
+
+  const startPan = (touch: NativeTouchEvent) => {
+    const point = touchPoint(touch);
+    claim.current = "pan";
+    drag.current = { start: point, offset: { ...scroll.current }, last: { at: Date.now(), point }, velocity: { x: 0, y: 0 } };
+  };
+
+  const scrollBoth = (x: number, y: number, animated: boolean) => {
+    pan.current?.scrollTo({ x, animated });
+    outer.current?.scrollTo({ y, animated });
+  };
+
+  const movePan = (touch: NativeTouchEvent) => {
+    const current = drag.current;
+    if (!current) return;
+    const point = touchPoint(touch);
+    const at = Date.now();
+    const elapsed = at - current.last.at;
+    if (elapsed > 0) {
+      current.velocity = { x: (point.x - current.last.point.x) / elapsed, y: (point.y - current.last.point.y) / elapsed };
+    }
+    current.last = { at, point };
+    scrollBoth(
+      panOffset(current.offset.x, point.x - current.start.x, body.current.width, viewport.current.width),
+      panOffset(current.offset.y, point.y - current.start.y, outerContent.current, viewport.current.height),
+      false,
+    );
+  };
+
+  const endGesture = (fling: boolean) => {
+    const current = pinch.current;
+    const dragged = drag.current;
     pinch.current = null;
+    drag.current = null;
+    claim.current = null;
     if (current) commit(zoom * current.scale, current.anchor);
+    if (!fling || !dragged || Date.now() - dragged.last.at > FLING_IDLE_MS) return;
+    scrollBoth(
+      flingOffset(scroll.current.x, dragged.velocity.x, body.current.width, viewport.current.width),
+      flingOffset(scroll.current.y, dragged.velocity.y, outerContent.current, viewport.current.height),
+      true,
+    );
   };
 
   const frameProps = {
@@ -110,37 +192,26 @@ export function usePinchZoom(zoom: number, setZoom: (zoom: number) => void, enab
         lastTap.current = tap;
       }
     },
-    onStartShouldSetResponderCapture: (event: GestureResponderEvent) => pinchable && twoFingers(event),
-    onMoveShouldSetResponderCapture: (event: GestureResponderEvent) => pinchable && twoFingers(event),
+    onStartShouldSetResponderCapture: (event: GestureResponderEvent) => claimFor(event) !== null,
+    onMoveShouldSetResponderCapture: (event: GestureResponderEvent) => claimFor(event) !== null,
     onResponderGrant: (event: GestureResponderEvent) => {
       const [a, b] = event.nativeEvent.touches;
-      if (!a || !b) return true;
-      const anchor = anchorAt(midpoint(a, b));
-      pinch.current = {
-        distance: distance(a, b),
-        anchor,
-        focal: { x: scroll.current.x + anchor.x, y: scroll.current.y + anchor.y },
-        scale: 1,
-      };
+      if (a && b) startPinch(a, b);
+      else if (a && claimFor(event) === "pan") startPan(a);
       return true;
     },
     onResponderMove: (event: GestureResponderEvent) => {
       const [a, b] = event.nativeEvent.touches;
-      const current = pinch.current;
-      if (!a || !b || !current) return;
-      const scale = pinchScale(current.distance, distance(a, b), zoom);
-      current.scale = scale;
-      setLive({
-        scale,
-        shift: {
-          x: scaleShift(current.focal.x, body.current.width / 2, scale),
-          y: scaleShift(current.focal.y, body.current.height / 2, scale),
-        },
-      });
+      if (a && b && pinchable) {
+        if (claim.current === "pinch") movePinch(a, b);
+        else startPinch(a, b);
+      } else if (a && claim.current === "pan") {
+        movePan(a);
+      }
     },
-    onResponderRelease: endPinch,
-    onResponderTerminate: endPinch,
-    onResponderTerminationRequest: () => pinch.current === null,
+    onResponderRelease: () => endGesture(true),
+    onResponderTerminate: () => endGesture(false),
+    onResponderTerminationRequest: () => !keepsResponder(claim.current),
   };
 
   const outerProps = {
@@ -151,6 +222,7 @@ export function usePinchZoom(zoom: number, setZoom: (zoom: number) => void, enab
       scroll.current.y = event.nativeEvent.contentOffset.y;
     },
     onContentSizeChange: (_width: number, height: number) => {
+      outerContent.current = height;
       const y = pending.current.y;
       if (y === undefined) return;
       pending.current.y = undefined;
