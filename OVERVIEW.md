@@ -32,7 +32,7 @@ An open document checks for changes every few seconds and shows the new version 
 ## Reviewing
 
 - Mark reviewed records the version of the file you were looking at. The document toolbar and Documents then show a Reviewed pill, or Changed since review when the file changes, and Documents offers a Needs review filter. Opening or scrolling never marks a file. Review marks are shared by every client of the daemon and do not compare content: a rewrite that changes only the file's times also counts as a change. Press Mark reviewed again to clear a mark.
-- On a PDF, Add note writes a note about the page you are viewing, optionally with that page's image. Notes from every file in the workspace collect in the Review notes screen, where you can edit or remove them, preview the exact message, copy it, or send it to an agent you pick in the workspace. Notes on a file that changed since are marked as an older revision.
+- On a PDF, Add note writes a note about the page you are viewing, optionally with that page's image. Notes from every file in the workspace collect in the Review notes screen, where you can edit or remove them, preview the exact message, copy it, or send it to an agent you pick in the workspace (the most recently active idle agent is selected first). Notes on a file that changed since are marked as an older revision.
 - Sending goes only to an agent with no turn in progress and no pending permission, so a busy agent is never interrupted. A refused or failed send keeps the draft. To offer recipients, the screen reads the workspace's agent list (titles and status) through your daemon.
 
 ## Limits
@@ -53,7 +53,7 @@ For document content, the plugin reads files inside the workspace directory. Pat
 
 ## Review notes
 
-Review notes stay in the app's memory on this device. They are not written to disk and are lost when the app reloads. Nothing leaves the device until you press Send review, which sends one message through your Paseo daemon to the agent you chose. The message contains the file paths, the revision and modified time you viewed, page numbers and your note text. It also contains the page images you attached: at most 5, each at most 2000 px on each side and about 2 MB, rendered by the daemon from the file at that revision. They become part of that agent's conversation, and so reach whatever model provider that agent uses. Copy review copies the text only.
+Review notes stay in the app's memory on this device. They are not written to disk and are lost when the app reloads. Nothing leaves the device until you press Send review, which sends one message through your Paseo daemon to the agent you chose. The message contains the file paths, the modified time and size of the version you viewed, page numbers, the labels of pins on those pages and your note text. It also contains the page images you attached: at most 5, each at most 2000 px on each side and about 2 MB, rendered by the daemon from the file at that revision. They become part of that agent's conversation, and so reach whatever model provider that agent uses. Copy review copies the text only.
 
 ## Saved viewer state
 

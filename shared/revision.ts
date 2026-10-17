@@ -9,3 +9,9 @@ export function revisionModifiedAt(revision: string): number | null {
   if (parts.length !== 3 || !/^[0-9a-z]+$/.test(parts[1]!)) return null;
   return Math.trunc(parseInt(parts[1]!, 36) / 1000);
 }
+
+export function revisionSize(revision: string): number | null {
+  const parts = revision.split("-");
+  if (parts.length !== 3 || !/^[0-9a-z]+$/.test(parts[0]!)) return null;
+  return parseInt(parts[0]!, 36);
+}
