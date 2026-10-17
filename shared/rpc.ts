@@ -1,5 +1,5 @@
 import { searchCursor, searchMatch } from "./search";
-import { documentRevision, pagePins, pinLabel, viewerPosition } from "./viewer-state";
+import { documentRevision, pagePins, pinLabel, reviewMark, viewerPosition } from "./viewer-state";
 import { defineRpc } from "@getpaseo/plugin";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { z } from "zod";
@@ -186,6 +186,7 @@ export const docsRecentRpc = defineRpc({
     limit: z.number().int().positive().optional(),
     query: z.string().max(200).optional(),
     group: z.enum(DOCUMENT_GROUPS).optional(),
+    needsReview: z.boolean().optional(),
   }),
   output: z.object({
     entries: z.array(
@@ -194,10 +195,12 @@ export const docsRecentRpc = defineRpc({
         kind: z.enum(DOCUMENT_KINDS),
         mtimeMs: z.number(),
         size: z.number().int().nonnegative(),
+        review: z.enum(["reviewed", "changed"]).optional(),
       }),
     ),
     truncated: z.boolean(),
     counts: z.record(z.enum(DOCUMENT_GROUPS), z.number().int().nonnegative()),
+    needsReview: z.number().int().nonnegative(),
   }),
 });
 
@@ -226,7 +229,7 @@ export type DocSearchOutput = RpcOutput<typeof docSearchRpc>;
 
 export const viewerStateReadRpc = defineRpc({
   name: "viewer-state.read", input: z.object(documentRef),
-  output: z.object({ saved: z.object({ position: viewerPosition }).nullable(), pins: pagePins }),
+  output: z.object({ saved: z.object({ position: viewerPosition }).nullable(), pins: pagePins, review: reviewMark.nullable() }),
 });
 export const viewerStateWriteRpc = defineRpc({
   name: "viewer-state.write", input: z.object({ ...documentRef, position: viewerPosition.nullable() }),
@@ -237,8 +240,13 @@ export const viewerStatePinRpc = defineRpc({
   input: z.object({ ...documentRef, index: z.number().int().nonnegative(), pin: z.object({ label: pinLabel.optional(), revision: documentRevision }).nullable() }),
   output: z.object({ pins: pagePins }),
 });
+export const viewerStateReviewRpc = defineRpc({
+  name: "viewer-state.review",
+  input: z.object({ ...documentRef, revision: documentRevision.nullable() }),
+  output: z.object({ review: reviewMark.nullable(), revision: documentRevision }),
+});
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;
@@ -254,4 +262,5 @@ export type DocBlocksOutput = RpcOutput<typeof docBlocksRpc>;
 export type MediaChunkInput = RpcInput<typeof mediaChunkRpc>;
 export type MediaChunkOutput = RpcOutput<typeof mediaChunkRpc>;
 export type DocsRecentInput = RpcInput<typeof docsRecentRpc>;
+export type ViewerStateReadOutput = RpcOutput<typeof viewerStateReadRpc>;
 export type DocsRecentOutput = RpcOutput<typeof docsRecentRpc>;

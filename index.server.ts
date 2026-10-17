@@ -1,11 +1,11 @@
 import { fileInfo, fileChunk } from "./server/files";
-import { readViewerState, setPin, viewerStateStore } from "./server/viewer-state";
+import { markReviewed, readViewerState, setPin, viewerStateStore } from "./server/viewer-state";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, renderPage, renderThumbnail } from "./server/documents";
 import { searchGenerations } from "./server/search";
 import { workspaceRoot } from "./server/paths";
-import { hasDocuments } from "./server/recent";
-import { docBlocksRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateWriteRpc } from "./shared/rpc";
+import { forgetScan, hasDocuments } from "./server/recent";
+import { docBlocksRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(docOpenRpc, async ({ workspaceId, path, password }, { paseo }) =>
@@ -54,5 +54,11 @@ export default function contribute(server: PluginServerContext) {
   server.handle(viewerStatePinRpc, async ({ workspaceId, path, index, pin }, { paseo }) =>
     setPin(viewerStateStore, await workspaceRoot(paseo, workspaceId), path, index, pin),
   );
+  server.handle(viewerStateReviewRpc, async ({ workspaceId, path, revision }, { paseo }) => {
+    const root = await workspaceRoot(paseo, workspaceId);
+    const answer = await markReviewed(viewerStateStore, root, path, revision);
+    forgetScan(root);
+    return answer;
+  });
   return () => {};
 }

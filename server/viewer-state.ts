@@ -1,14 +1,15 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { mkdir, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, realpath, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { z } from "zod";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { PINS_MAX_PER_FILE } from "../shared/limits";
-import { pagePins, viewerPosition, type PagePin, type ViewerPosition } from "../shared/viewer-state";
+import { pagePins, reviewMark, viewerPosition, type PagePin, type ViewerPosition } from "../shared/viewer-state";
 import { resolveInside } from "./paths";
+import { revisionOf } from "./revision";
 
-const record = z.object({ position: viewerPosition.optional(), pins: pagePins.optional(), touched: z.number() });
+const record = z.object({ position: viewerPosition.optional(), pins: pagePins.optional(), review: reviewMark.optional(), touched: z.number() });
 type Entry = Omit<z.infer<typeof record>, "touched">;
 const stored = z.object({ version: z.literal(1), entries: z.record(z.string(), record) });
 const MAX_ENTRIES = 500;
@@ -32,14 +33,28 @@ export class ViewerStateStore {
 
   // Keys are salted with a per-install secret, so the file does not reveal which paths were opened.
   async key(root: string, path: string): Promise<string> {
-    const target = await resolveInside(root, path);
+    const [target, realRoot] = await Promise.all([resolveInside(root, path), realpath(root)]);
+    return (await this.scannedKeys(root))(relative(realRoot, target).split(sep).join("/"));
+  }
+
+  // For paths the workspace scan found: already canonical, inside the root and not symbolic links.
+  async scannedKeys(root: string): Promise<(path: string) => string> {
     this.secret ??= this.loadSecret();
     this.secret.catch(() => (this.secret = null));
-    return createHmac("sha256", await this.secret).update(root).update("\0").update(relative(root, target)).digest("hex");
+    const secret = await this.secret;
+    return (path) => createHmac("sha256", secret).update(root).update("\0").update(path.split("/").join(sep)).digest("hex");
   }
 
   read(key: string) {
     return this.queue(async () => (await this.load()).entries[key] ?? null);
+  }
+
+  reviewedRevisions(): Promise<Map<string, string>> {
+    return this.queue(async () => {
+      const reviewed = new Map<string, string>();
+      for (const [key, entry] of Object.entries((await this.load()).entries)) if (entry.review) reviewed.set(key, entry.review.revision);
+      return reviewed;
+    });
   }
 
   write(key: string, position: ViewerPosition | null): Promise<void> {
@@ -53,7 +68,7 @@ export class ViewerStateStore {
       const existing = data.entries[key];
       const { touched: _touched, ...current } = existing ?? { touched: 0 };
       const next = record.parse({ ...change(existing ? current : null), touched: Date.now() });
-      const empty = next.position === undefined && !next.pins?.length;
+      const empty = next.position === undefined && !next.pins?.length && next.review === undefined;
       if (empty) delete data.entries[key];
       else data.entries[key] = next;
       const entries = Object.entries(data.entries).sort((a, b) => b[1].touched - a[1].touched).slice(0, MAX_ENTRIES);
@@ -152,7 +167,17 @@ export const viewerStateStore = new ViewerStateStore(stateDirectory());
 
 export async function readViewerState(store: ViewerStateStore, root: string, path: string) {
   const saved = await store.read(await store.key(root, path));
-  return { saved: saved?.position ? { position: saved.position } : null, pins: saved?.pins ?? [] };
+  return { saved: saved?.position ? { position: saved.position } : null, pins: saved?.pins ?? [], review: saved?.review ?? null };
+}
+
+// Marks only the revision the user was shown; if the file has moved on, the earlier mark stays.
+export async function markReviewed(store: ViewerStateStore, root: string, path: string, revision: string | null) {
+  const target = await resolveInside(root, path);
+  const current = revisionOf(await stat(target));
+  const key = await store.key(root, path);
+  if (revision !== null && revision !== current) return { review: (await store.read(key))?.review ?? null, revision: current };
+  const saved = await store.update(key, (existing) => ({ ...existing, review: revision === null ? undefined : { revision, at: Date.now() } }));
+  return { review: saved?.review ?? null, revision: current };
 }
 
 // Pinning a page that already has a pin replaces its label and revision: that is how a pin is confirmed.

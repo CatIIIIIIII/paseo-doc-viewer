@@ -45,17 +45,18 @@ function DocumentsList({
 }: PluginWorkspacePanelProps & { styles: Styles; openScreen(input: PluginOpenScreenInput): void }) {
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<DocumentGroup | null>(null);
+  const [needsReview, setNeedsReview] = useState(false);
   const [collapsed, setCollapsed] = useState(NO_GROUPS);
   const searched = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const listRecent = useRpc(docsRecentRpc);
-  const { request, ...options } = recentQueryOptions(workspaceId, { query: searched, group });
+  const { request, ...options } = recentQueryOptions(workspaceId, { query: searched, group, needsReview });
   const recent = useQuery({ ...options, queryFn: () => listRecent(request) });
-  const filtering = queryTerms(query).length > 0 || group !== null;
+  const filtering = queryTerms(query).length > 0 || group !== null || needsReview;
   const pending = recent.isPlaceholderData || searched !== query;
-  const entries = useMemo(() => (recent.data ? filterEntries(recent.data.entries, { query, group }) : []), [recent.data, query, group]);
+  const entries = useMemo(() => (recent.data ? filterEntries(recent.data.entries, { query, group, needsReview }) : []), [recent.data, query, group, needsReview]);
   const rows = useMemo(
-    () => (recent.data ? browseRows(entries, { counts: recent.data.counts, collapsed, headers: group === null }) : []),
-    [entries, recent.data, collapsed, group],
+    () => (recent.data ? browseRows(entries, { counts: recent.data.counts, collapsed, headers: group === null && !needsReview }) : []),
+    [entries, recent.data, collapsed, group, needsReview],
   );
   const now = recent.dataUpdatedAt || Date.now();
 
@@ -93,6 +94,7 @@ function DocumentsList({
   const clearFilters = () => {
     setQuery("");
     setGroup(null);
+    setNeedsReview(false);
   };
 
   return (
@@ -116,6 +118,9 @@ function DocumentsList({
               onPress={() => setGroup(chip.group)}
             />
           ))}
+          {recent.data.needsReview > 0 || needsReview ? (
+            <Chip theme={theme} label="Needs review" count={recent.data.needsReview} selected={needsReview} onPress={() => setNeedsReview(!needsReview)} />
+          ) : null}
         </ScrollView>
       </View>
       {entries.length === 0 ? (
@@ -127,7 +132,7 @@ function DocumentsList({
             styles={styles}
             icon="SearchX"
             title="No matching documents"
-            detail={noMatchDetail({ query, group }, recent.data.truncated)}
+            detail={noMatchDetail({ query, group, needsReview }, recent.data.truncated)}
             action={{ label: "Clear filters", onPress: clearFilters }}
           />
         )
@@ -310,10 +315,11 @@ function EntryRow({
   onPress,
 }: ChromeProps & { entry: RecentEntry; now: number; onPress(): void }) {
   const directory = parentDir(entry.path);
+  const review = entry.review === "changed" ? ", changed since review" : entry.review === "reviewed" ? ", reviewed" : "";
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open ${entry.path}, ${KIND_LABEL[entry.kind]}, changed ${relativeTime(entry.mtimeMs, now)}`}
+      accessibilityLabel={`Open ${entry.path}, ${KIND_LABEL[entry.kind]}, changed ${relativeTime(entry.mtimeMs, now)}${review}`}
       onPress={onPress}
       style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
         flexDirection: "row",
@@ -327,10 +333,14 @@ function EntryRow({
     >
       <Icon name={KIND_ICON[entry.kind]} size={16} color={theme.colors.foregroundMuted} />
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <Text style={styles.text} numberOfLines={1}>
-          {baseName(entry.path)}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
+          <Text style={[styles.text, { flexShrink: 1 }]} numberOfLines={1}>
+            {baseName(entry.path)}
+          </Text>
+          {entry.review === "reviewed" ? <Icon name="Check" size={12} color={theme.colors.statusSuccess} /> : null}
+        </View>
         <Text style={styles.muted} numberOfLines={1}>
+          {entry.review === "changed" ? <Text style={{ color: theme.colors.statusWarning }}>Changed since review · </Text> : null}
           {directory ? `${directory} · ` : ""}
           {humanSize(entry.size)}
         </Text>

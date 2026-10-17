@@ -141,6 +141,8 @@ describe("documents panel empty and footer text", () => {
     expect(noMatchDetail({ query: "q4", group: "excel" }, false)).toBe('No spreadsheets match "q4"');
     expect(noMatchDetail({ query: "", group: "image" }, false)).toBe("No images in this workspace");
     expect(noMatchDetail({ query: "", group: "video" }, false)).toBe("No Video files in this workspace");
+    expect(noMatchDetail({ query: "", group: "pdf", needsReview: true }, false)).toBe("No PDF files changed since review");
+    expect(noMatchDetail({ query: "q4", needsReview: true }, false)).toBe('No files changed since review match "q4"');
   });
 
   it("warns when the workspace was too large to search completely", () => {

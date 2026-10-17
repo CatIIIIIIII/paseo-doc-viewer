@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { chromium, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { once } from "node:events";
@@ -270,7 +270,43 @@ try {
   expect(thumbnails.requested.length - sentBeforeClose).toBe(0);
   expect(thumbnails.inFlight).toBe(0);
   await page.unroute("**/rpc", verySlow);
+  // Review marks follow explicit presses only, for the revision on screen.
+  const reviews = [];
+  const recordReview = (request) => { if (request.url().endsWith("/rpc") && request.postDataJSON()?.method === "viewer-state.review") reviews.push(request.postDataJSON().input); };
+  page.on("request", recordReview);
+  const touch = async (name, seconds) => { await writeFile(`${root}/${name}`, await readFile(`${root}/${name}`)); await utimes(`${root}/${name}`, seconds, seconds); };
+  await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  await page.getByRole("button", { name: "Next page", exact: true }).click();
+  await page.waitForTimeout(1300);
+  await expect(page.getByRole("button", { name: "Mark reviewed", exact: true })).toBeVisible();
+  expect(reviews).toHaveLength(0);
+  await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
+  expect(reviews).toHaveLength(1);
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Open long\.pdf, PDF, [^,]*$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Needs review/ })).toHaveCount(0);
+  await touch("statement.pdf", Date.now() / 1000 + 60);
+  await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible({ timeout: 15000 });
+  await page.getByRole("button", { name: "Needs review, 1 document", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(1);
+  await page.screenshot({ path: `${directory}/needs-review.png`, fullPage: true });
+  await page.getByRole("button", { name: /^Open statement\.pdf/ }).click();
+  await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
+  // A rewrite the open viewer has not picked up yet must not be marked reviewed.
+  await touch("statement.pdf", Date.now() / 1000 + 120);
+  await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
+  await page.waitForTimeout(500);
+  await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
+  await page.waitForTimeout(5500);
+  await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
+  page.off("request", recordReview);
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

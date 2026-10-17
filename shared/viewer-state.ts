@@ -13,3 +13,5 @@ export const pinLabel = z.string().max(PIN_LABEL_MAX_CHARS);
 export const pagePin = z.object({ index, label: pinLabel.optional(), revision: documentRevision });
 export type PagePin = z.infer<typeof pagePin>;
 export const pagePins = z.array(pagePin).max(PINS_MAX_PER_FILE);
+export const reviewMark = z.object({ revision: documentRevision, at: z.number() });
+export type ReviewMark = z.infer<typeof reviewMark>;

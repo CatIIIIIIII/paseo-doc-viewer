@@ -5,7 +5,7 @@ import { DownloadOriginal } from "./download-original";
 import { type PluginScreenProps, useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import { docOpenRpc, type DocOpenOutput } from "../shared/rpc";
 import { BlocksViewer } from "./blocks-viewer";
 import { baseName } from "./format";
@@ -17,6 +17,8 @@ import { SheetViewer } from "./sheet-viewer";
 import { ErrorState, LoadingState, makeStyles, MessageState, type Styles, ToolbarButton } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
 import { useViewerPosition } from "./use-viewer-position";
+import { useViewerMarks } from "./use-viewer-marks";
+import { reviewStatus } from "./review";
 import { MediaViewer } from "./media-viewer";
 import { kindForPath } from "../shared/kinds";
 
@@ -144,16 +146,33 @@ function DocumentBody(props: Parameters<typeof ViewerContent>[0]) {
   const pageMap = useMemo(() => (mapOpen ? { compact: props.compact, onClose: () => setMapOpen(false) } : null), [mapOpen, props.compact]);
   return <FindScope enabled={searchable} onFind={() => { if (searchable) setFinding(true); }}>
     <View style={props.styles.screen}>
-    {searchable ? <View style={props.styles.toolbar}><ToolbarButton theme={props.theme} styles={props.styles}
-      icon="Search" label="Find in document" selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} />
+    <View style={props.styles.toolbar}>
+      {searchable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="Search" label={props.compact ? undefined : "Find in document"} accessibilityLabel="Find in document"
+        selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} /> : null}
       <View style={props.styles.toolbarSpacer} />
-      {mappable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="LayoutGrid" label="Pages" accessibilityLabel="Page map"
+      {mappable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="LayoutGrid" label={props.compact ? undefined : "Pages"} accessibilityLabel="Page map"
         selected={mapOpen} onPress={() => setMapOpen(!mapOpen)} /> : null}
-    </View> : null}
+      <ReviewControl workspaceId={props.workspaceId} path={props.path} revision={props.document.revision} theme={props.theme} styles={props.styles} />
+    </View>
     {finding ? <FindPanel key={props.document.revision} workspaceId={props.workspaceId} path={props.path} password={props.password}
       revision={props.document.revision} pageLabel={props.document.kind === "pptx" ? "Slide" : "Page"} theme={props.theme} styles={props.styles} onNavigate={setNavigation}
       onMatches={setSearchMatches}
       onClose={() => { setFinding(false); setNavigation(null); setSearchMatches([]); }} /> : null}
     <ViewerContent {...props} navigation={navigation} searchMatches={searchMatches} pageMap={pageMap} />
   </View></FindScope>;
+}
+
+// Marking is always an explicit press, for the revision on screen; opening or scrolling never marks.
+function ReviewControl({ workspaceId, path, revision, theme, styles }: { workspaceId: string; path: string; revision: string; theme: PluginScreenProps["theme"]; styles: Styles }) {
+  const marks = useViewerMarks(workspaceId, path);
+  if (!marks.ready) return null;
+  const status = reviewStatus(marks.review, revision);
+  if (status === "reviewed") {
+    return <ToolbarButton theme={theme} styles={styles} icon="Check" label="Reviewed" accessibilityLabel="Reviewed, clear the review mark" selected
+      disabled={marks.saving} onPress={() => void marks.setReview(null)} />;
+  }
+  return <>
+    {status === "changed" ? <Text style={[styles.muted, { color: theme.colors.statusWarning, flexShrink: 1 }]} numberOfLines={1}>Changed since review</Text> : null}
+    <ToolbarButton theme={theme} styles={styles} icon="Check" label="Mark reviewed" disabled={marks.saving} onPress={() => void marks.setReview(revision)} />
+  </>;
 }

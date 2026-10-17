@@ -4,6 +4,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_COLUMNS } from "../shared/limits";
+import type { ReviewStatus } from "../shared/browse";
 import { KIND_REGISTRY, detectKind, extensionOf, kindForPath, type DocumentKind, type PagedRpc } from "../shared/kinds";
 import type {
   DocBlocksOutput,
@@ -27,7 +28,9 @@ import { resolveInside } from "./paths";
 import { pdfPageCount, readPdfPageText, renderPdfPage, searchPdfPage } from "./pdf";
 import { loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
 import { IMAGE_BUDGET_BYTES, decodeBudget, type Fit } from "./raster";
-import { recentDocuments } from "./recent";
+import { recentDocuments, type RecentEntry } from "./recent";
+import { revisionOf } from "./revision";
+import { viewerStateStore } from "./viewer-state";
 import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, position, takeStream, type SearchPosition } from "./search";
 import { loadSharedStrings, loadWorkbook, rowWindow, sheetRows, type Workbook } from "./xlsx";
 import { readZipIndex, verifyEntries, type ZipIndex, type ZipLimits } from "./zip";
@@ -121,9 +124,7 @@ async function locate(ref: DocumentRef): Promise<DocumentFile> {
     }
     throw new Error(ERROR_MESSAGES.contentMismatch(extension));
   }
-  const stamp = (value: number) => Math.trunc(value * 1000).toString(36);
-  const revision = `${info.size.toString(36)}-${stamp(info.mtimeMs)}-${stamp(info.ctimeMs)}`;
-  return { path, extension, kind, size: info.size, revision, password: ref.password, passwordKey: passwordKey(ref.password) };
+  return { path, extension, kind, size: info.size, revision: revisionOf(info), password: ref.password, passwordKey: passwordKey(ref.password) };
 }
 
 const cached = <T>(file: DocumentFile, name: string, compute: () => Promise<T>, sizeOf?: (value: T) => number) =>
@@ -362,8 +363,19 @@ export async function readMediaChunk(ref: DocumentRef, request: ChunkRequest): P
   return operation(file, "media.chunk", "chunk")(file, request);
 }
 
-export async function listRecent(root: string, request: Omit<DocsRecentInput, "workspaceId">): Promise<DocsRecentOutput> {
-  return recentDocuments(root, request);
+// Review status is computed only when some document has been marked reviewed.
+export async function listRecent(root: string, request: Omit<DocsRecentInput, "workspaceId">, store = viewerStateStore): Promise<DocsRecentOutput> {
+  const reviewed = await store.reviewedRevisions();
+  const keyOf = reviewed.size > 0 ? await store.scannedKeys(root) : null;
+  const status = (entry: RecentEntry): ReviewStatus | undefined => {
+    const revision = keyOf ? reviewed.get(keyOf(entry.path)) : undefined;
+    return revision === undefined ? undefined : revision === entry.revision ? "reviewed" : "changed";
+  };
+  const listed = await recentDocuments(root, request, keyOf ? status : undefined);
+  return {
+    ...listed,
+    entries: listed.entries.map(({ path, kind, mtimeMs, size, review }) => ({ path, kind, mtimeMs, size, ...(review ? { review } : {}) })),
+  };
 }
 
 const blockText = (block: SourceBlock) =>

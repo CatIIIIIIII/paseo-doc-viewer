@@ -20,9 +20,10 @@ export function documentQueryOptions(workspaceId: string, path: string, unlockAt
 export function recentQueryOptions(workspaceId: string, filter: BrowseFilter) {
   const query = queryTerms(filter.query ?? "").join(" ");
   const group = filter.group ?? null;
-  const request: DocsRecentInput = { workspaceId, ...(query ? { query } : {}), ...(group ? { group } : {}) };
+  const needsReview = filter.needsReview ?? false;
+  const request: DocsRecentInput = { workspaceId, ...(query ? { query } : {}), ...(group ? { group } : {}), ...(needsReview ? { needsReview } : {}) };
   return {
-    queryKey: ["docs.recent", workspaceId, query, group] as const,
+    queryKey: ["docs.recent", workspaceId, query, group, needsReview] as const,
     request,
     refetchInterval: RECENT_POLL_MS,
     refetchOnWindowFocus: true,
@@ -56,6 +57,6 @@ export function textQueryKey(workspaceId: string, path: string, revision: string
   return ["doc.text", workspaceId, path, revision, index] as const;
 }
 
-export function pinsQueryKey(workspaceId: string, path: string) {
-  return ["viewer-state.pins", workspaceId, path] as const;
+export function viewerMarksQueryKey(workspaceId: string, path: string) {
+  return ["viewer-state.marks", workspaceId, path] as const;
 }

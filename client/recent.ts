@@ -44,10 +44,10 @@ export function filterChips(counts: GroupCounts, selected: DocumentGroup | null)
   return [{ group: null, count: total }, ...present.map((group) => ({ group, count: counts[group] }))];
 }
 
-export function noMatchDetail({ query = "", group = null }: BrowseFilter, scanIncomplete: boolean): string {
-  const files = group ? GROUP_FILES[group] : "files";
+export function noMatchDetail({ query = "", group = null, needsReview = false }: BrowseFilter, scanIncomplete: boolean): string {
+  const files = `${group ? GROUP_FILES[group] : "files"}${needsReview ? " changed since review" : ""}`;
   const text = query.trim();
-  const detail = text ? `No ${files} match "${text}"` : `No ${files} in this workspace`;
+  const detail = text ? `No ${files} match "${text}"` : needsReview ? `No ${files}` : `No ${files} in this workspace`;
   return scanIncomplete
     ? `${detail}. Only the first ${formatCount(RECENT_MAX_SCANNED_ENTRIES)} entries of this workspace were searched`
     : detail;

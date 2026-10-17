@@ -1,14 +1,17 @@
 import { opendir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, newestFirst } from "../shared/browse";
+import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, newestFirst, type ReviewStatus } from "../shared/browse";
 import { RECENT_MAX_ENTRIES, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { kindForPath, type DocumentKind } from "../shared/kinds";
+import { revisionOf } from "./revision";
 
 export interface RecentEntry {
   path: string;
   kind: DocumentKind;
   mtimeMs: number;
   size: number;
+  revision: string;
+  review?: ReviewStatus;
 }
 
 const SKIPPED_DIRECTORIES = new Set(["node_modules", "__pycache__", "venv", "target", "vendor"]);
@@ -76,13 +79,25 @@ const scans = new Map<string, { result: Promise<Scan>; expiresAt: number }>();
 
 export async function recentDocuments(
   root: string,
-  { limit = RECENT_MAX_ENTRIES, query, group }: BrowseFilter & { limit?: number } = {},
-): Promise<{ entries: RecentEntry[]; truncated: boolean; counts: GroupCounts }> {
+  { limit = RECENT_MAX_ENTRIES, query, group, needsReview }: BrowseFilter & { limit?: number } = {},
+  reviewStatus?: (entry: RecentEntry) => ReviewStatus | undefined,
+): Promise<{ entries: RecentEntry[]; truncated: boolean; counts: GroupCounts; needsReview: number }> {
   const scan = await sharedScan(root);
   const cap = Math.max(1, Math.min(limit, RECENT_MAX_ENTRIES));
-  const matched = filterEntries(scan.entries, { query });
-  const shown = group ? filterEntries(matched, { group }) : matched;
-  return { entries: shown.slice(0, cap), truncated: !scan.complete || shown.length > cap, counts: countGroups(matched) };
+  const searched = filterEntries(scan.entries, { query });
+  const matched = reviewStatus ? searched.map((entry) => ({ ...entry, review: reviewStatus(entry) })) : searched;
+  const shown = filterEntries(matched, { group, needsReview });
+  return {
+    entries: shown.slice(0, cap),
+    truncated: !scan.complete || shown.length > cap,
+    counts: countGroups(matched),
+    needsReview: filterEntries(matched, { needsReview: true }).length,
+  };
+}
+
+// Called after a review mark changes, so the list does not show a reused scan's older revision.
+export function forgetScan(root: string): void {
+  scans.delete(root);
 }
 
 // Cheap probe for the header button: the same rules as the list, stopping at the first match.
@@ -154,7 +169,7 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
       if (!kind) continue;
       try {
         const info = await stat(full);
-        found.push({ path: relative(root, full).split(sep).join("/"), kind, mtimeMs: info.mtimeMs, size: info.size });
+        found.push({ path: relative(root, full).split(sep).join("/"), kind, mtimeMs: info.mtimeMs, size: info.size, revision: revisionOf(info) });
         if (found.length >= stopAfter) return { entries: found, complete: false };
       } catch {
         continue;

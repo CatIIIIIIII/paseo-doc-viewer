@@ -9,7 +9,7 @@ import type { PagePin } from "../shared/viewer-state";
 import { pinStatus } from "./pins";
 import { createThumbnailLoader, gridLayout, thumbnailCache, type ThumbnailLoader, type ThumbnailState, thumbnailWidth, visibleOrder } from "./thumbnails";
 import { type Styles, ToolbarButton } from "./ui";
-import { usePins } from "./use-pins";
+import { useViewerMarks } from "./use-viewer-marks";
 
 const MAX_THUMBNAIL_PIXEL_RATIO = 2;
 
@@ -35,7 +35,7 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
   const [loader, setLoader] = useState<ThumbnailLoader | null>(null);
   const [, refresh] = useReducer((tick: number) => tick + 1, 0);
   const scroller = useRef<ScrollView>(null);
-  const pins = usePins(workspaceId, path);
+  const pins = useViewerMarks(workspaceId, path);
   const pinned = new Set(pins.pins.map((pin) => pin.index));
   const scrolledToActive = useRef(false);
   const layout = frame.width > 0 ? gridLayout(frame.width - styles.gutter * 2, compact) : null;
@@ -130,7 +130,7 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
 }
 
 function PinSection({ pins, active, revision, count, compact, theme, styles, onOpen }: {
-  pins: ReturnType<typeof usePins>;
+  pins: ReturnType<typeof useViewerMarks>;
   active: number;
   revision: string;
   count: number;
@@ -142,7 +142,7 @@ function PinSection({ pins, active, revision, count, compact, theme, styles, onO
   const [label, setLabel] = useState<string | null>(null);
   const activePin = pins.pins.find((pin) => pin.index === active);
   const save = async () => {
-    if (label !== null && (await pins.change(active, { label, revision }))) setLabel(null);
+    if (label !== null && (await pins.setPin(active, { label, revision }))) setLabel(null);
   };
   return (
     <View style={{ gap: 8, paddingHorizontal: styles.gutter, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
@@ -176,8 +176,8 @@ function PinSection({ pins, active, revision, count, compact, theme, styles, onO
           {pins.pins.map((pin) => (
             <PinRow key={pin.index} pin={pin} revision={revision} count={count} saving={pins.saving} theme={theme} styles={styles}
               onOpen={() => onOpen(pin.index)}
-              onConfirm={() => void pins.change(pin.index, { label: pin.label, revision })}
-              onRemove={() => void pins.change(pin.index, null)} />
+              onConfirm={() => void pins.setPin(pin.index, { label: pin.label, revision })}
+              onRemove={() => void pins.setPin(pin.index, null)} />
           ))}
         </ScrollView>
       ) : null}

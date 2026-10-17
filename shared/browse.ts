@@ -16,15 +16,19 @@ export const KIND_GROUP: { readonly [K in DocumentKind]: DocumentGroup } = {
   audio: "audio",
 };
 
+export type ReviewStatus = "reviewed" | "changed";
+
 export interface BrowseEntry {
   path: string;
   kind: DocumentKind;
   mtimeMs: number;
+  review?: ReviewStatus;
 }
 
 export interface BrowseFilter {
   query?: string;
   group?: DocumentGroup | null;
+  needsReview?: boolean;
 }
 
 export function queryTerms(query: string): string[] {
@@ -36,9 +40,11 @@ export function matchesQuery(path: string, terms: readonly string[]): boolean {
   return terms.every((term) => haystack.includes(term));
 }
 
-export function filterEntries<T extends BrowseEntry>(entries: readonly T[], { query = "", group = null }: BrowseFilter): T[] {
+export function filterEntries<T extends BrowseEntry>(entries: readonly T[], { query = "", group = null, needsReview = false }: BrowseFilter): T[] {
   const terms = queryTerms(query);
-  return entries.filter((entry) => (!group || KIND_GROUP[entry.kind] === group) && matchesQuery(entry.path, terms));
+  return entries.filter(
+    (entry) => (!group || KIND_GROUP[entry.kind] === group) && (!needsReview || entry.review === "changed") && matchesQuery(entry.path, terms),
+  );
 }
 
 export function countGroups(entries: readonly Pick<BrowseEntry, "kind">[]): GroupCounts {
