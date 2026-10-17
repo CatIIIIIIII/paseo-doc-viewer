@@ -423,6 +423,18 @@ try {
   await page.screenshot({ path: `${directory}/review-compose.png`, fullPage: true });
   await page.getByRole("button", { name: "Add note", exact: true }).click();
   await expect(page.getByRole("button", { name: "Review notes (2)", exact: true })).toBeVisible();
+  // A half-typed note survives leaving the document, as on a workspace switch, until it is cancelled.
+  await expect(page.getByRole("textbox", { name: "Note text", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add note to page 2", exact: true }).click();
+  await page.getByRole("textbox", { name: "Note text", exact: true }).fill("Half typed");
+  await page.getByRole("button", { name: "deck.pptx", exact: true }).click();
+  await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Note text", exact: true })).toHaveValue("Half typed");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "deck.pptx", exact: true }).click();
+  await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Review notes (2)", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Note text", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "contract.docx", exact: true }).click();
   await expect(page.getByRole("button", { name: "Review notes (2)", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Review notes (2)", exact: true }).click();
