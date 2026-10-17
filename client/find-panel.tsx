@@ -2,10 +2,10 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { TextInput } from "@getpaseo/plugin/client/react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useEffect, useRef, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { docSearchRpc } from "../shared/rpc";
 import type { SearchCursor, SearchMatch, SearchNavigation } from "../shared/search";
-import { columnName } from "./paging";
+import { matchCount, matchLocation, trimSnippet } from "./find-results";
 import { ToolbarButton, type Styles } from "./ui";
 
 const MAX_RESULTS = 500;
@@ -78,21 +78,41 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
         <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel="Close find" onPress={onClose} />
       </View>
       {started ? <View style={[styles.toolbarGroup, { flexWrap: "wrap" }]}>
-        <Text style={styles.label}>{busy ? `Searching… ${matches.length} so far` : `${matches.length}${next ? "+" : ""} ${matches.length === 1 && !next ? "match" : "matches"}${next || error ? " so far" : ""}`}</Text>
+        <Text style={styles.label}>{matchCount({ found: matches.length, selected, more: next !== null, busy, error: error !== "" })}</Text>
         <ToolbarButton theme={theme} styles={styles} icon="ChevronUp" accessibilityLabel="Previous match" disabled={selected <= 0} onPress={() => choose(selected - 1)} />
         <ToolbarButton theme={theme} styles={styles} icon="ChevronDown" accessibilityLabel="Next match" disabled={selected + 1 >= matches.length} onPress={() => choose(selected + 1)} />
       </View> : null}
       {error ? <Text style={styles.danger} accessibilityRole="alert">{error}</Text> : null}
       {next && !busy && matches.length >= MAX_RESULTS ? <Text style={styles.muted}>Showing the first {MAX_RESULTS} results. Narrow your search to find more.</Text> : null}
       {notes.length ? <Text style={styles.muted}>{notes.join(" ")}</Text> : null}
-      {matches.length ? <ScrollView style={{ maxHeight: 130 }} keyboardShouldPersistTaps="handled">
-        {matches.map((match, index) => {
-          const target = match.target;
-          const label = target.type === "page" ? `${pageLabel} ${target.index + 1}` : target.type === "block" ? "Text" : `Sheet ${target.sheet + 1}, ${columnName(target.column)}${target.row + 1}`;
-          return <View key={index} style={{ paddingVertical: 3 }}><ToolbarButton theme={theme} styles={styles}
-            label={`${label}: ${match.snippet.replace(/\s+/g, " ")}`} variant="toggle" selected={index === selected} onPress={() => choose(index)} /></View>;
-        })}
+      {matches.length ? <ScrollView style={{ maxHeight: styles.compact ? 200 : 180 }} contentContainerStyle={{ gap: 2 }} keyboardShouldPersistTaps="handled">
+        {matches.map((match, index) => (
+          <FindResultRow key={index} match={match} location={matchLocation(match.target, pageLabel)} selected={index === selected} theme={theme} styles={styles}
+            onPress={() => choose(index)} />
+        ))}
       </ScrollView> : null}
     </View>
+  );
+}
+
+// One result: the location in muted text above two lines of snippet, cut on word boundaries, with the match in bold.
+function FindResultRow({ match, location, selected, theme, styles, onPress }: {
+  match: SearchMatch; location: string; selected: boolean; theme: PluginTheme; styles: Styles; onPress(): void;
+}) {
+  const snippet = trimSnippet(match);
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`${location}: ${snippet.before}${snippet.match}${snippet.after}`}
+      accessibilityState={{ selected }} onPress={onPress}
+      style={({ hovered }: { pressed: boolean; hovered?: boolean }) => ({
+        gap: 2, paddingHorizontal: 8, paddingVertical: styles.compact ? 8 : 6, borderRadius: 6,
+        backgroundColor: selected ? theme.colors.surface2 : hovered ? theme.colors.surface1 : "transparent",
+      })}>
+      <Text style={styles.label}>{location}</Text>
+      <Text style={[styles.text, { fontSize: 13, lineHeight: 18 }]} numberOfLines={2}>
+        {snippet.before}
+        <Text style={{ fontWeight: "700", color: theme.colors.foreground }}>{snippet.match}</Text>
+        {snippet.after}
+      </Text>
+    </Pressable>
   );
 }

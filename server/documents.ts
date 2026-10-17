@@ -439,7 +439,7 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
       if (!scan.visit(texts.join("\n"), { type: "page", index: slide }, position(0, slide), position(0, slide + 1))) break;
     }
   } else if (file.kind === "docx") {
-    notes.add("Search covers the reading view's bounded text; images and footnotes are excluded.");
+    notes.add("Search covers the document text shown here; text inside images and footnotes is not searched.");
     const model = await docx(file);
     await heavy(async () => {
       let index = 0;

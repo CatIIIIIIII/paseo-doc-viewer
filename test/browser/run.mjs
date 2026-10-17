@@ -78,6 +78,8 @@ try {
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByText("3 matches", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next match", exact: true }).click();
+  await expect(page.getByText("1 of 3", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Page 1: Searchable statement page 1", exact: true })).toHaveAttribute("aria-pressed", "true");
   // A PDF match with page boxes stays on the rendered page and highlights it there.
   await expect(page.getByRole("button", { name: "Show page text", exact: true })).toBeVisible();
   await expect(page.getByText("1 / 3", { exact: true })).toBeVisible();

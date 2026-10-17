@@ -433,9 +433,24 @@ const PageBody = memo(function PageBody({
                 width: box.width * frame.width,
                 height: box.height * frame.height,
                 backgroundColor: theme.colors.accent,
-                opacity: highlight.selected ? 0.5 : 0.22,
+                opacity: highlight.selected ? 0.45 : 0.28,
               }}
             />
+          )),
+        )}
+        {/* The current match also gets a solid outline, so it stands out from the other matches. */}
+        {(highlights ?? []).filter((highlight) => highlight.selected).map((highlight, index) =>
+          highlight.boxes.map((box, line) => (
+            <View key={`current-${index}-${line}`} pointerEvents="none" style={{
+              position: "absolute",
+              left: box.x * frame.width - 2,
+              top: box.y * frame.height - 2,
+              width: box.width * frame.width + 4,
+              height: box.height * frame.height + 4,
+              borderWidth: 2,
+              borderRadius: 2,
+              borderColor: theme.colors.accent,
+            }} />
           )),
         )}
       </View>
