@@ -4,11 +4,11 @@ import { viewerStateReadRpc, viewerStateWriteRpc } from "../shared/rpc";
 import type { ViewerPosition } from "../shared/viewer-state";
 
 // Mount once per document identity. Persistence is best-effort and never blocks reading.
-export function useViewerPosition(workspaceId: string, path: string, revision: string) {
+export function useViewerPosition(workspaceId: string, path: string) {
   const read = useRpc(viewerStateReadRpc);
   const write = useRpc(viewerStateWriteRpc);
-  const [saved, setSaved] = useState<{ position: ViewerPosition; revision: string } | null | undefined>(undefined);
-  const pending = useRef<{ position: ViewerPosition | null; revision: string } | null>(null);
+  const [saved, setSaved] = useState<{ position: ViewerPosition } | null | undefined>(undefined);
+  const pending = useRef<{ position: ViewerPosition | null } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const writable = useRef(false);
   const writer = useRef(write);
@@ -35,10 +35,10 @@ export function useViewerPosition(workspaceId: string, path: string, revision: s
 
   const save = useCallback((position: ViewerPosition | null) => {
     if (saved === undefined || !writable.current) return;
-    pending.current = { position, revision };
+    pending.current = { position };
     if (timer.current !== undefined) clearTimeout(timer.current);
     timer.current = setTimeout(flush, 1000);
-  }, [saved, revision, flush]);
+  }, [saved, flush]);
 
   return {
     ready: saved !== undefined,

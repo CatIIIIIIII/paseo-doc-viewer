@@ -3,7 +3,7 @@ import { mkdtempSync, copyFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import contribute from "../../index.server";
-import { ViewerStateStore, positionKey } from "../../server/viewer-state";
+import { ViewerStateStore } from "../../server/viewer-state";
 import { searchDocument } from "../../server/documents";
 import { readFileSync } from "node:fs";
 import { DOCUMENT_RPCS } from "../../shared/rpc";
@@ -26,8 +26,8 @@ const handlers = new Map<string, (input: any, context: any) => Promise<any>>();
 contribute({ handle: (contract: any, handler: any) => handlers.set(contract.name, handler) } as any);
 // A tiny budget makes every search span many requests, so the client must keep going on its own.
 handlers.set("doc.search", async ({ path, password, query, cursor }) => searchDocument({ root, path, password }, query, cursor, 1));
-handlers.set("viewer-state.read", async ({ path }) => ({ saved: await store.read(await positionKey(root, path)) }));
-handlers.set("viewer-state.write", async ({ path, revision, position }) => { await store.write(await positionKey(root, path), revision, position); return { saved: true }; });
+handlers.set("viewer-state.read", async ({ path }) => ({ saved: await store.read(await store.key(root, path)) }));
+handlers.set("viewer-state.write", async ({ path, position }) => { await store.write(await store.key(root, path), position); return { saved: true }; });
 const paseo = { workspaces: { list: async () => ({ entries: [{ id: "workspace", workspaceDirectory: root }], pageInfo: { hasMore: false } }) } };
 const server = createServer(async (request, response) => {
   if (request.url === "/bundle.js") { response.setHeader("Content-Type", "application/javascript"); response.end(readFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/app.js"))); return; }

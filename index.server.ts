@@ -1,5 +1,5 @@
 import { fileInfo, fileChunk } from "./server/files";
-import { positionKey, viewerStateStore } from "./server/viewer-state";
+import { viewerStateStore } from "./server/viewer-state";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, renderPage } from "./server/documents";
 import { workspaceRoot } from "./server/paths";
@@ -39,12 +39,12 @@ export default function contribute(server: PluginServerContext) {
     searchDocument({ root: await workspaceRoot(paseo, workspaceId), path, password }, query, cursor),
   );
   server.handle(viewerStateReadRpc, async ({ workspaceId, path }, { paseo }) => {
-    const key = await positionKey(await workspaceRoot(paseo, workspaceId), path);
+    const key = await viewerStateStore.key(await workspaceRoot(paseo, workspaceId), path);
     return { saved: await viewerStateStore.read(key) };
   });
-  server.handle(viewerStateWriteRpc, async ({ workspaceId, path, revision, position }, { paseo }) => {
-    const key = await positionKey(await workspaceRoot(paseo, workspaceId), path);
-    await viewerStateStore.write(key, revision, position);
+  server.handle(viewerStateWriteRpc, async ({ workspaceId, path, position }, { paseo }) => {
+    const key = await viewerStateStore.key(await workspaceRoot(paseo, workspaceId), path);
+    await viewerStateStore.write(key, position);
     return { saved: true };
   });
   return () => {};

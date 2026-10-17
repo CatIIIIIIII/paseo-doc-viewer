@@ -207,10 +207,10 @@ export type DocSearchOutput = RpcOutput<typeof docSearchRpc>;
 
 export const viewerStateReadRpc = defineRpc({
   name: "viewer-state.read", input: z.object(documentRef),
-  output: z.object({ saved: z.object({ revision, position: viewerPosition }).nullable() }),
+  output: z.object({ saved: z.object({ position: viewerPosition }).nullable() }),
 });
 export const viewerStateWriteRpc = defineRpc({
-  name: "viewer-state.write", input: z.object({ ...documentRef, revision, position: viewerPosition.nullable() }),
+  name: "viewer-state.write", input: z.object({ ...documentRef, position: viewerPosition.nullable() }),
   output: z.object({ saved: z.boolean() }),
 });
 

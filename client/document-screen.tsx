@@ -102,7 +102,7 @@ function ViewerContent({
   theme: PluginScreenProps["theme"];
   styles: Styles;
 }) {
-  const position = useViewerPosition(workspaceId, path, document.revision);
+  const position = useViewerPosition(workspaceId, path);
   const remembers = ["pdf", "pptx", "image-raster", "image-decoded", "xlsx", "csv"].includes(document.kind);
   if (remembers && !position.ready) return <LoadingState theme={theme} styles={styles} />;
   const common = { workspaceId, path, revision: document.revision, theme, styles, navigation };
