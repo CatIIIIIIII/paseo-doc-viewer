@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from "react";
-import { REVIEW_MAX_IMAGES, REVIEW_MAX_NOTE_CHARS, REVIEW_MAX_NOTES } from "../shared/limits";
+import { REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, REVIEW_MAX_IMAGES, REVIEW_MAX_NOTE_CHARS, REVIEW_MAX_NOTES } from "../shared/limits";
 
-// Review drafts live only in this module, which the host evaluates once per plugin
-// installation, so every screen and panel of a host shares them until the app reloads.
+// Review drafts live only in app memory. The host evaluates this bundle again when it
+// reconnects to a daemon, so the store hangs off the app's global object, keyed by host and
+// workspace, and lasts until the app reloads.
 
 export interface ReviewNote {
   readonly id: string;
@@ -30,14 +31,22 @@ export function pageImageKey({ path, revision, page }: Pick<ReviewNote, "path" |
   return `${path}\0${revision}\0${page}`;
 }
 
+export function reviewScope(hostId: string | undefined, workspaceId: string): string {
+  return `${hostId ?? ""}\0${workspaceId}`;
+}
+
+function withinBounds(image: PageImage): boolean {
+  return image.width <= REVIEW_IMAGE_MAX_EDGE_PX && image.height <= REVIEW_IMAGE_MAX_EDGE_PX && image.data.length <= REVIEW_IMAGE_MAX_BASE64_CHARS;
+}
+
 export function createReviewDrafts() {
   const drafts = new Map<string, ReviewDraft>();
   const listeners = new Set<() => void>();
   let serial = 0;
-  const get = (workspaceId: string) => drafts.get(workspaceId) ?? EMPTY;
-  const set = (workspaceId: string, draft: ReviewDraft) => {
-    if (draft.notes.length === 0) drafts.delete(workspaceId);
-    else drafts.set(workspaceId, draft);
+  const get = (scope: string) => drafts.get(scope) ?? EMPTY;
+  const set = (scope: string, draft: ReviewDraft) => {
+    if (draft.notes.length === 0) drafts.delete(scope);
+    else drafts.set(scope, draft);
     for (const listener of listeners) listener();
   };
   const withNotes = (draft: ReviewDraft, notes: readonly ReviewNote[]): ReviewDraft => {
@@ -53,47 +62,59 @@ export function createReviewDrafts() {
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
-    addNote(workspaceId: string, input: Omit<ReviewNote, "id">): ReviewNote | null {
-      const draft = get(workspaceId);
+    addNote(scope: string, input: Omit<ReviewNote, "id">): ReviewNote | null {
+      const draft = get(scope);
       const text = clean(input.text);
       if (!text || draft.notes.length >= REVIEW_MAX_NOTES) return null;
       const note = { ...input, id: `note-${++serial}`, text };
-      set(workspaceId, { ...draft, notes: [...draft.notes, note] });
+      set(scope, { ...draft, notes: [...draft.notes, note] });
       return note;
     },
-    editNote(workspaceId: string, id: string, value: string) {
-      const draft = get(workspaceId);
+    editNote(scope: string, id: string, value: string) {
+      const draft = get(scope);
       const text = clean(value);
       if (!text) return;
-      set(workspaceId, { ...draft, notes: draft.notes.map((note) => (note.id === id ? { ...note, text } : note)) });
+      set(scope, { ...draft, notes: draft.notes.map((note) => (note.id === id ? { ...note, text } : note)) });
     },
-    removeNote(workspaceId: string, id: string) {
-      const draft = get(workspaceId);
-      set(workspaceId, withNotes(draft, draft.notes.filter((note) => note.id !== id)));
+    removeNote(scope: string, id: string) {
+      const draft = get(scope);
+      set(scope, withNotes(draft, draft.notes.filter((note) => note.id !== id)));
     },
-    attachImage(workspaceId: string, key: string, image: PageImage): boolean {
-      const draft = get(workspaceId);
-      if (!draft.notes.some((note) => pageImageKey(note) === key)) return false;
+    removeNotes(scope: string, ids: readonly string[]) {
+      const draft = get(scope);
+      const removed = new Set(ids);
+      set(scope, withNotes(draft, draft.notes.filter((note) => !removed.has(note.id))));
+    },
+    attachImage(scope: string, key: string, image: PageImage): boolean {
+      const draft = get(scope);
+      if (!withinBounds(image) || !draft.notes.some((note) => pageImageKey(note) === key)) return false;
       if (!(key in draft.images) && Object.keys(draft.images).length >= REVIEW_MAX_IMAGES) return false;
-      set(workspaceId, { ...draft, images: { ...draft.images, [key]: image } });
+      set(scope, { ...draft, images: { ...draft.images, [key]: image } });
       return true;
     },
-    detachImage(workspaceId: string, key: string) {
-      const draft = get(workspaceId);
+    detachImage(scope: string, key: string) {
+      const draft = get(scope);
       if (!(key in draft.images)) return;
       const { [key]: _removed, ...images } = draft.images;
-      set(workspaceId, { ...draft, images });
+      set(scope, { ...draft, images });
     },
-    clear(workspaceId: string) {
-      set(workspaceId, EMPTY);
+    clear(scope: string) {
+      set(scope, EMPTY);
     },
   };
 }
 
 export type ReviewDrafts = ReturnType<typeof createReviewDrafts>;
 
-export const reviewDrafts = createReviewDrafts();
+const STORE_KEY = Symbol.for("paseo-doc-viewer/review-drafts/v1");
 
-export function useReviewDraft(workspaceId: string): ReviewDraft {
-  return useSyncExternalStore(reviewDrafts.subscribe, () => reviewDrafts.get(workspaceId), () => reviewDrafts.get(workspaceId));
+export function sharedReviewDrafts(global: object): ReviewDrafts {
+  const holder = global as { [STORE_KEY]?: ReviewDrafts };
+  return (holder[STORE_KEY] ??= createReviewDrafts());
+}
+
+export const reviewDrafts = sharedReviewDrafts(globalThis);
+
+export function useReviewDraft(scope: string): ReviewDraft {
+  return useSyncExternalStore(reviewDrafts.subscribe, () => reviewDrafts.get(scope), () => reviewDrafts.get(scope));
 }

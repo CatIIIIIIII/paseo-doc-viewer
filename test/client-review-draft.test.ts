@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createReviewDrafts, pageImageKey } from "../client/review-draft";
-import { REVIEW_MAX_IMAGES, REVIEW_MAX_NOTE_CHARS, REVIEW_MAX_NOTES } from "../shared/limits";
+import { createReviewDrafts, pageImageKey, reviewScope, sharedReviewDrafts } from "../client/review-draft";
+import { REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, REVIEW_MAX_IMAGES, REVIEW_MAX_NOTE_CHARS, REVIEW_MAX_NOTES } from "../shared/limits";
 
 const note = (page: number, text = `note ${page}`) => ({ path: "out/report.pdf", revision: "r1", page, text });
 const image = { mimeType: "image/png" as const, width: 10, height: 10, data: "AAAA" };
@@ -79,5 +79,34 @@ describe("review draft store", () => {
     drafts.attachImage("ws-1", pageImageKey(added), image);
     drafts.clear("ws-1");
     expect(drafts.get("ws-1")).toEqual({ notes: [], images: {} });
+  });
+
+  it("removes only the notes that were sent, keeping notes added meanwhile", () => {
+    const drafts = createReviewDrafts();
+    const sent = drafts.addNote("ws-1", note(1))!;
+    drafts.attachImage("ws-1", pageImageKey(sent), image);
+    const later = drafts.addNote("ws-1", note(2))!;
+    drafts.removeNotes("ws-1", [sent.id]);
+    expect(drafts.get("ws-1").notes).toEqual([later]);
+    expect(drafts.get("ws-1").images).toEqual({});
+  });
+
+  it("refuses page images over the edge or size bound", () => {
+    const drafts = createReviewDrafts();
+    const key = pageImageKey(drafts.addNote("ws-1", note(1))!);
+    expect(drafts.attachImage("ws-1", key, { ...image, width: REVIEW_IMAGE_MAX_EDGE_PX + 1 })).toBe(false);
+    expect(drafts.attachImage("ws-1", key, { ...image, height: REVIEW_IMAGE_MAX_EDGE_PX + 1 })).toBe(false);
+    expect(drafts.attachImage("ws-1", key, { ...image, data: "A".repeat(REVIEW_IMAGE_MAX_BASE64_CHARS + 4) })).toBe(false);
+    expect(drafts.attachImage("ws-1", key, { ...image, width: REVIEW_IMAGE_MAX_EDGE_PX, height: REVIEW_IMAGE_MAX_EDGE_PX })).toBe(true);
+  });
+
+  it("shares one store across evaluations of the plugin bundle in the same app", () => {
+    const global = {};
+    const first = sharedReviewDrafts(global);
+    first.addNote(reviewScope("host-a", "ws-1"), note(1));
+    expect(sharedReviewDrafts(global)).toBe(first);
+    expect(sharedReviewDrafts(global).get(reviewScope("host-a", "ws-1")).notes).toHaveLength(1);
+    expect(sharedReviewDrafts(global).get(reviewScope("host-b", "ws-1")).notes).toHaveLength(0);
+    expect(sharedReviewDrafts({})).not.toBe(first);
   });
 });
