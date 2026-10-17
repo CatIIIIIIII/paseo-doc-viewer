@@ -153,3 +153,23 @@ export function storedZip(entries: { name: string; data: string | Buffer }[]): B
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, directory, end]);
 }
+
+// A 26-byte little-endian TIFF whose single IFD's "next IFD" offset points back to itself. utif2's
+// UTIF.decode follows the IFD chain without cycle detection, looping until the process runs out of
+// memory. This is the code path server/images.ts firstTiffPage() uses for TIFF size and decode.
+export function selfReferentialTiff(): Buffer {
+  const buf = Buffer.alloc(26);
+  buf.write("II", 0, "latin1");
+  buf.writeUInt16LE(42, 2);
+  buf.writeUInt32LE(8, 4); // first IFD at offset 8
+  let at = 8;
+  buf.writeUInt16LE(1, at); // one entry
+  at += 2;
+  buf.writeUInt16LE(256, at); // ImageWidth
+  buf.writeUInt16LE(3, at + 2); // SHORT
+  buf.writeUInt32LE(1, at + 4); // count 1
+  buf.writeUInt32LE(1, at + 8); // value 1
+  at += 12;
+  buf.writeUInt32LE(8, at); // next IFD offset points back to this IFD
+  return buf;
+}
