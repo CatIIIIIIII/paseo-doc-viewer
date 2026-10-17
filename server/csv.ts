@@ -183,6 +183,37 @@ export async function indexCsv(path: string, extension: string): Promise<CsvInde
   return index;
 }
 
+// Streams rows from the checkpoint at or before `fromRow`, decoding only the requested columns.
+export async function csvRows(
+  path: string,
+  index: CsvIndex,
+  fromRow: number,
+  columnStart: number,
+  columnEnd: number,
+  deadline: number,
+  visit: (row: number, cells: string[]) => boolean,
+): Promise<void> {
+  const checkpoint = Math.min(Math.floor(fromRow / CHECKPOINT_ROWS), index.checkpoints.length - 1);
+  let row = checkpoint * CHECKPOINT_ROWS;
+  let current = new Array<string>(Math.max(0, columnEnd - columnStart)).fill("");
+  await scanCsv(path, index.checkpoints[checkpoint]!, index.delimiter, {
+    wants: (column) => row >= fromRow && column >= columnStart && column < columnEnd,
+    cell: (column, value, truncated) => {
+      current[column - columnStart] = decodeCell(value, truncated);
+    },
+    row: () => {
+      let more = true;
+      if (row >= fromRow) {
+        more = visit(row, current);
+        current = new Array<string>(current.length).fill("");
+      }
+      row++;
+      if (row % 4096 === 0 && Date.now() > deadline) throw new Error(ERROR_MESSAGES.slowWindow());
+      return more;
+    },
+  });
+}
+
 export async function csvWindow(
   path: string,
   index: CsvIndex,
@@ -197,27 +228,12 @@ export async function csvWindow(
   const rows: string[][] = [];
   let bytes = 0;
   if (rowOffset < rowEnd) {
-    const checkpoint = Math.min(Math.floor(rowOffset / CHECKPOINT_ROWS), index.checkpoints.length - 1);
-    let row = checkpoint * CHECKPOINT_ROWS;
-    let current = new Array<string>(Math.max(0, columnEnd - columnOffset)).fill("");
-    const deadline = Date.now() + WINDOW_DEADLINE_MS;
-    await scanCsv(path, index.checkpoints[checkpoint]!, index.delimiter, {
-      wants: (column) => row >= rowOffset && column >= columnOffset && column < columnEnd,
-      cell: (column, value, truncated) => {
-        current[column - columnOffset] = decodeCell(value, truncated);
-      },
-      row: () => {
-        if (row >= rowOffset) {
-          const rowBytes = Buffer.byteLength(JSON.stringify(current), "utf8") + 1;
-          if (rows.length > 0 && bytes + rowBytes > ROWS_BUDGET_BYTES) return false;
-          rows.push(current);
-          bytes += rowBytes;
-          current = new Array<string>(current.length).fill("");
-        }
-        row++;
-        if (row % 4096 === 0 && Date.now() > deadline) throw new Error(ERROR_MESSAGES.slowWindow());
-        return row < rowEnd;
-      },
+    await csvRows(path, index, rowOffset, columnOffset, columnEnd, Date.now() + WINDOW_DEADLINE_MS, (row, cells) => {
+      const rowBytes = Buffer.byteLength(JSON.stringify(cells), "utf8") + 1;
+      if (rows.length > 0 && bytes + rowBytes > ROWS_BUDGET_BYTES) return false;
+      rows.push(cells);
+      bytes += rowBytes;
+      return row + 1 < rowEnd;
     });
   }
   const next = rowOffset + rows.length;

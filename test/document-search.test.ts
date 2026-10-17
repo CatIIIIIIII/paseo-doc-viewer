@@ -37,8 +37,6 @@ describe("bounded in-document search", () => {
   });
 
   it("does not lose rows across column windows with worst-case escaped cell text", async () => {
-    // JSON escaping is worst-case six bytes per character. Both column windows
-    // must still advance through identical eight-row spans.
     const row = Array.from({ length: 52 }, () => `"${"\u0001".repeat(1990)}needle"`).join(",");
     const root = workspace({ "escaped.csv": Array.from({ length: 9 }, () => row).join("\n") });
     const matches = await all(root, "escaped.csv", "needle");

@@ -1,4 +1,4 @@
-import { literalPattern, type SearchCursor, type SearchMatch, type SearchTarget } from "../shared/search";
+import type { SearchCursor } from "../shared/search";
 import type { DocSearchOutput } from "../shared/rpc";
 import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
@@ -17,8 +17,8 @@ import type {
 } from "../shared/rpc";
 import { estimateBytes, memo } from "./cache";
 import { isEncryptedOoxml } from "./cfb";
-import { csvWindow, indexCsv } from "./csv";
-import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, type DocxModel } from "./docx";
+import { csvRows, csvWindow, indexCsv } from "./csv";
+import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, type DocxModel, type SourceBlock } from "./docx";
 import { heavy } from "./heavy";
 import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
 import { readChunk, sliceChunk, videoMimeType, audioMimeType } from "./media";
@@ -27,7 +27,8 @@ import { pdfPageCount, readPdfPageText, renderPdfPage } from "./pdf";
 import { loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
 import { IMAGE_BUDGET_BYTES, decodeBudget, type Fit } from "./raster";
 import { recentDocuments } from "./recent";
-import { loadSharedStrings, loadWorkbook, rowWindow, type Workbook } from "./xlsx";
+import { SEARCH_BUDGET_MS, SearchScan, parkStream, position, takeStream, type SearchPosition } from "./search";
+import { loadSharedStrings, loadWorkbook, rowWindow, sheetRows, type Workbook } from "./xlsx";
 import { readZipIndex, verifyEntries, type ZipIndex, type ZipLimits } from "./zip";
 import { ERROR_MESSAGES, errorText } from "../shared/errors";
 
@@ -350,77 +351,89 @@ export async function listRecent(root: string, request: Omit<DocsRecentInput, "w
   return recentDocuments(root, request);
 }
 
-// Each call examines at most one page, 32 Word blocks, or one bounded grid window.
-// The cursor resumes within a unit as well as between units, so dense matches are not lost.
-export async function searchDocument(ref: DocumentRef, query: string, cursor?: SearchCursor | null): Promise<DocSearchOutput> {
+const blockText = (block: SourceBlock) =>
+  "text" in block ? block.text
+    : block.type === "list" ? block.items.join("\n")
+    : block.type === "table" ? block.rows.map((row) => row.join("\t")).join("\n")
+    : "";
+
+// Each call scans units in document order until it holds 50 matches or its time budget
+// is spent, always making progress. The cursor resumes within a unit, so dense matches are not lost.
+export async function searchDocument(ref: DocumentRef, query: string, cursor?: SearchCursor | null, budgetMs = SEARCH_BUDGET_MS): Promise<DocSearchOutput> {
   query = query.trim();
   if (!query || query.length > 200) throw new Error("Enter a search term of 1–200 characters");
   const file = await locate(ref);
   if (cursor && (cursor.revision !== file.revision || cursor.query !== query)) throw new Error("The document or search changed. Search again.");
-  const state: SearchCursor = cursor ?? { revision: file.revision, query, unit: 0, sheet: 0, column: 0, item: 0, offset: 0 };
-  const items: { text: string; target: SearchTarget }[] = [];
-  const notes: string[] = [];
-  let next: SearchCursor | null = null;
-  const advance = (patch: Partial<SearchCursor>) => ({ ...state, item: 0, offset: 0, ...patch });
+  const state: SearchCursor = cursor ?? { revision: file.revision, query, sheet: 0, unit: 0, column: 0, offset: 0 };
+  const scan = new SearchScan(state, Date.now() + budgetMs);
+  const notes = new Set<string>();
   if (file.kind === "pdf") {
-    const page = await readPageText(ref, { index: state.unit });
-    items.push({ text: page.text, target: { type: "page", index: state.unit } });
-    if (state.unit + 1 < page.pageCount) next = advance({ unit: state.unit + 1 });
-    if (page.truncated) notes.push("Some page text exceeds the extraction limit and was not searched.");
-    notes.push("Search covers selectable text; scanned pages and outlined text require OCR.");
-  } else if (file.kind === "pptx") {
-    const model = await deck(file);
-    if (state.unit < model.slides.length) {
-      const texts = await heavy(() => readSlideTexts(model, state.unit));
-      items.push({ text: texts.join("\n"), target: { type: "page", index: state.unit } });
-      if (state.unit + 1 < model.slides.length) next = advance({ unit: state.unit + 1 });
-    }
-    notes.push("Search covers extracted slide text, subject to the viewer's text limits; pictures and notes are excluded.");
-  } else if (file.kind === "docx") {
-    let index = 0;
-    for await (const block of docxBlocks(await docx(file))) {
-      if (index++ < state.unit) continue;
-      if (items.length >= 32) { next = advance({ unit: index - 1 }); break; }
-      const text = "text" in block ? block.text : block.type === "list" ? block.items.join("\n")
-        : block.type === "table" ? block.rows.map((row) => row.join("\t")).join("\n") : "";
-      items.push({ text, target: { type: "block", index: index - 1 } });
-    }
-    notes.push("Search covers the reading view's bounded text; images and footnotes are excluded.");
-  } else if (file.kind === "xlsx" || file.kind === "csv") {
+    notes.add("Search covers selectable text; scanned pages and outlined text require OCR.");
     const opened = await openCached(file);
-    if (!("sheets" in opened)) throw new Error("No sheets available");
-    if (state.sheet < opened.sheets.length) {
-      const grid = await readRows(ref, { sheet: state.sheet, rowOffset: state.unit, columnOffset: state.column, maxColumns: 50, maxRows: 8 });
-      grid.rows.forEach((row, r) => row.forEach((text, c) => {
-        items.push({ text, target: { type: "cell", sheet: state.sheet, row: state.unit + r, column: state.column + c } });
-      }));
-      // Advance through every column window before proceeding to the next row window.
-      // Eight rows × 50 cells × 2,000 chars × 6 JSON bytes fit below the response
-      // budget, so every column window has the same row span (no skipped rows).
-      if (grid.nextColumnOffset !== null) next = advance({ column: grid.nextColumnOffset });
-      else if (grid.nextRowOffset !== null) next = advance({ unit: grid.nextRowOffset, column: 0 });
-      else if (state.sheet + 1 < opened.sheets.length) next = advance({ sheet: state.sheet + 1, unit: 0, column: 0 });
-      if (opened.sheetsTruncated) notes.push("Sheets beyond the viewer's 500-sheet limit are excluded.");
+    const pageCount = "pageCount" in opened ? opened.pageCount : 0;
+    for (let page = state.unit; page < pageCount; page++) {
+      const { text, truncated } = await HANDLERS.pdf.text!(file, { index: page });
+      if (truncated) notes.add("Some page text exceeds the extraction limit and was not searched.");
+      if (!scan.visit(text, { type: "page", index: page }, position(0, page), position(0, page + 1))) break;
     }
-    notes.push("Search covers displayed cell text (up to 2,000 characters per cell); chart text and comments are excluded.");
+  } else if (file.kind === "pptx") {
+    notes.add("Search covers extracted slide text, subject to the viewer's text limits; pictures and notes are excluded.");
+    const model = await deck(file);
+    for (let slide = state.unit; slide < model.slides.length; slide++) {
+      const texts = await heavy(() => readSlideTexts(model, slide));
+      if (!scan.visit(texts.join("\n"), { type: "page", index: slide }, position(0, slide), position(0, slide + 1))) break;
+    }
+  } else if (file.kind === "docx") {
+    notes.add("Search covers the reading view's bounded text; images and footnotes are excluded.");
+    const model = await docx(file);
+    await heavy(async () => {
+      let index = 0;
+      for await (const block of docxBlocks(model)) {
+        const at = index++;
+        if (at < state.unit) continue;
+        if (!scan.visit(blockText(block), { type: "block", index: at }, position(0, at), position(0, at + 1))) break;
+      }
+    });
+  } else if (file.kind === "xlsx" || file.kind === "csv") {
+    notes.add("Search covers displayed cell text (up to 2,000 characters per cell); chart text and comments are excluded.");
+    const visitRow = (sheet: number, row: number, cells: Iterable<readonly [number, string]>, from: SearchPosition) => {
+      for (const [column, text] of cells) {
+        if (!text || (row === from.unit && column < from.column)) continue;
+        const target = { type: "cell", sheet, row, column } as const;
+        if (!scan.visit(text, target, position(sheet, row, column), position(sheet, row, column + 1))) return false;
+      }
+      return true;
+    };
+    if (file.kind === "csv") {
+      const index = await csvIndex(file);
+      if (state.sheet === 0) {
+        await heavy(() => csvRows(file.path, index, state.unit, 0, index.columnCount, Number.POSITIVE_INFINITY,
+          (row, cells) => visitRow(0, row, cells.entries(), state)));
+      }
+    } else {
+      const model = await workbook(file);
+      const strings = await sharedStrings(file, model);
+      if (model.sheetsTruncated) notes.add("Sheets beyond the viewer's 500-sheet limit are excluded.");
+      await heavy(async () => {
+        for (let sheet = state.sheet; sheet < model.sheets.length && !scan.next; sheet++) {
+          const from = sheet === state.sheet ? state : position(sheet, 0);
+          const key = `${file.path}\0${file.revision}\0${sheet}`;
+          const stream = takeStream(key, from.unit, () => sheetRows(model, strings, model.sheets[sheet], from.unit));
+          try {
+            for await (const { row, cells } of stream.from(from.unit)) {
+              if (cells && !visitRow(sheet, row, [...cells].sort((a, b) => a[0] - b[0]), from)) break;
+            }
+          } catch (error) {
+            stream.close();
+            throw error;
+          }
+          parkStream(key, stream);
+        }
+      });
+    }
   } else throw new Error("Find is available for PDF, Word, spreadsheets and PowerPoint");
 
-  const matches: SearchMatch[] = [];
-  const pattern = literalPattern(query);
-  for (let item = state.item; item < items.length; item++) {
-    const entry = items[item];
-    pattern.lastIndex = item === state.item ? state.offset : 0;
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(entry.text))) {
-      matches.push({ target: entry.target, start: match.index, length: match[0].length,
-        snippet: entry.text.slice(Math.max(0, match.index - 45), match.index + match[0].length + 65) });
-      if (matches.length === 50) {
-        if ((await locate(ref)).revision !== file.revision) throw new Error("The document changed while searching. Search again.");
-        return { revision: file.revision, matches, next: { ...state, item, offset: pattern.lastIndex }, notes, scanned: 1 };
-      }
-    }
-  }
   // Reject an interleaved rewrite instead of attaching stale matches to a new revision.
   if ((await locate(ref)).revision !== file.revision) throw new Error("The document changed while searching. Search again.");
-  return { revision: file.revision, matches, next, notes, scanned: 1 };
+  return { revision: file.revision, matches: scan.matches, next: scan.next, notes: [...notes], scanned: scan.scanned };
 }

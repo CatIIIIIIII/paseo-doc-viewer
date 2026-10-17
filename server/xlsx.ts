@@ -263,6 +263,49 @@ function cellText(cell: string, workbook: Workbook, strings: string[]): string {
   }
 }
 
+export interface SheetRow {
+  row: number;
+  cells: Map<number, string> | null;
+  maxColumn: number;
+}
+
+// Yields every row in document order. Rows before `fromRow` carry no cells, so
+// skipping them costs only tokenizing; cells outside the column range are not decoded.
+export async function* sheetRows(
+  workbook: Workbook,
+  strings: string[],
+  sheet: SheetRef,
+  fromRow: number,
+  columnStart = 0,
+  columnEnd = Number.POSITIVE_INFINITY,
+  deadline = Number.POSITIVE_INFINITY,
+): AsyncGenerator<SheetRow> {
+  if (!sheet.part) return;
+  let current: SheetRow | null = null;
+  let column = -1;
+  let seen = 0;
+  for await (const match of scan(streamEntry(workbook.index, sheet.part, "xlsx"), SHEET_TOKEN)) {
+    const token = match[0];
+    if (token.startsWith("<row")) {
+      if (current) yield current;
+      const declared = Number(attribute(token, "r"));
+      const row: number = Number.isInteger(declared) && declared > 0 ? declared - 1 : (current?.row ?? -1) + 1;
+      current = { row, cells: row >= fromRow ? new Map() : null, maxColumn: -1 };
+      column = -1;
+      if (++seen % 4096 === 0 && Date.now() > deadline) throw new Error(ERROR_MESSAGES.slowWindow());
+      continue;
+    }
+    if (token === "</sheetData>") break;
+    if (token === "</row>") continue;
+    const reference = attribute(/^<c\b[^>]*>/.exec(token)?.[0] ?? token, "r");
+    column = reference ? columnIndex(reference) : column + 1;
+    if (!current?.cells) continue;
+    current.maxColumn = Math.max(current.maxColumn, column);
+    if (column >= columnStart && column < columnEnd) current.cells.set(column, cellText(token, workbook, strings));
+  }
+  if (current) yield current;
+}
+
 export async function rowWindow(
   workbook: Workbook,
   strings: string[],
@@ -278,35 +321,15 @@ export async function rowWindow(
   let maxColumn = -1;
   let beyond = -1;
   const deadline = Date.now() + WINDOW_DEADLINE_MS;
-  if (sheet.part) {
-    let row = -1;
-    let column = -1;
-    let cells: Map<number, string> | null = null;
-    let seen = 0;
-    for await (const match of scan(streamEntry(workbook.index, sheet.part, "xlsx"), SHEET_TOKEN)) {
-      const token = match[0];
-      if (token.startsWith("<row")) {
-        const declared = Number(attribute(token, "r"));
-        row = Number.isInteger(declared) && declared > 0 ? declared - 1 : row + 1;
-        column = -1;
-        if (row >= rowEnd) {
-          beyond = row;
-          break;
-        }
-        lastRow = Math.max(lastRow, row);
-        cells = row >= rowOffset ? new Map() : null;
-        if (cells) present.set(row, cells);
-        if (++seen % 4096 === 0 && Date.now() > deadline) throw new Error(ERROR_MESSAGES.slowWindow());
-        continue;
-      }
-      if (token === "</sheetData>") break;
-      if (token === "</row>") continue;
-      const reference = attribute(/^<c\b[^>]*>/.exec(token)?.[0] ?? token, "r");
-      column = reference ? columnIndex(reference) : column + 1;
-      if (!cells) continue;
-      maxColumn = Math.max(maxColumn, column);
-      if (column >= columnOffset && column < columnOffset + maxColumns) cells.set(column, cellText(token, workbook, strings));
+  for await (const { row, cells, maxColumn: rowColumns } of sheetRows(workbook, strings, sheet, rowOffset, columnOffset, columnOffset + maxColumns, deadline)) {
+    if (row >= rowEnd) {
+      beyond = row;
+      break;
     }
+    lastRow = Math.max(lastRow, row);
+    if (!cells) continue;
+    present.set(row, cells);
+    maxColumn = Math.max(maxColumn, rowColumns);
   }
   const rowCount = Math.max(sheet.rowCount, lastRow + 1, beyond + 1);
   const columnCount = Math.max(sheet.columnCount, maxColumn + 1);

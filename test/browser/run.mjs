@@ -79,6 +79,12 @@ try {
   await expect(page.getByRole("button", { name: "Next match", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Next match", exact: true }).click();
   await expect(page.getByText("B2", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "many.csv", exact: true }).click();
+  await page.getByRole("button", { name: "Find in document", exact: true }).click();
+  await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("needle");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.getByText("120 matches", { exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("button", { name: "Search more", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "contract.docx", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("services");

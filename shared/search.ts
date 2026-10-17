@@ -7,7 +7,7 @@ export const searchTarget = z.discriminatedUnion("type", [
 ]);
 export const searchCursor = z.object({
   revision: z.string().max(256), query: z.string().min(1).max(200),
-  unit: index, sheet: index, column: index, item: index, offset: index,
+  sheet: index, unit: index, column: index, offset: index,
 });
 export const searchMatch = z.object({ target: searchTarget, snippet: z.string(), start: index, length: index });
 export type SearchTarget = z.infer<typeof searchTarget>;
