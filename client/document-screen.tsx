@@ -101,13 +101,13 @@ function ViewerContent({
   navigation,
   searchMatches,
   pageMap,
-  onAddNote,
+  onActivePage,
 }: {
   navigation?: SearchNavigation | null;
   searchMatches?: SearchMatch[];
   pageMap?: { compact: boolean; onClose(): void } | null;
   compact: boolean;
-  onAddNote?: (page: number) => void;
+  onActivePage?: (index: number) => void;
   document: DocOpenOutput;
   workspaceId: string;
   path: string;
@@ -123,7 +123,7 @@ function ViewerContent({
   const key = `${workspaceId}\0${path}`;
   switch (document.kind) {
     case "pdf":
-      return <PageViewer key={key} {...common} {...remembered} kind="pdf" count={document.pageCount} password={password} searchMatches={searchMatches} pageMap={pageMap} onAddNote={onAddNote} />;
+      return <PageViewer key={key} {...common} {...remembered} kind="pdf" count={document.pageCount} password={password} searchMatches={searchMatches} pageMap={pageMap} onActivePage={onActivePage} />;
     case "pptx":
       return <PageViewer key={key} {...common} {...remembered} kind="pptx" count={document.slideCount} />;
     case "image-raster":
@@ -144,14 +144,15 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
   const [finding, setFinding] = useState(false);
   const [notePage, setNotePage] = useState<number | null>(null);
   const draft = useReviewDraft(scope);
-  const reviewable = props.document.kind === "pdf";
   const [navigation, setNavigation] = useState<SearchNavigation | null>(null);
   const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([]);
   const [mapOpen, setMapOpen] = useState(false);
+  const [activePage, setActivePage] = useState(0);
   useEffect(() => { setNavigation(null); setSearchMatches([]); setNotePage(null); }, [props.document.revision]);
   useEffect(() => { if (navigation) setMapOpen(false); }, [navigation]);
   const searchable = ["pdf", "docx", "xlsx", "csv", "pptx"].includes(props.document.kind);
-  const mappable = props.document.kind === "pdf" && props.document.pageCount > 0;
+  // Page map and review notes act on a PDF page, so both need at least one.
+  const paged = props.document.kind === "pdf" && props.document.pageCount > 0;
   const pageMap = useMemo(() => (mapOpen ? { compact: props.compact, onClose: () => setMapOpen(false) } : null), [mapOpen, props.compact]);
   return <FindScope enabled={searchable} onFind={() => { if (searchable) setFinding(true); }}>
     <View style={props.styles.screen}>
@@ -159,11 +160,14 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
       {searchable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="Search" label={props.compact ? undefined : "Find in document"} accessibilityLabel="Find in document"
         selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} /> : null}
       <View style={props.styles.toolbarSpacer} />
-      {mappable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="LayoutGrid" label={props.compact ? undefined : "Pages"} accessibilityLabel="Page map"
+      {paged ? <ToolbarButton theme={props.theme} styles={props.styles} icon="LayoutGrid" label={props.compact ? undefined : "Pages"} accessibilityLabel="Page map"
         selected={mapOpen} onPress={() => setMapOpen(!mapOpen)} /> : null}
-      {draft.notes.length > 0 ? <ToolbarButton theme={props.theme} styles={props.styles} icon="ClipboardList" label={`Review (${draft.notes.length})`}
+      {paged ? <ToolbarButton theme={props.theme} styles={props.styles} icon="MessageSquarePlus" label={props.compact ? undefined : "Add note"}
+        accessibilityLabel={`Add note to page ${activePage + 1}`} selected={notePage !== null} onPress={() => setNotePage(notePage === null ? activePage : null)} /> : null}
+      {draft.notes.length > 0 ? <ToolbarButton theme={props.theme} styles={props.styles} icon="ClipboardList"
+        label={props.compact ? String(draft.notes.length) : `Review (${draft.notes.length})`}
         accessibilityLabel={`Review notes (${draft.notes.length})`} onPress={() => openHostScreen(reviewScreen(props.workspaceId))} /> : null}
-      <ReviewControl workspaceId={props.workspaceId} path={props.path} revision={props.document.revision} theme={props.theme} styles={props.styles} />
+      <ReviewControl workspaceId={props.workspaceId} path={props.path} revision={props.document.revision} compact={props.compact} theme={props.theme} styles={props.styles} />
     </View>
     {notePage !== null ? <NoteComposer key={notePage} scope={scope} workspaceId={props.workspaceId} path={props.path} revision={props.document.revision}
       page={notePage} password={props.password} draft={draft} theme={props.theme} styles={props.styles} onClose={() => setNotePage(null)} /> : null}
@@ -171,21 +175,21 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
       revision={props.document.revision} pageLabel={props.document.kind === "pptx" ? "Slide" : "Page"} theme={props.theme} styles={props.styles} onNavigate={setNavigation}
       onMatches={setSearchMatches}
       onClose={() => { setFinding(false); setNavigation(null); setSearchMatches([]); }} /> : null}
-    <ViewerContent {...props} navigation={navigation} searchMatches={searchMatches} pageMap={pageMap} onAddNote={reviewable ? setNotePage : undefined} />
+    <ViewerContent {...props} navigation={navigation} searchMatches={searchMatches} pageMap={pageMap} onActivePage={paged ? setActivePage : undefined} />
   </View></FindScope>;
 }
 
 // Marking is always an explicit press, for the revision on screen; opening or scrolling never marks.
-function ReviewControl({ workspaceId, path, revision, theme, styles }: { workspaceId: string; path: string; revision: string; theme: PluginScreenProps["theme"]; styles: Styles }) {
+function ReviewControl({ workspaceId, path, revision, compact, theme, styles }: { workspaceId: string; path: string; revision: string; compact: boolean; theme: PluginScreenProps["theme"]; styles: Styles }) {
   const marks = useViewerMarks(workspaceId, path);
   if (!marks.ready) return null;
   const status = reviewStatus(marks.review, revision);
   if (status === "reviewed") {
-    return <ToolbarButton theme={theme} styles={styles} icon="Check" label="Reviewed" accessibilityLabel="Reviewed, clear the review mark" selected
+    return <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Reviewed"} accessibilityLabel="Reviewed, clear the review mark" selected
       disabled={marks.saving} onPress={() => void marks.setReview(null)} />;
   }
   return <>
-    {status === "changed" ? <Text style={[styles.muted, { color: theme.colors.statusWarning, flexShrink: 1 }]} numberOfLines={1}>Changed since review</Text> : null}
-    <ToolbarButton theme={theme} styles={styles} icon="Check" label="Mark reviewed" disabled={marks.saving} onPress={() => void marks.setReview(revision)} />
+    {status === "changed" ? <Text style={[styles.muted, { color: theme.colors.statusWarning, flexShrink: 1 }]} numberOfLines={1}>{compact ? "Changed" : "Changed since review"}</Text> : null}
+    <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Mark reviewed"} accessibilityLabel="Mark reviewed" disabled={marks.saving} onPress={() => void marks.setReview(revision)} />
   </>;
 }

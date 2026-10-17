@@ -27,6 +27,8 @@ const sent: unknown[] = [];
     send: async (text: string, options: unknown) => { if (id === "broken") throw new Error("sendAgentMessage rejected"); sent.push({ id, text, options }); },
   }),
 } };
+// ?compact renders the phone layout at phone width, for toolbar fit checks.
+const compact = new URLSearchParams(location.search).has("compact");
 function App() {
   const [path, setPath] = useState("statement.pdf");
   const [opened, setOpened] = useState(true);
@@ -34,12 +36,12 @@ function App() {
   const [Panel] = useState(() => createDocumentsPanel((input) => { setPath(input.params!.path!); setBrowsing(false); setOpened(true); }));
   const [screen, setScreen] = useState("document");
   useEffect(() => { setHostClient({ openScreen: ({ screenId }: { screenId: string }) => setScreen(screenId) } as any); return () => setHostClient(null); }, []);
-  const props = { host: {} as any, theme: theme as any, layout: { compact: false } as any, navigation: { openAgent: ({ agentId }: { agentId: string }) => { (window as any).__openedAgent = agentId; } } as any };
+  const props = { host: {} as any, theme: theme as any, layout: { compact } as any, navigation: { openAgent: ({ agentId }: { agentId: string }) => { (window as any).__openedAgent = agentId; } } as any };
   return <QueryClientProvider client={query}>
-    <nav style={{ display: "flex", gap: 8, marginBottom: 12 }}>{["statement.pdf", "invoices.xlsx", "contract.docx", "deck.pptx", "tone.wav", "audible.webm", "broken.pdf", "many.csv", "long.pdf", "report.pdf", "forecast.xlsx", ".env"].map((file) => <button key={file} onClick={() => { setPath(file); setOpened(true); setBrowsing(false); setScreen("document"); }}>{file}</button>)}
+    <nav style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>{["statement.pdf", "invoices.xlsx", "contract.docx", "deck.pptx", "tone.wav", "audible.webm", "broken.pdf", "many.csv", "long.pdf", "report.pdf", "forecast.xlsx", ".env"].map((file) => <button key={file} onClick={() => { setPath(file); setOpened(true); setBrowsing(false); setScreen("document"); }}>{file}</button>)}
       <button onClick={() => { setBrowsing(true); setScreen("document"); }}>Documents</button>
       <button onClick={() => setOpened(!opened)}>{opened ? "Close viewer" : "Reopen viewer"}</button></nav>
-    <main style={{ display: "flex", height: 780, width: 950 }}>{screen === "review"
+    <main style={{ display: "flex", height: 780, width: compact ? 390 : 950 }}>{screen === "review"
       ? <ReviewScreen {...props} params={{ workspaceId: "workspace" }} />
       : browsing ? <Panel context="workspace" workspaceId="workspace" theme={theme as any} layout={{ compact: false } as any} {...({} as any)} />
       : opened ? <DocumentScreen key={path} {...props} params={{ workspaceId: "workspace", path }} /> : null}</main>

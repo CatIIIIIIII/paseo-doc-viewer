@@ -416,7 +416,29 @@ try {
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
   await expect(page.getByRole("button", { name: /^Add note to page / })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Review notes/ })).toHaveCount(0);
+  // Phone layout: every PDF toolbar control, including the review ones, fits inside 390 px on one line.
+  // The browser runs single-process, so the same page switches to the phone viewport.
+  const phone = page;
+  await phone.setViewportSize({ width: 390, height: 844 });
+  await phone.goto(`http://127.0.0.1:${port}/?compact`);
+  await phone.getByRole("button", { name: "report.pdf", exact: true }).click();
+  await phone.getByRole("button", { name: "Reset reading position", exact: true }).click();
+  await expect(phone.getByText(/^1 \/ \d+$/)).toBeVisible();
+  await phone.getByRole("button", { name: "Add note to page 1", exact: true }).click();
+  await phone.getByRole("textbox", { name: "Note text", exact: true }).fill("Fits on a phone");
+  await phone.getByRole("button", { name: "Add note", exact: true }).click();
+  await expect(phone.getByRole("button", { name: "Review notes (1)", exact: true })).toBeVisible();
+  for (const name of ["Find in document", "Page map", "Add note to page 1", "Review notes (1)", "Mark reviewed", "Previous page", "Next page", "Reset reading position", "Show page text", "Zoom out", "Zoom in"]) {
+    const box = await phone.getByRole("button", { name, exact: true }).boundingBox();
+    expect(box, name).not.toBeNull();
+    expect(box.x, name).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width, name).toBeLessThanOrEqual(390);
+  }
+  const counter = await phone.getByText(/^1 \/ \d+$/).boundingBox();
+  expect(counter.height).toBeLessThan(20);
+  expect(await phone.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
+  await phone.screenshot({ path: `${directory}/phone-toolbar.png` });
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race), review notes (collect, edit, preview, copy, stale, send).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit.");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

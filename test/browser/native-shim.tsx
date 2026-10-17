@@ -2,7 +2,12 @@
 // own React Native Web integration; desktop/native still require host smoke tests.
 import React, { forwardRef, useEffect, useRef } from "react";
 const flatten = (value: any): any => Array.isArray(value) ? Object.assign({}, ...value.map(flatten)) : value ?? {};
-const css = (value: any) => { const result = { ...flatten(value) }; delete result.textAlignVertical; if (typeof result.lineHeight === "number") result.lineHeight = `${result.lineHeight}px`; return result; };
+// React Native's axis shorthands are not CSS properties.
+const AXES: Record<string, [string, string]> = { paddingHorizontal: ["paddingLeft", "paddingRight"], paddingVertical: ["paddingTop", "paddingBottom"], marginHorizontal: ["marginLeft", "marginRight"], marginVertical: ["marginTop", "marginBottom"] };
+const css = (value: any) => { const result = { ...flatten(value) }; delete result.textAlignVertical;
+  for (const [axis, [start, end]] of Object.entries(AXES)) if (axis in result) { result[start] ??= result[axis]; result[end] ??= result[axis]; delete result[axis]; } if (typeof result.lineHeight === "number") result.lineHeight = `${result.lineHeight}px`; return result; };
+// The harness has no real layout pass: scroll frames report a fixed width, narrower in the ?compact phone layout.
+const FRAME_WIDTH = new URLSearchParams(location.search).has("compact") ? 366 : 850;
 export const Platform = { OS: "web", select: (value: any) => value.web ?? value.default };
 export const StyleSheet = { create: (value: any) => value, flatten };
 export const PixelRatio = { get: () => 1 };
@@ -19,8 +24,8 @@ export const View = forwardRef<any, any>(function View({ children, style, onLayo
     const parent = element.parentElement?.getBoundingClientRect();
     onLayout({ nativeEvent: { layout: { x: rect.left - (parent?.left ?? 0), y: rect.top - (parent?.top ?? 0), width: rect.width, height: rect.height } } });
   });
-  return <div ref={(value) => { node.current = value; if (value) { (value as any).measure = (callback: any) => callback(0, 0, 850, 540, 0, 0); (value as any).measureInWindow = (callback: any) => callback(0, 0, 850, 540); } if (typeof ref === "function") ref(value); else if (ref) ref.current = value; }}
-    style={{ display: "flex", flexDirection: "column", minHeight: 0, ...css(style) }} aria-label={accessibilityLabel} role={accessibilityRole}>{children}</div>;
+  return <div ref={(value) => { node.current = value; if (value) { (value as any).measure = (callback: any) => callback(0, 0, FRAME_WIDTH, 540, 0, 0); (value as any).measureInWindow = (callback: any) => callback(0, 0, FRAME_WIDTH, 540); } if (typeof ref === "function") ref(value); else if (ref) ref.current = value; }}
+    style={{ display: "flex", flexDirection: "column", minHeight: 0, boxSizing: "border-box", ...css(style) }} aria-label={accessibilityLabel} role={accessibilityRole}>{children}</div>;
 });
 export const Text = ({ children, style, accessibilityLabel, onPress, accessibilityRole, onLayout }: any) => {
   const node = useRef<HTMLSpanElement>(null);
@@ -36,9 +41,9 @@ export const Text = ({ children, style, accessibilityLabel, onPress, accessibili
 // React Native Web renders Pressable as a focusable div with role=button, not a <button>.
 export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, accessibilityState, disabled, onPress }: any) => <div role={accessibilityRole === "radio" ? "radio" : "button"} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel}
   aria-pressed={accessibilityRole === "radio" ? undefined : accessibilityState?.selected} aria-checked={accessibilityRole === "radio" ? Boolean(accessibilityState?.selected) : undefined} aria-disabled={disabled || undefined}
-  onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }} style={{ cursor: "pointer", ...css(style) }}>{children}</div>;
+  onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }} style={{ cursor: "pointer", boxSizing: "border-box", ...css(style) }}>{children}</div>;
 export const ScrollView = forwardRef<any, any>(function ScrollView({ children, style, contentContainerStyle, onLayout, onScroll }: any, ref) {
-  useEffect(() => { onLayout?.({ nativeEvent: { layout: { width: 850, height: 540, x: 0, y: 0 } } }); }, [onLayout]);
+  useEffect(() => { onLayout?.({ nativeEvent: { layout: { width: FRAME_WIDTH, height: 540, x: 0, y: 0 } } }); }, [onLayout]);
   // React Native's scrollTo takes { x, y }; the DOM method takes { left, top }.
   return <div ref={(value) => { if (value) (value as any).scrollTo = ({ x, y }: { x?: number; y?: number }) => { if (y !== undefined) value.scrollTop = y; if (x !== undefined) value.scrollLeft = x; }; if (typeof ref === "function") ref(value); else if (ref) ref.current = value; }}
     style={{ overflow: "auto", ...css(style) }} onScroll={onScroll ? (event) => onScroll({ nativeEvent: { contentOffset: { x: event.currentTarget.scrollLeft, y: event.currentTarget.scrollTop } } }) : undefined}><div style={css(contentContainerStyle)}>{children}</div></div>;
@@ -49,6 +54,7 @@ export const TextInput = ({ value, onChangeText, onSubmitEditing, accessibilityL
 export const Image = ({ source, style, accessibilityLabel }: any) => <img src={source.uri} style={css(style)} alt={accessibilityLabel} />;
 export const ActivityIndicator = () => <span aria-label="Loading">…</span>;
 export const FlatList = ({ data, renderItem, keyExtractor, ListFooterComponent, contentContainerStyle }: any) => <div style={{ overflow: "auto", ...css(contentContainerStyle) }}>{data.map((item: any, index: number) => <div key={keyExtractor?.(item, index) ?? index}>{renderItem({ item, index })}</div>)}{ListFooterComponent}</div>;
-export const Icon = ({ name }: any) => <span aria-hidden="true">{({ Search: "⌕", Download: "↓", ChevronRight: "›", ChevronLeft: "‹", ChevronUp: "↑", ChevronDown: "↓", X: "×", RotateCcw: "↶" } as any)[name] ?? "•"}</span>;
+// Same box as the host icon at size 14, so toolbar widths match the app.
+export const Icon = ({ name, size = 14 }: any) => <span aria-hidden="true" style={{ display: "inline-block", width: size, textAlign: "center" }}>{({ Search: "⌕", Download: "↓", ChevronRight: "›", ChevronLeft: "‹", ChevronUp: "↑", ChevronDown: "↓", X: "×", RotateCcw: "↶" } as any)[name] ?? "•"}</span>;
 export const copyText = (value: string) => navigator.clipboard.writeText(value);
 export const useToast = () => ({ show() {}, error() {} });
