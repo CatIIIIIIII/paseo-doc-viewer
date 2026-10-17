@@ -1,4 +1,5 @@
 // Small generators for hostile inputs used by the post-0.4.0 audit tests (test/audit-*.test.ts).
+import { deflateSync } from "node:zlib";
 import { rawZip, type RawEntry } from "../zip-builder";
 
 const W = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
@@ -29,7 +30,7 @@ export function wideThenBlankCsv(columns: number, blankRows: number): string {
   return `${",".repeat(columns - 1)}\n${"\n".repeat(blankRows)}`;
 }
 
-// A PNG header (signature + IHDR) with the given size and no image data.
+// A PNG whose IHDR claims the given size but whose IDAT holds only a few bytes.
 export function pngHeaderOnly(width: number, height: number, colorType = 6, bitDepth = 8): Buffer {
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;
@@ -54,5 +55,5 @@ export function pngHeaderOnly(width: number, height: number, colorType = 6, bitD
   ihdr.writeUInt32BE(height, 4);
   ihdr[8] = bitDepth;
   ihdr[9] = colorType;
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IEND", Buffer.alloc(0))]);
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(Buffer.alloc(64))), chunk("IEND", Buffer.alloc(0))]);
 }
