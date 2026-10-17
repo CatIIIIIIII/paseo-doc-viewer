@@ -7,7 +7,7 @@ import { REVIEW_MAX_IMAGES, REVIEW_MAX_NOTE_CHARS } from "../shared/limits";
 import { reviewPageImageRpc } from "../shared/rpc";
 import { errorText } from "../shared/errors";
 import { pageImageKey, reviewDrafts, type ReviewDraft, type ReviewNote } from "./review-draft";
-import { ToolbarButton, type Styles } from "./ui";
+import { Checkbox, ToolbarButton, type Styles } from "./ui";
 
 export const REVIEW_SCREEN_ID = "review";
 
@@ -67,11 +67,10 @@ export function NoteComposer({ scope, workspaceId, path, revision, page, passwor
         style={[styles.text, styles.card, { minHeight: 64, padding: 8, textAlignVertical: "top" }]}
       />
       <View style={styles.toolbarGroup}>
-        <ToolbarButton theme={theme} styles={styles} icon={attach ? "SquareCheck" : "Square"} label="Attach page image"
-          selected={attach} disabled={!attachable || busy} onPress={() => setAttach(!attach)} />
+        <Checkbox theme={theme} styles={styles} label="Attach page image" checked={attach} disabled={!attachable || busy} onChange={setAttach} />
         <View style={styles.toolbarSpacer} />
         <ToolbarButton theme={theme} styles={styles} label="Cancel" disabled={busy} onPress={onClose} />
-        <ToolbarButton theme={theme} styles={styles} icon="Check" label="Add note" selected disabled={!text.trim() || busy} onPress={() => void add()} />
+        <ToolbarButton theme={theme} styles={styles} icon="Check" label="Add note" variant="primary" disabled={!text.trim() || busy} onPress={() => void add()} />
       </View>
       {!attachable ? <Text style={styles.muted}>{REVIEW_MAX_IMAGES} page images are already attached</Text> : null}
     </View>

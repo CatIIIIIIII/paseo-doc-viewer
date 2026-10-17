@@ -241,7 +241,7 @@ function Chip({
   selected: boolean;
   onPress(): void;
 }) {
-  const color = selected ? theme.colors.accentForeground : theme.colors.foreground;
+  const color = theme.colors.foreground;
   return (
     <Pressable
       accessibilityRole="button"
@@ -256,11 +256,11 @@ function Chip({
         paddingHorizontal: 12,
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: selected ? theme.colors.accent : theme.colors.border,
-        backgroundColor: selected ? theme.colors.accent : pressed || hovered ? theme.colors.surface2 : "transparent",
+        borderColor: selected ? theme.colors.surface2 : theme.colors.border,
+        backgroundColor: selected ? theme.colors.surface2 : pressed || hovered ? theme.colors.surface1 : "transparent",
       })}
     >
-      <Text style={{ color, fontSize: 12 }} numberOfLines={1}>
+      <Text style={{ color, fontSize: 12, fontWeight: selected ? "600" : "400" }} numberOfLines={1}>
         {label}
       </Text>
       <Text style={{ color: selected ? color : theme.colors.foregroundMuted, fontSize: 12, fontVariant: ["tabular-nums"] }}>

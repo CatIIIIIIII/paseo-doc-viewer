@@ -56,7 +56,7 @@ export function PasswordPrompt({ theme, styles, compact, incorrect, busy, onSubm
               fontSize: compact ? 16 : 14,
             }}
           />
-          <ToolbarButton theme={theme} styles={styles} label={busy ? "Unlocking..." : "Unlock"} disabled={busy || value === ""} onPress={submit} />
+          <ToolbarButton theme={theme} styles={styles} label={busy ? "Unlocking..." : "Unlock"} variant="primary" disabled={busy || value === ""} onPress={submit} />
         </View>
         {incorrect && !busy ? (
           <Text style={styles.danger} accessibilityRole="alert">

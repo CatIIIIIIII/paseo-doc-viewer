@@ -196,6 +196,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
                       styles={styles}
                       label={String(item.index + 1)}
                       accessibilityLabel={`${noun} ${item.index + 1}`}
+                      variant="toggle"
                       selected={item.index === active}
                       onPress={() => setIndex(item.index)}
                     />
@@ -228,6 +229,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
               styles={styles}
               icon="FileText"
               accessibilityLabel={textMode ? "Show page image" : "Show page text"}
+              variant="toggle"
               selected={textMode}
               onPress={() => { setShowText(!textMode); setSearchText(false); }}
             />

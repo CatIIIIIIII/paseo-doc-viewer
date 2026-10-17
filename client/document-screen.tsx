@@ -158,12 +158,12 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
     <View style={props.styles.screen}>
     <View style={props.styles.toolbar}>
       {searchable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="Search" label={props.compact ? undefined : "Find in document"} accessibilityLabel="Find in document"
-        selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} /> : null}
+        variant="toggle" selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} /> : null}
       <View style={props.styles.toolbarSpacer} />
       {paged ? <ToolbarButton theme={props.theme} styles={props.styles} icon="LayoutGrid" label={props.compact ? undefined : "Pages"} accessibilityLabel="Page map"
-        selected={mapOpen} onPress={() => setMapOpen(!mapOpen)} /> : null}
+        variant="toggle" selected={mapOpen} onPress={() => setMapOpen(!mapOpen)} /> : null}
       {paged ? <ToolbarButton theme={props.theme} styles={props.styles} icon="MessageSquarePlus" label={props.compact ? undefined : "Add note"}
-        accessibilityLabel={`Add note to page ${activePage + 1}`} selected={notePage !== null} onPress={() => setNotePage(notePage === null ? activePage : null)} /> : null}
+        accessibilityLabel={`Add note to page ${activePage + 1}`} variant="toggle" selected={notePage !== null} onPress={() => setNotePage(notePage === null ? activePage : null)} /> : null}
       {draft.notes.length > 0 ? <ToolbarButton theme={props.theme} styles={props.styles} icon="ClipboardList"
         label={props.compact ? String(draft.notes.length) : `Review (${draft.notes.length})`}
         accessibilityLabel={`Review notes (${draft.notes.length})`} onPress={() => openHostScreen(reviewScreen(props.workspaceId))} /> : null}
@@ -185,11 +185,11 @@ function ReviewControl({ workspaceId, path, revision, compact, theme, styles }: 
   if (!marks.ready) return null;
   const status = reviewStatus(marks.review, revision);
   if (status === "reviewed") {
-    return <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Reviewed"} accessibilityLabel="Reviewed, clear the review mark" selected
+    return <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Reviewed"} accessibilityLabel="Reviewed, clear the review mark" variant="toggle" selected
       disabled={marks.saving} onPress={() => void marks.setReview(null)} />;
   }
   return <>
     {status === "changed" ? <Text style={[styles.muted, { color: theme.colors.statusWarning, flexShrink: 1 }]} numberOfLines={1}>{compact ? "Changed" : "Changed since review"}</Text> : null}
-    <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Mark reviewed"} accessibilityLabel="Mark reviewed" disabled={marks.saving} onPress={() => void marks.setReview(revision)} />
+    <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Mark reviewed"} accessibilityLabel="Mark reviewed" variant="toggle" selected={false} disabled={marks.saving} onPress={() => void marks.setReview(revision)} />
   </>;
 }

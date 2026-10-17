@@ -96,8 +96,8 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
 
   const modeSwitch = (
     <View style={styles.toolbarGroup}>
-      <ToolbarButton theme={theme} styles={styles} label="Grid" selected={mode === "grid"} onPress={() => setMode("grid")} />
-      <ToolbarButton theme={theme} styles={styles} label="Records" selected={mode === "records"}
+      <ToolbarButton theme={theme} styles={styles} label="Grid" variant="toggle" selected={mode === "grid"} onPress={() => setMode("grid")} />
+      <ToolbarButton theme={theme} styles={styles} label="Records" variant="toggle" selected={mode === "records"}
         onPress={() => {
           setRecordStart(selected?.row ?? grid.rowOffset);
           setChoosingHeader(false);
@@ -121,6 +121,7 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
           theme={theme}
           styles={styles}
           label={candidate.name || `Sheet ${index + 1}`}
+          variant="toggle"
           selected={index === grid.sheet}
           onPress={() => {
             setSelected(null);
@@ -164,7 +165,7 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
           onPress={() => { setSelected(null); dispatch({ type: "reconcile", state: INITIAL_GRID }); }} />
         {kind === "xlsx" ? (
           <ToolbarButton theme={theme} styles={styles} icon="TriangleAlert" label="Issues" accessibilityLabel="Check for issues"
-            selected={checking} onPress={() => setChecking(!checking)} />
+            variant="toggle" selected={checking} onPress={() => setChecking(!checking)} />
         ) : null}
         <View style={styles.toolbarGroup}>
           <ToolbarButton
@@ -296,7 +297,7 @@ function gridStyles(theme: PluginTheme, styles: Styles) {
   const header: TextStyle = { ...styles.label, lineHeight: ROW_HEIGHT - 1 };
   const rowNumber: TextStyle = { ...header, width: ROW_NUMBER_WIDTH, backgroundColor: theme.colors.surface1 };
   const value: TextStyle = { ...styles.text, lineHeight: ROW_HEIGHT - 1 };
-  const selected: TextStyle = { backgroundColor: theme.colors.accent, color: theme.colors.accentForeground };
+  const selected: TextStyle = { borderWidth: 2, borderColor: theme.colors.accent, paddingHorizontal: 7, lineHeight: ROW_HEIGHT - 4 };
   return { cell, header, rowNumber, value, selected };
 }
 

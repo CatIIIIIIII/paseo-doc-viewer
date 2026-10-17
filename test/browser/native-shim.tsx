@@ -39,9 +39,14 @@ export const Text = ({ children, style, accessibilityLabel, onPress, accessibili
   return <span ref={node} style={{ whiteSpace: "pre-wrap", ...css(style) }} aria-label={accessibilityLabel} onClick={onPress} role={accessibilityRole}>{children}</span>;
 };
 // React Native Web renders Pressable as a focusable div with role=button, not a <button>.
-export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, accessibilityState, disabled, onPress }: any) => <div role={accessibilityRole === "radio" ? "radio" : "button"} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel}
-  aria-pressed={accessibilityRole === "radio" ? undefined : accessibilityState?.selected} aria-checked={accessibilityRole === "radio" ? Boolean(accessibilityState?.selected) : undefined} aria-disabled={disabled || undefined}
-  onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }} style={{ cursor: "pointer", boxSizing: "border-box", ...css(style) }}>{children}</div>;
+const CHECKED_ROLES = new Set(["radio", "checkbox"]);
+export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, accessibilityState, disabled, onPress }: any) => {
+  const checkable = CHECKED_ROLES.has(accessibilityRole);
+  return <div role={checkable ? accessibilityRole : "button"} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel}
+    aria-pressed={checkable ? undefined : accessibilityState?.selected} aria-checked={accessibilityRole === "radio" ? Boolean(accessibilityState?.selected) : accessibilityRole === "checkbox" ? Boolean(accessibilityState?.checked) : undefined} aria-disabled={disabled || undefined}
+    onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }}
+    style={{ cursor: "pointer", boxSizing: "border-box", ...css(typeof style === "function" ? style({ pressed: false, hovered: false }) : style) }}>{children}</div>;
+};
 export const ScrollView = forwardRef<any, any>(function ScrollView({ children, style, contentContainerStyle, onLayout, onScroll }: any, ref) {
   useEffect(() => { onLayout?.({ nativeEvent: { layout: { width: FRAME_WIDTH, height: 540, x: 0, y: 0 } } }); }, [onLayout]);
   // React Native's scrollTo takes { x, y }; the DOM method takes { left, top }.

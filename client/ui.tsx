@@ -50,9 +50,13 @@ export function makeStyles(theme: PluginTheme, compact: boolean, bottomInset = 0
       borderRadius: 6,
       backgroundColor: c.surface2,
     },
-    buttonSelected: { backgroundColor: c.accent },
+    // Toggles sit flat until pressed on, like the host's segmented controls; accent marks the one primary action.
+    buttonToggle: { backgroundColor: "transparent" },
+    buttonHovered: { backgroundColor: c.surface1 },
+    buttonToggleOn: { backgroundColor: c.surface2 },
+    buttonPrimary: { backgroundColor: c.accent },
     buttonText: { color: c.foreground, fontSize: 12 },
-    buttonTextSelected: { color: c.accentForeground },
+    buttonTextPrimary: { color: c.accentForeground },
     disabled: { opacity: 0.5 },
     card: { borderWidth: 1, borderColor: c.border, borderRadius: 8, backgroundColor: c.surface1 },
   };
@@ -119,6 +123,8 @@ export function ErrorState({ theme, styles, error, onRetry }: ChromeProps & { er
   );
 }
 
+export type ButtonVariant = { variant?: "default" | "primary" } | { variant: "toggle"; selected: boolean };
+
 export function ToolbarButton({
   theme,
   styles,
@@ -126,32 +132,57 @@ export function ToolbarButton({
   icon,
   onPress,
   disabled,
-  selected,
   accessibilityLabel,
-}: ChromeProps & {
+  ...kind
+}: ChromeProps & ButtonVariant & {
   label?: string;
   icon?: string;
   onPress(): void;
   disabled?: boolean;
-  selected?: boolean;
   accessibilityLabel?: string;
 }) {
-  const color = selected ? theme.colors.accentForeground : theme.colors.foreground;
+  const primary = kind.variant === "primary";
+  const toggle = kind.variant === "toggle" ? { on: kind.selected } : null;
+  const color = primary ? theme.colors.accentForeground : theme.colors.foreground;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityState={{ disabled: Boolean(disabled), selected: Boolean(selected) }}
+      accessibilityState={{ disabled: Boolean(disabled), ...(toggle ? { selected: toggle.on } : {}) }}
       disabled={disabled}
       onPress={onPress}
-      style={[styles.button, selected ? styles.buttonSelected : null, disabled ? styles.disabled : null]}
+      style={({ hovered }: { pressed: boolean; hovered?: boolean }) => [
+        styles.button,
+        primary ? styles.buttonPrimary : null,
+        toggle ? (toggle.on ? styles.buttonToggleOn : hovered && !disabled ? styles.buttonHovered : styles.buttonToggle) : null,
+        disabled ? styles.disabled : null,
+      ]}
     >
       {icon ? <Icon name={icon} size={14} color={color} /> : null}
       {label ? (
-        <Text style={[styles.buttonText, selected ? styles.buttonTextSelected : null]} numberOfLines={1}>
+        <Text style={[styles.buttonText, primary ? styles.buttonTextPrimary : null]} numberOfLines={1}>
           {label}
         </Text>
       ) : null}
+    </Pressable>
+  );
+}
+
+// A real checkbox: an icon and a plain label, no button fill.
+export function Checkbox({ theme, styles, label, checked, disabled, onChange }: ChromeProps & {
+  label: string; checked: boolean; disabled?: boolean; onChange(checked: boolean): void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityLabel={label}
+      accessibilityState={{ checked, disabled: Boolean(disabled) }}
+      disabled={disabled}
+      onPress={() => onChange(!checked)}
+      style={[styles.button, styles.buttonToggle, { paddingHorizontal: 0 }, disabled ? styles.disabled : null]}
+    >
+      <Icon name={checked ? "SquareCheck" : "Square"} size={16} color={theme.colors.foreground} />
+      <Text style={styles.buttonText}>{label}</Text>
     </Pressable>
   );
 }

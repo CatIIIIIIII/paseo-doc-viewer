@@ -90,7 +90,7 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
           const target = match.target;
           const label = target.type === "page" ? `${pageLabel} ${target.index + 1}` : target.type === "block" ? "Text" : `Sheet ${target.sheet + 1}, ${columnName(target.column)}${target.row + 1}`;
           return <View key={index} style={{ paddingVertical: 3 }}><ToolbarButton theme={theme} styles={styles}
-            label={`${label}: ${match.snippet.replace(/\s+/g, " ")}`} selected={index === selected} onPress={() => choose(index)} /></View>;
+            label={`${label}: ${match.snippet.replace(/\s+/g, " ")}`} variant="toggle" selected={index === selected} onPress={() => choose(index)} /></View>;
         })}
       </ScrollView> : null}
     </View>

@@ -84,7 +84,7 @@ export function IssuesPanel({ workspaceId, path, revision, sheetNames, theme, st
         <ScrollView style={{ maxHeight: 150 }}>
           {issues.map((issue, index) => (
             <View key={`${issue.sheet}:${issue.row}:${issue.column}`} style={{ paddingVertical: 3, alignItems: "flex-start" }}>
-              <ToolbarButton theme={theme} styles={styles} label={issueLabel(issue, sheetNames)} selected={index === chosen}
+              <ToolbarButton theme={theme} styles={styles} label={issueLabel(issue, sheetNames)} variant="toggle" selected={index === chosen}
                 onPress={() => choose(index)} />
             </View>
           ))}

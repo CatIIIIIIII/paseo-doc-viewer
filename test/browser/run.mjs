@@ -391,7 +391,9 @@ try {
   await page.getByRole("button", { name: "Next page", exact: true }).click();
   await page.getByRole("button", { name: "Add note to page 2", exact: true }).click();
   await page.getByRole("textbox", { name: "Note text", exact: true }).fill("Move this table onto its own page");
-  await page.getByRole("button", { name: "Attach page image", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Attach page image", exact: true })).toHaveAttribute("aria-checked", "false");
+  await page.getByRole("checkbox", { name: "Attach page image", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Attach page image", exact: true })).toHaveAttribute("aria-checked", "true");
   await page.screenshot({ path: `${directory}/review-compose.png`, fullPage: true });
   await page.getByRole("button", { name: "Add note", exact: true }).click();
   await expect(page.getByRole("button", { name: "Review notes (2)", exact: true })).toBeVisible();

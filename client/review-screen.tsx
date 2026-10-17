@@ -160,7 +160,7 @@ export function ReviewScreen({ host, theme, layout, params, navigation }: Plugin
                   <View style={[styles.toolbarGroup, { flexWrap: "wrap" }]}>
                     {isEditing ? (
                       <>
-                        <ToolbarButton theme={theme} styles={styles} icon="Check" label="Save" selected disabled={!editing.text.trim()} onPress={saveEdit} />
+                        <ToolbarButton theme={theme} styles={styles} icon="Check" label="Save" variant="primary" disabled={!editing.text.trim()} onPress={saveEdit} />
                         <ToolbarButton theme={theme} styles={styles} label="Cancel" onPress={() => setEditing(null)} />
                       </>
                     ) : (
@@ -198,7 +198,7 @@ export function ReviewScreen({ host, theme, layout, params, navigation }: Plugin
           <Text style={outcome.tone === "danger" ? styles.danger : styles.text} accessibilityRole={outcome.tone === "danger" ? "alert" : undefined}>{outcome.text}</Text>
         ) : null}
         <View style={styles.toolbarGroup}>
-          <ToolbarButton theme={theme} styles={styles} icon="Send" label={recipient ? `Send review to ${agentName(recipient)}` : "Send review"} selected
+          <ToolbarButton theme={theme} styles={styles} icon="Send" label={recipient ? `Send review to ${agentName(recipient)}` : "Send review"} variant={editing ? "default" : "primary"}
             disabled={!recipient?.ready || locked || editing !== null} onPress={() => void send()} />
           {sending ? <ActivityIndicator size="small" color={theme.colors.foregroundMuted} /> : null}
         </View>
