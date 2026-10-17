@@ -37,7 +37,7 @@ export default function contribute(client: PluginClientContext) {
     }),
     client.addSlashCommand({
       name: "doc",
-      description: "Open a document in the viewer, or the most recent one",
+      description: "Open a document in the viewer, or the newest PDF, Word, spreadsheet or slide file",
       argumentHint: "[path]",
       context: "workspace",
       onSubmit: openByPath,

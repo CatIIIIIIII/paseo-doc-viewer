@@ -7,8 +7,8 @@ Documents are rendered on the machine that runs your Paseo daemon, and the app o
 - The Documents button appears in the workspace header when the workspace scan finds at least one supported file and opens the Documents panel. It checks each workspace every 2 minutes, two workspaces at a time, waiting up to 10 minutes after errors, and disappears when no supported files remain. On a phone it shows as an icon. The panel can also be opened from the new tab menu, and on desktop and web it can sit in the explorer.
 - The Documents panel lists the documents in the workspace under PDF, Word, Spreadsheets, PowerPoint, Images, Video and Audio headings, newest first within each, and refreshes every few seconds. Tap a heading to collapse it. Each heading shows how many files of that type the workspace has.
 - Type buttons above the list show one type at a time, and the search box finds files whose name or folder contains every word you type, ignoring case. Search and type filters cover the whole workspace, not only the files in the list.
-- The Command Center has two workspace actions: "Open recent document" opens the newest one, and "Show documents" opens the panel.
-- The `/doc` slash command opens a document by its path in the workspace, or the newest one when you give no path.
+- The Command Center has two workspace actions: "Open recent document" opens the most relevant one, and "Show documents" opens the panel. The most relevant document is the newest PDF, Word, spreadsheet or slide file. Images, video and audio, such as test screenshots, are picked only when the workspace has none of those.
+- The `/doc` slash command opens a document by its path in the workspace, or the most relevant one (as for "Open recent document") when you give no path.
 
 An open document checks for changes every few seconds and shows the new version when an agent rewrites the file.
 

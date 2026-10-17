@@ -5,6 +5,7 @@ import {
   type DocumentGroup,
   type GroupCounts,
   groupEntries,
+  KIND_GROUP,
   newestFirst,
 } from "../shared/browse";
 import { RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
@@ -65,9 +66,26 @@ type CommandContext = Pick<PluginWorkspaceCommandContext, "rpc" | "openScreen" |
   workspace: { id: string };
 };
 
+// Groups a reader opens on purpose; images, video and audio are usually by-products such as screenshots.
+export const READING_GROUPS: readonly DocumentGroup[] = ["pdf", "word", "excel", "powerpoint"];
+const isReading = (entry: RecentEntry) => READING_GROUPS.includes(KIND_GROUP[entry.kind]);
+
+// The most relevant document: the newest PDF, Word, spreadsheet or slide file, else the newest
+// supported file of any type. The list is capped, so when screenshots crowd documents out of it the
+// per-group counts tell which groups to ask for; those calls reuse the daemon's workspace scan.
+export async function mostRelevant(rpc: CommandContext["rpc"], workspaceId: string): Promise<RecentEntry | undefined> {
+  const { entries, counts } = await rpc(docsRecentRpc, { workspaceId });
+  const newest = newestFirst(entries);
+  const reading = newest.find(isReading);
+  if (reading) return reading;
+  const missing = READING_GROUPS.filter((group) => counts[group] > 0);
+  if (missing.length === 0) return newest[0];
+  const found = await Promise.all(missing.map((group) => rpc(docsRecentRpc, { workspaceId, group, limit: 1 })));
+  return newestFirst(found.flatMap((result) => result.entries))[0] ?? newest[0];
+}
+
 export async function openMostRecent({ rpc, openScreen, openPanel, workspace }: CommandContext): Promise<void> {
-  const { entries } = await rpc(docsRecentRpc, { workspaceId: workspace.id });
-  const newest = newestFirst(entries)[0];
+  const newest = await mostRelevant(rpc, workspace.id);
   if (!newest) {
     openPanel(DOCUMENTS_PANEL_ID);
     return;
