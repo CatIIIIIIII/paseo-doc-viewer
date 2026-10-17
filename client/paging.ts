@@ -141,10 +141,12 @@ export function imageFitWidth({
   source: { width: number; height: number };
 }): number {
   if (!(panelWidth > 0) || source.width <= 0 || source.height <= 0) return 0;
+  // Fit shows the whole image at no more than its own size, so small images are not upscaled
+  // into blur and the size caption stays in view; zoom goes beyond.
   const native = Math.min(panelWidth, source.width);
   if (!(panelHeight > 0)) return native;
-  const contained = Math.min(panelWidth, (panelHeight * source.width) / source.height);
-  return Math.round(Math.max(native, contained));
+  const contained = (panelHeight * source.width) / source.height;
+  return Math.max(1, Math.round(Math.min(native, contained)));
 }
 
 export function zoomGroupWidth({ button, label, gap }: { button: number; label: number; gap: number }): number {

@@ -53,17 +53,14 @@ describe("zoomed slide text", () => {
 describe("image fit", () => {
   const panel = { panelWidth: 366, panelHeight: 600 };
 
-  it("scales a small image up until it fills the panel width", () => {
-    expect(imageFitWidth({ ...panel, source: { width: 64, height: 48 } })).toBe(366);
+  it("shows a small image at its own size instead of upscaling it", () => {
+    expect(imageFitWidth({ ...panel, source: { width: 64, height: 48 } })).toBe(64);
+    expect(imageFitWidth({ ...panel, source: { width: 30, height: 100 } })).toBe(30);
   });
 
-  it("stops scaling a small image up when it would be taller than the panel", () => {
-    expect(imageFitWidth({ ...panel, source: { width: 30, height: 100 } })).toBe(180);
-  });
-
-  it("shows a large image at the panel width and a tall one no narrower than its own width", () => {
+  it("shrinks a large image to the panel width, and a tall one to the panel height", () => {
     expect(imageFitWidth({ ...panel, source: { width: 1600, height: 1000 } })).toBe(366);
-    expect(imageFitWidth({ ...panel, source: { width: 300, height: 2000 } })).toBe(300);
+    expect(imageFitWidth({ ...panel, source: { width: 300, height: 2000 } })).toBe(90);
   });
 
   it("keeps the source width until the panel height is known", () => {
