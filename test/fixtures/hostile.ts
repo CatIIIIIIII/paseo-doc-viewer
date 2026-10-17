@@ -57,3 +57,59 @@ export function pngHeaderOnly(width: number, height: number, colorType = 6, bitD
   ihdr[9] = colorType;
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(Buffer.alloc(64))), chunk("IEND", Buffer.alloc(0))]);
 }
+
+// A one-page PDF whose content draws a Form XObject that draws the next level `fanout` times,
+// `depth` levels deep: fanout^depth tiny paint operations from a file of a few KB.
+export function nestedFormPdf(depth: number, fanout = 4): Buffer {
+  const objects: string[] = [];
+  const add = (body: string) => objects.push(body) + 2; // object numbers start at 3 (1 catalog, 2 pages)
+  const stream = (dict: string, content: string) => `<< ${dict} /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`;
+  let previous = add(stream("/Type /XObject /Subtype /Form /BBox [0 0 200 200]", "0 0 0 rg 10 10 180 180 re f"));
+  for (let level = 1; level <= depth; level++) {
+    const step = 200 / Math.ceil(Math.sqrt(fanout));
+    const draws = Array.from({ length: fanout }, (_, i) => {
+      const x = (i % Math.ceil(Math.sqrt(fanout))) * step;
+      const y = Math.floor(i / Math.ceil(Math.sqrt(fanout))) * step;
+      return `q ${step / 200} 0 0 ${step / 200} ${x} ${y} cm /P Do Q`;
+    }).join("\n");
+    previous = add(stream(`/Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /XObject << /P ${previous} 0 R >> >>`, draws));
+  }
+  const contents = add(stream("", "q /X Do Q"));
+  const page = add(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /X ${previous} 0 R >> >> /Contents ${contents} 0 R >>`);
+  const all = ["<< /Type /Catalog /Pages 2 0 R >>", `<< /Type /Pages /Kids [${page} 0 R] /Count 1 >>`, ...objects];
+  let out = "%PDF-1.7\n";
+  const offsets: number[] = [];
+  all.forEach((body, i) => {
+    offsets.push(Buffer.byteLength(out));
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(out);
+  out += `xref\n0 ${all.length + 1}\n0000000000 65535 f \n${offsets.map((at) => `${String(at).padStart(10, "0")} 00000 n \n`).join("")}`;
+  out += `trailer\n<< /Size ${all.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, "latin1");
+}
+
+// A one-page vector plot with `points` tiny filled squares, like a dense scatter plot export.
+export function scatterPdf(points: number): Buffer {
+  let seed = 1;
+  const next = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+  const ops: string[] = ["0 0 1 rg"];
+  for (let i = 0; i < points; i++) ops.push(`${(next() * 590).toFixed(1)} ${(next() * 830).toFixed(1)} 1 1 re f`);
+  const content = ops.join("\n");
+  const all = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
+  ];
+  let out = "%PDF-1.7\n";
+  const offsets: number[] = [];
+  all.forEach((body, i) => {
+    offsets.push(Buffer.byteLength(out));
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(out);
+  out += `xref\n0 ${all.length + 1}\n0000000000 65535 f \n${offsets.map((at) => `${String(at).padStart(10, "0")} 00000 n \n`).join("")}`;
+  out += `trailer\n<< /Size ${all.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, "latin1");
+}
