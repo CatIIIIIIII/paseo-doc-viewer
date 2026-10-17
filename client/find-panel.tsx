@@ -72,7 +72,7 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
       <View style={[styles.toolbarGroup, { flexWrap: "wrap" }]}>
         <TextInput autoFocus value={query} onChangeText={setQuery} maxLength={200} placeholder="Find in document"
           placeholderTextColor={theme.colors.foregroundMuted} accessibilityLabel="Find in document"
-          onSubmitEditing={() => void run()} style={[styles.text, { flex: 1, minWidth: 120, padding: 6, backgroundColor: theme.colors.surface1, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 6 }]} />
+          onSubmitEditing={() => void run()} style={[styles.text, { flex: 1, minWidth: 120, minHeight: styles.inputHeight, paddingHorizontal: 8, paddingVertical: 6, backgroundColor: theme.colors.surface1, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 6 }]} />
         <ToolbarButton theme={theme} styles={styles} label="Search" disabled={busy || !query.trim()} onPress={() => void run()} />
         {busy ? <ToolbarButton theme={theme} styles={styles} label="Stop" onPress={() => { generation.current++; setBusy(false); setError("Search stopped before completion. Search again to restart."); }} /> : null}
         <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel="Close find" onPress={onClose} />

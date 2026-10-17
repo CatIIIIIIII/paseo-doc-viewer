@@ -112,6 +112,7 @@ function DocumentsList({
             <Chip
               key={chip.group ?? "all"}
               theme={theme}
+              styles={styles}
               label={chip.group ? GROUP_LABEL[chip.group] : "All"}
               count={chip.count}
               selected={chip.group === group}
@@ -119,7 +120,7 @@ function DocumentsList({
             />
           ))}
           {recent.data.needsReview > 0 || needsReview ? (
-            <Chip theme={theme} label="Needs review" count={recent.data.needsReview} selected={needsReview} onPress={() => setNeedsReview(!needsReview)} />
+            <Chip theme={theme} styles={styles} label="Needs review" count={recent.data.needsReview} selected={needsReview} onPress={() => setNeedsReview(!needsReview)} />
           ) : null}
         </ScrollView>
       </View>
@@ -190,7 +191,7 @@ function SearchBox({
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        height: 36,
+        height: compact ? 44 : 36,
         marginHorizontal: styles.gutter,
         paddingLeft: 10,
         borderWidth: 1,
@@ -230,12 +231,12 @@ function SearchBox({
 
 function Chip({
   theme,
+  styles,
   label,
   count,
   selected,
   onPress,
-}: {
-  theme: PluginTheme;
+}: ChromeProps & {
   label: string;
   count: number;
   selected: boolean;
@@ -247,14 +248,15 @@ function Chip({
       accessibilityRole="button"
       accessibilityLabel={`${label}, ${count} ${count === 1 ? "document" : "documents"}`}
       accessibilityState={{ selected }}
+      hitSlop={styles.hitSlop}
       onPress={onPress}
       style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        height: 28,
+        height: styles.controlSize,
         paddingHorizontal: 12,
-        borderRadius: 14,
+        borderRadius: styles.controlSize / 2,
         borderWidth: 1,
         borderColor: selected ? theme.colors.surface2 : theme.colors.border,
         backgroundColor: selected ? theme.colors.surface2 : pressed || hovered ? theme.colors.surface1 : "transparent",

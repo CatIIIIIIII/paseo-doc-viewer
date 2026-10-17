@@ -7,20 +7,23 @@ import { canRetry } from "./paging";
 export function makeStyles(theme: PluginTheme, compact: boolean, bottomInset = 0) {
   const c = theme.colors;
   const gutter = compact ? 12 : 16;
+  // Phones get 40 pt controls plus a 4 pt hit slop (44 pt targets); desktop keeps 28.
+  const controlSize = compact ? 40 : 28;
   return {
     compact,
     gutter,
-    controlSize: 28,
-    hitSlop: undefined as number | undefined,
+    controlSize,
+    hitSlop: compact ? 4 : undefined,
+    inputHeight: compact ? 44 : 32,
     bottomInset,
     screen: { flex: 1, backgroundColor: c.surface0 },
     toolbar: {
       flexDirection: "row" as const,
       alignItems: "center" as const,
       gap: 8,
-      minHeight: 44,
+      minHeight: compact ? 48 : 44,
       paddingHorizontal: gutter,
-      paddingVertical: 8,
+      paddingVertical: compact ? 4 : 8,
       borderBottomWidth: 1,
       borderBottomColor: c.border,
       backgroundColor: c.surface0,
@@ -47,8 +50,8 @@ export function makeStyles(theme: PluginTheme, compact: boolean, bottomInset = 0
       alignItems: "center" as const,
       justifyContent: "center" as const,
       gap: 4,
-      height: 28,
-      minWidth: 28,
+      height: controlSize,
+      minWidth: controlSize,
       paddingHorizontal: 8,
       borderRadius: 6,
       backgroundColor: c.surface2,
@@ -152,6 +155,7 @@ export function ToolbarButton({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: Boolean(disabled), ...(toggle ? { selected: toggle.on } : {}) }}
+      hitSlop={styles.hitSlop}
       disabled={disabled}
       onPress={onPress}
       style={({ hovered }: { pressed: boolean; hovered?: boolean }) => [
@@ -180,6 +184,7 @@ export function Checkbox({ theme, styles, label, checked, disabled, onChange }: 
       accessibilityRole="checkbox"
       accessibilityLabel={label}
       accessibilityState={{ checked, disabled: Boolean(disabled) }}
+      hitSlop={styles.hitSlop}
       disabled={disabled}
       onPress={() => onChange(!checked)}
       style={[styles.button, styles.buttonToggle, { paddingHorizontal: 0 }, disabled ? styles.disabled : null]}

@@ -164,7 +164,7 @@ function PinSection({ pins, active, revision, count, compact, theme, styles, onO
             maxLength={PIN_LABEL_MAX_CHARS}
             autoFocus
             returnKeyType="done"
-            style={{ flex: 1, minWidth: 0, height: 32, paddingHorizontal: 8, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 6,
+            style={{ flex: 1, minWidth: 0, height: styles.inputHeight, paddingHorizontal: 8, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 6,
               backgroundColor: theme.colors.surface1, color: theme.colors.foreground, fontSize: compact ? 16 : 13, outlineWidth: 0 }}
           />
           <ToolbarButton theme={theme} styles={styles} label="Save pin" disabled={pins.saving} onPress={() => void save()} />

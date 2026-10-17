@@ -56,6 +56,7 @@ export interface PageViewerProps {
 
 const NOUN = { pdf: "Page", pptx: "Slide", image: "Image" } as const;
 const ZOOM_LABEL_WIDTH = 44;
+// An icon button is its 14 pt icon plus 8 pt padding per side, or the control size if larger.
 const ICON_BUTTON_WIDTH = 30;
 const IMAGE_LABEL_SPACE = 28;
 
@@ -198,7 +199,8 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
           <View
             style={[
               styles.toolbarGroup,
-              { width: zoomGroupWidth({ button: ICON_BUTTON_WIDTH, label: ZOOM_LABEL_WIDTH, gap: 8 }), justifyContent: "flex-end" },
+              { width: zoomGroupWidth({ button: Math.max(ICON_BUTTON_WIDTH, styles.controlSize), label: ZOOM_LABEL_WIDTH, gap: styles.compact ? 4 : 8 }),
+                gap: styles.compact ? 4 : 8, justifyContent: "flex-end" },
             ]}
           >
             {textMode ? (

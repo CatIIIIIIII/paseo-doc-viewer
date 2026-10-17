@@ -48,6 +48,8 @@ try {
   await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next page", exact: true }).click();
   await expect(page.getByText("2 / 3", { exact: true })).toBeVisible();
+  // Desktop keeps compact 28 px controls.
+  expect((await page.getByRole("button", { name: "Next page", exact: true }).boundingBox()).height).toBe(28);
   await page.getByRole("button", { name: "Zoom in", exact: true }).click();
   await expect(page.getByText("1.5x", { exact: true })).toBeVisible();
   // A click on the content must leave PageDown scrolling it, not a focus wrapper.
@@ -472,6 +474,8 @@ try {
     expect(box, name).not.toBeNull();
     expect(box.x, name).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width, name).toBeLessThanOrEqual(390);
+    // 40 pt controls plus a 4 pt hit slop make 44 pt touch targets on phones.
+    expect(box.height, name).toBeGreaterThanOrEqual(40);
   }
   const counter = await phone.getByText(/^1 \/ \d+$/).boundingBox();
   expect(counter.height).toBeLessThan(20);
