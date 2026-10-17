@@ -3,10 +3,13 @@ import { mkdir, open, readdir, readFile, rename, rm, stat } from "node:fs/promis
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { z } from "zod";
-import { viewerPosition, type ViewerPosition } from "../shared/viewer-state";
+import { ERROR_MESSAGES } from "../shared/errors";
+import { PINS_MAX_PER_FILE } from "../shared/limits";
+import { pagePins, viewerPosition, type PagePin, type ViewerPosition } from "../shared/viewer-state";
 import { resolveInside } from "./paths";
 
-const record = z.object({ position: viewerPosition, touched: z.number() });
+const record = z.object({ position: viewerPosition.optional(), pins: pagePins.optional(), touched: z.number() });
+type Entry = Omit<z.infer<typeof record>, "touched">;
 const stored = z.object({ version: z.literal(1), entries: z.record(z.string(), record) });
 const MAX_ENTRIES = 500;
 const MAX_BYTES = 1024 * 1024;
@@ -40,10 +43,19 @@ export class ViewerStateStore {
   }
 
   write(key: string, position: ViewerPosition | null): Promise<void> {
+    return this.update(key, (current) => ({ ...current, position: position ?? undefined })).then(() => {});
+  }
+
+  // Applies one change to a document's record inside the queue; a record left empty is removed.
+  update(key: string, change: (current: Entry | null) => Entry): Promise<Entry | null> {
     return this.queue(async () => {
       const data = await this.load();
-      if (position === null) delete data.entries[key];
-      else data.entries[key] = record.parse({ position, touched: Date.now() });
+      const existing = data.entries[key];
+      const { touched: _touched, ...current } = existing ?? { touched: 0 };
+      const next = record.parse({ ...change(existing ? current : null), touched: Date.now() });
+      const empty = next.position === undefined && !next.pins?.length;
+      if (empty) delete data.entries[key];
+      else data.entries[key] = next;
       const entries = Object.entries(data.entries).sort((a, b) => b[1].touched - a[1].touched).slice(0, MAX_ENTRIES);
       data.entries = Object.fromEntries(entries);
       let serialized = JSON.stringify(data);
@@ -61,6 +73,9 @@ export class ViewerStateStore {
       } finally {
         await rm(temporary, { force: true });
       }
+      if (empty) return null;
+      const { touched: _saved, ...saved } = next;
+      return saved;
     });
   }
 
@@ -134,3 +149,21 @@ export class ViewerStateStore {
 }
 
 export const viewerStateStore = new ViewerStateStore(stateDirectory());
+
+export async function readViewerState(store: ViewerStateStore, root: string, path: string) {
+  const saved = await store.read(await store.key(root, path));
+  return { saved: saved?.position ? { position: saved.position } : null, pins: saved?.pins ?? [] };
+}
+
+// Pinning a page that already has a pin replaces its label and revision: that is how a pin is confirmed.
+export async function setPin(store: ViewerStateStore, root: string, path: string, index: number, pin: { label?: string; revision: string } | null) {
+  const saved = await store.update(await store.key(root, path), (current) => {
+    const others = (current?.pins ?? []).filter((existing) => existing.index !== index);
+    if (pin === null) return { ...current, pins: others };
+    if (others.length >= PINS_MAX_PER_FILE) throw new Error(ERROR_MESSAGES.tooManyPins(PINS_MAX_PER_FILE));
+    const label = pin.label?.trim();
+    const added: PagePin = { index, ...(label ? { label } : {}), revision: pin.revision };
+    return { ...current, pins: [...others, added].sort((a, b) => a.index - b.index) };
+  });
+  return { pins: saved?.pins ?? [] };
+}

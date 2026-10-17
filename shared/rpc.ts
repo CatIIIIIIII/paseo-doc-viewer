@@ -1,5 +1,5 @@
 import { searchCursor, searchMatch } from "./search";
-import { viewerPosition } from "./viewer-state";
+import { documentRevision, pagePins, pinLabel, viewerPosition } from "./viewer-state";
 import { defineRpc } from "@getpaseo/plugin";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { z } from "zod";
@@ -226,14 +226,19 @@ export type DocSearchOutput = RpcOutput<typeof docSearchRpc>;
 
 export const viewerStateReadRpc = defineRpc({
   name: "viewer-state.read", input: z.object(documentRef),
-  output: z.object({ saved: z.object({ position: viewerPosition }).nullable() }),
+  output: z.object({ saved: z.object({ position: viewerPosition }).nullable(), pins: pagePins }),
 });
 export const viewerStateWriteRpc = defineRpc({
   name: "viewer-state.write", input: z.object({ ...documentRef, position: viewerPosition.nullable() }),
   output: z.object({ saved: z.boolean() }),
 });
+export const viewerStatePinRpc = defineRpc({
+  name: "viewer-state.pin",
+  input: z.object({ ...documentRef, index: z.number().int().nonnegative(), pin: z.object({ label: pinLabel.optional(), revision: documentRevision }).nullable() }),
+  output: z.object({ pins: pagePins }),
+});
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;

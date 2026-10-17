@@ -39,5 +39,5 @@ const server = createServer(async (request, response) => {
     response.setHeader("Content-Type", "application/json"); response.end(JSON.stringify(contract.output.parse(output)));
   } catch (error) { response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) })); }
 });
-server.listen(0, "127.0.0.1", () => process.stdout.write(JSON.stringify(server.address()) + "\n"));
+server.listen(0, "127.0.0.1", () => process.stdout.write(JSON.stringify({ ...(server.address() as object), root }) + "\n"));
 process.on("SIGTERM", () => { server.close(); rmSync(root, { recursive: true, force: true }); process.exit(0); });

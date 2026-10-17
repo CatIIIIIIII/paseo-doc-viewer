@@ -1,11 +1,11 @@
 import { fileInfo, fileChunk } from "./server/files";
-import { viewerStateStore } from "./server/viewer-state";
+import { readViewerState, setPin, viewerStateStore } from "./server/viewer-state";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, renderPage, renderThumbnail } from "./server/documents";
 import { searchGenerations } from "./server/search";
 import { workspaceRoot } from "./server/paths";
 import { hasDocuments } from "./server/recent";
-import { docBlocksRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc } from "./shared/rpc";
+import { docBlocksRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateWriteRpc } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(docOpenRpc, async ({ workspaceId, path, password }, { paseo }) =>
@@ -43,14 +43,16 @@ export default function contribute(server: PluginServerContext) {
     searchDocument({ root: await workspaceRoot(paseo, workspaceId), path, password }, query, cursor, undefined,
       searchId && searchGenerations.begin(searchId.session, searchId.generation)),
   );
-  server.handle(viewerStateReadRpc, async ({ workspaceId, path }, { paseo }) => {
-    const key = await viewerStateStore.key(await workspaceRoot(paseo, workspaceId), path);
-    return { saved: await viewerStateStore.read(key) };
-  });
+  server.handle(viewerStateReadRpc, async ({ workspaceId, path }, { paseo }) =>
+    readViewerState(viewerStateStore, await workspaceRoot(paseo, workspaceId), path),
+  );
   server.handle(viewerStateWriteRpc, async ({ workspaceId, path, position }, { paseo }) => {
     const key = await viewerStateStore.key(await workspaceRoot(paseo, workspaceId), path);
     await viewerStateStore.write(key, position);
     return { saved: true };
   });
+  server.handle(viewerStatePinRpc, async ({ workspaceId, path, index, pin }, { paseo }) =>
+    setPin(viewerStateStore, await workspaceRoot(paseo, workspaceId), path, index, pin),
+  );
   return () => {};
 }

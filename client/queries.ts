@@ -55,3 +55,7 @@ export function animationQueryKey(workspaceId: string, path: string, revision: s
 export function textQueryKey(workspaceId: string, path: string, revision: string, index: number) {
   return ["doc.text", workspaceId, path, revision, index] as const;
 }
+
+export function pinsQueryKey(workspaceId: string, path: string) {
+  return ["viewer-state.pins", workspaceId, path] as const;
+}

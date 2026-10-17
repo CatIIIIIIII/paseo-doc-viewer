@@ -37,7 +37,7 @@ let browser;
 let page;
 try {
   const output = await Promise.race([once(server.stdout, "data"), once(server, "exit").then(() => { throw new Error("Harness exited before listening"); })]);
-  const { port } = JSON.parse(output[0].toString());
+  const { port, root } = JSON.parse(output[0].toString());
   browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_EXECUTABLE_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage", "--no-zygote", "--single-process", "--disable-gpu", "--disable-software-rasterizer"] });
   page = await browser.newPage({ viewport: { width: 1100, height: 1000 }, acceptDownloads: true });
   const failures = [];
@@ -227,6 +227,33 @@ try {
   await page.getByRole("button", { name: "Open page 42", exact: true }).click();
   await expect(page.getByText("42 / 60", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: "Page 42", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Page map", exact: true }).click();
+  await page.getByRole("button", { name: "Pin page 42", exact: true }).click();
+  await page.getByRole("textbox", { name: "Pin label", exact: true }).fill("Chart");
+  await page.getByRole("button", { name: "Save pin", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Open pin: Page 42, Chart", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open page 42, pinned", exact: true })).toBeVisible();
+  await page.screenshot({ path: `${directory}/page-pins.png`, fullPage: true });
+  await page.getByRole("button", { name: "Close page map", exact: true }).click();
+  await page.getByRole("button", { name: "Reset reading position", exact: true }).click();
+  await expect(page.getByText("1 / 60", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close viewer", exact: true }).click();
+  await page.getByRole("button", { name: "Reopen viewer", exact: true }).click();
+  await page.getByRole("button", { name: "Page map", exact: true }).click();
+  await page.getByRole("button", { name: "Open pin: Page 42, Chart", exact: true }).click();
+  await expect(page.getByText("42 / 60", { exact: true })).toBeVisible();
+  // A rewrite keeps the pin but asks the user to check it; confirming takes the new revision.
+  const rewritten = await PDFDocument.load(await readFile(`${directory}/report.pdf`));
+  rewritten.removePage(0);
+  await writeFile(`${root}/report.pdf`, await rewritten.save());
+  await page.getByRole("button", { name: "Page map", exact: true }).click();
+  const changedPin = page.getByRole("button", { name: /^Open pin: Page 42, Chart, May need checking/ });
+  await expect(changedPin).toBeVisible({ timeout: 12000 });
+  await page.getByRole("button", { name: "Confirm pin on page 42", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Open pin: Page 42, Chart", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Remove pin on page 42", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Open pin:/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Close page map", exact: true }).click();
   // Closing the map stops further thumbnail requests; only those already sent may finish.
   await page.unroute("**/rpc", slowThumbnails);
   const verySlow = async (route) => {
@@ -244,6 +271,6 @@ try {
   expect(thumbnails.inFlight).toBe(0);
   await page.unroute("**/rpc", verySlow);
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

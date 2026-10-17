@@ -13,3 +13,5 @@ export const MEDIA_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 export const ANIMATION_MAX_BYTES = 16 * 1024 * 1024;
 export const RECENT_MAX_ENTRIES = 50;
 export const RECENT_MAX_SCANNED_ENTRIES = 50_000;
+export const PINS_MAX_PER_FILE = 30;
+export const PIN_LABEL_MAX_CHARS = 60;

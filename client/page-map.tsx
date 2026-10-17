@@ -1,11 +1,15 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { ActivityIndicator, Image, type LayoutChangeEvent, PixelRatio, Pressable, ScrollView, Text, View } from "react-native";
+import { PIN_LABEL_MAX_CHARS } from "../shared/limits";
 import { docThumbnailRpc } from "../shared/rpc";
+import type { PagePin } from "../shared/viewer-state";
+import { pinStatus } from "./pins";
 import { createThumbnailLoader, gridLayout, thumbnailCache, type ThumbnailLoader, type ThumbnailState, thumbnailWidth, visibleOrder } from "./thumbnails";
 import { type Styles, ToolbarButton } from "./ui";
+import { usePins } from "./use-pins";
 
 const MAX_THUMBNAIL_PIXEL_RATIO = 2;
 
@@ -27,11 +31,12 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
   const fetchThumbnail = useRpc(docThumbnailRpc);
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   const [offset, setOffset] = useState(0);
-  const [measuredTop, setGridTop] = useState<number | null>(null);
-  const gridTop = measuredTop ?? styles.gutter;
+  const gridTop = styles.gutter;
   const [loader, setLoader] = useState<ThumbnailLoader | null>(null);
   const [, refresh] = useReducer((tick: number) => tick + 1, 0);
   const scroller = useRef<ScrollView>(null);
+  const pins = usePins(workspaceId, path);
+  const pinned = new Set(pins.pins.map((pin) => pin.index));
   const scrolledToActive = useRef(false);
   const layout = frame.width > 0 ? gridLayout(frame.width - styles.gutter * 2, compact) : null;
   const width = layout ? thumbnailWidth(layout.cellWidth, Math.min(MAX_THUMBNAIL_PIXEL_RATIO, PixelRatio.get())) : null;
@@ -60,11 +65,11 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
   }, [loader, columns, rowHeight, offset, gridTop, frame.height, count]);
 
   useEffect(() => {
-    if (!layout || measuredTop === null || scrolledToActive.current) return;
+    if (!layout || scrolledToActive.current) return;
     scrolledToActive.current = true;
     const y = gridTop + Math.floor(active / layout.columns) * layout.rowHeight;
     if (y > frame.height / 2) scroller.current?.scrollTo({ y: y - styles.gutter, animated: false });
-  }, [layout, measuredTop, gridTop, active, frame.height, styles.gutter]);
+  }, [layout, gridTop, active, frame.height, styles.gutter]);
 
   const onLayout = (event: LayoutChangeEvent) => {
     const { width: frameWidth, height } = event.nativeEvent.layout;
@@ -89,6 +94,7 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
         <Text style={[styles.text, { flex: 1 }]} numberOfLines={1}>Pages</Text>
         <Text style={styles.label}>{count} {count === 1 ? "page" : "pages"}</Text>
       </View>
+      <PinSection pins={pins} active={active} revision={revision} count={count} compact={compact} theme={theme} styles={styles} onOpen={onOpen} />
       <ScrollView
         ref={scroller}
         style={{ flex: 1 }}
@@ -97,7 +103,6 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
         scrollEventThrottle={64}
         contentContainerStyle={{ padding: styles.gutter, paddingBottom: styles.gutter + styles.bottomInset }}
       >
-        <View onLayout={(event: LayoutChangeEvent) => setGridTop(styles.gutter + event.nativeEvent.layout.height)} />
         {layout ? (
           <View style={{ position: "relative", height: rows * layout.rowHeight }} accessibilityLabel="Page thumbnails">
             {cells.map((index) => (
@@ -106,6 +111,7 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
                 index={index}
                 state={loader?.state(index)}
                 current={index === active}
+                pinned={pinned.has(index)}
                 left={(index % layout.columns) * (layout.cellWidth + layout.gap)}
                 top={Math.floor(index / layout.columns) * layout.rowHeight}
                 width={layout.cellWidth}
@@ -123,10 +129,108 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
   );
 }
 
-function ThumbnailCell({ index, state, current, left, top, width, height, theme, styles, onOpen, onRetry }: {
+function PinSection({ pins, active, revision, count, compact, theme, styles, onOpen }: {
+  pins: ReturnType<typeof usePins>;
+  active: number;
+  revision: string;
+  count: number;
+  compact: boolean;
+  theme: PluginTheme;
+  styles: Styles;
+  onOpen(index: number): void;
+}) {
+  const [label, setLabel] = useState<string | null>(null);
+  const activePin = pins.pins.find((pin) => pin.index === active);
+  const save = async () => {
+    if (label !== null && (await pins.change(active, { label, revision }))) setLabel(null);
+  };
+  return (
+    <View style={{ gap: 8, paddingHorizontal: styles.gutter, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+      {label === null ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <ToolbarButton theme={theme} styles={styles} icon="Bookmark" label={activePin ? `Edit pin on page ${active + 1}` : `Pin page ${active + 1}`}
+            disabled={!pins.ready} onPress={() => setLabel(activePin?.label ?? "")} />
+          {pins.failed ? <Text style={styles.muted}>Pins are unavailable right now</Text> : null}
+        </View>
+      ) : (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <TextInput
+            value={label}
+            onChangeText={setLabel}
+            onSubmitEditing={() => void save()}
+            placeholder={`Label for page ${active + 1} (optional)`}
+            placeholderTextColor={theme.colors.foregroundMuted}
+            accessibilityLabel="Pin label"
+            maxLength={PIN_LABEL_MAX_CHARS}
+            autoFocus
+            returnKeyType="done"
+            style={{ flex: 1, minWidth: 0, height: 32, paddingHorizontal: 8, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 6,
+              backgroundColor: theme.colors.surface1, color: theme.colors.foreground, fontSize: compact ? 16 : 13, outlineWidth: 0 }}
+          />
+          <ToolbarButton theme={theme} styles={styles} label="Save pin" disabled={pins.saving} onPress={() => void save()} />
+          <ToolbarButton theme={theme} styles={styles} label="Cancel" onPress={() => setLabel(null)} />
+        </View>
+      )}
+      {pins.pins.length > 0 ? (
+        <ScrollView style={{ flexGrow: 0, maxHeight: compact ? 150 : 200 }} contentContainerStyle={{ gap: 6 }} accessibilityLabel="Pinned pages">
+          {pins.pins.map((pin) => (
+            <PinRow key={pin.index} pin={pin} revision={revision} count={count} saving={pins.saving} theme={theme} styles={styles}
+              onOpen={() => onOpen(pin.index)}
+              onConfirm={() => void pins.change(pin.index, { label: pin.label, revision })}
+              onRemove={() => void pins.change(pin.index, null)} />
+          ))}
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+}
+
+const PIN_NOTE = { current: null, changed: "May need checking: the file changed since this pin was saved", missing: "This page no longer exists" } as const;
+
+function PinRow({ pin, revision, count, saving, theme, styles, onOpen, onConfirm, onRemove }: {
+  pin: PagePin;
+  revision: string;
+  count: number;
+  saving: boolean;
+  theme: PluginTheme;
+  styles: Styles;
+  onOpen(): void;
+  onConfirm(): void;
+  onRemove(): void;
+}) {
+  const status = pinStatus(pin, revision, count);
+  const note = PIN_NOTE[status];
+  const page = `Page ${pin.index + 1}`;
+  return (
+    <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 8, paddingRight: 8 }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Open pin: ${page}${pin.label ? `, ${pin.label}` : ""}${note ? `, ${note}` : ""}`}
+        disabled={status === "missing"}
+        onPress={onOpen}
+        style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingLeft: 10 }}
+      >
+        <Icon name="Bookmark" size={14} color={status === "current" ? theme.colors.accent : theme.colors.statusWarning} />
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <Text style={styles.text} numberOfLines={1}>
+            {page}{pin.label ? ` · ${pin.label}` : ""}
+          </Text>
+          {note ? <Text style={[styles.muted, { color: theme.colors.statusWarning }]} numberOfLines={2}>{note}</Text> : null}
+        </View>
+      </Pressable>
+      {status === "changed" ? (
+        <ToolbarButton theme={theme} styles={styles} icon="Check" accessibilityLabel={`Confirm pin on ${page.toLowerCase()}`} disabled={saving} onPress={onConfirm} />
+      ) : null}
+      <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel={`Remove pin on ${page.toLowerCase()}`} disabled={saving} onPress={onRemove} />
+    </View>
+  );
+}
+
+function ThumbnailCell({ index, state, current, pinned, left, top, width, height, theme, styles, onOpen, onRetry }: {
   index: number;
   state: ThumbnailState | undefined;
   current: boolean;
+  pinned: boolean;
   left: number;
   top: number;
   width: number;
@@ -157,7 +261,7 @@ function ThumbnailCell({ index, state, current, left, top, width, height, theme,
     <View style={{ position: "absolute", left, top, width }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Open page ${index + 1}`}
+        accessibilityLabel={`Open page ${index + 1}${pinned ? ", pinned" : ""}`}
         accessibilityState={{ selected: current }}
         onPress={onOpen}
         style={{
@@ -173,6 +277,11 @@ function ThumbnailCell({ index, state, current, left, top, width, height, theme,
         }}
       >
         {body}
+        {pinned ? (
+          <View pointerEvents="none" style={{ position: "absolute", top: 4, right: 4, padding: 3, borderRadius: 4, backgroundColor: theme.colors.accent }}>
+            <Icon name="Bookmark" size={12} color={theme.colors.accentForeground} />
+          </View>
+        ) : null}
       </Pressable>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, height: 22 }}>
         <Text style={[styles.label, current ? { color: theme.colors.foreground } : null]}>{index + 1}</Text>
