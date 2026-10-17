@@ -18,6 +18,7 @@ import { ErrorState, LoadingState, makeStyles, MessageState, type Styles, Toolba
 import { useBottomInset } from "./use-bottom-inset";
 import { useViewerPosition } from "./use-viewer-position";
 import { MediaViewer } from "./media-viewer";
+import { kindForPath } from "../shared/kinds";
 
 export function documentTitle(params: Record<string, string>): string {
   return params.path ? baseName(params.path) : "Document";
@@ -78,7 +79,7 @@ export function DocumentScreen({ theme, layout, params }: PluginScreenProps) {
   }
   return (
     <View ref={ref} onLayout={onLayout} style={{ flex: 1 }}>
-      {workspaceId && path && canDownloadOriginal ? <View style={styles.toolbar}><DownloadOriginal key={documentKey} workspaceId={workspaceId} path={path} theme={theme} styles={styles} /></View> : null}
+      {workspaceId && kindForPath(path) && canDownloadOriginal ? <View style={styles.toolbar}><DownloadOriginal key={documentKey} workspaceId={workspaceId} path={path} theme={theme} styles={styles} /></View> : null}
       {body}
     </View>
   );

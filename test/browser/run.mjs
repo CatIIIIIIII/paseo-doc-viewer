@@ -92,14 +92,17 @@ try {
   await expect(page.getByRole("button", { name: "Next match", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Next match", exact: true }).click();
   await expect(page.getByText("Reading from search match", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "broken.unknown", exact: true }).click();
+  await page.getByRole("button", { name: "broken.pdf", exact: true }).click();
   await page.getByRole("button", { name: "Download original", exact: true }).click();
   await expect(page.getByRole("link", { name: "Save original file", exact: true })).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("link", { name: "Save original file", exact: true }).click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe("broken.unknown");
+  expect(download.suggestedFilename()).toBe("broken.pdf");
   expect(await readFile(await download.path(), "utf8")).toBe("original unsupported file");
+  await page.getByRole("button", { name: ".env", exact: true }).click();
+  await expect(page.getByText(/Unsupported file type/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download original", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "tone.wav", exact: true }).click();
   await expect(page.locator("audio")).toBeVisible();
   const media = await page.locator("audio").evaluate(async (element) => {
@@ -137,7 +140,7 @@ try {
   await expect(page.getByRole("button", { name: /^Page \d+:/ })).toHaveCount(0);
   await expect(page.getByText("3 matches", { exact: true })).toHaveCount(0);
   await page.unroute("**/rpc", delaySearch);
-  await page.getByRole("button", { name: "broken.unknown", exact: true }).click();
+  await page.getByRole("button", { name: "broken.pdf", exact: true }).click();
   const delayChunk = async (route) => {
     if (route.request().postDataJSON().method === "file.chunk") await new Promise((resolve) => setTimeout(resolve, 250));
     await route.continue().catch(() => {});
