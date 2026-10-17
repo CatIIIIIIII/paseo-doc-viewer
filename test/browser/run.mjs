@@ -367,10 +367,13 @@ try {
   await expect(page.getByRole("button", { name: /^Needs review/ })).toHaveCount(0);
   await touch("statement.pdf", Date.now() / 1000 + 60);
   await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible({ timeout: 15000 });
+  // Needs review leads the filter row, so it is not scrolled off on a phone.
+  await expect(page.getByRole("button", { name: /^(Needs review|All), / }).first()).toHaveAttribute("aria-label", "Needs review, 1 document");
   await page.getByRole("button", { name: "Needs review, 1 document", exact: true }).click();
   await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(1);
   await page.screenshot({ path: `${directory}/needs-review.png`, fullPage: true });
   await page.getByRole("button", { name: /^Open statement\.pdf/ }).click();
+  await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
   await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
   // A rewrite the open viewer has not picked up yet must not be marked reviewed.
   await touch("statement.pdf", Date.now() / 1000 + 120);

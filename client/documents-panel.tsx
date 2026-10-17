@@ -9,7 +9,7 @@ import { docsRecentRpc } from "../shared/rpc";
 import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, KIND_LABEL, parentDir, relativeTime } from "./format";
 import { recentQueryOptions } from "./queries";
 import { type BrowseRow, browseRows, documentScreen, filterChips, listFooter, noMatchDetail, type RecentEntry } from "./recent";
-import { ErrorState, LoadingState, makeStyles, MessageState, type Styles } from "./ui";
+import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, type Styles } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -108,6 +108,9 @@ function DocumentsList({
           style={{ flexGrow: 0 }}
           contentContainerStyle={{ gap: 6, paddingHorizontal: styles.gutter }}
         >
+          {recent.data.needsReview > 0 || needsReview ? (
+            <Chip theme={theme} styles={styles} label="Needs review" count={recent.data.needsReview} selected={needsReview} onPress={() => setNeedsReview(!needsReview)} />
+          ) : null}
           {filterChips(recent.data.counts, group).map((chip) => (
             <Chip
               key={chip.group ?? "all"}
@@ -119,9 +122,6 @@ function DocumentsList({
               onPress={() => setGroup(chip.group)}
             />
           ))}
-          {recent.data.needsReview > 0 || needsReview ? (
-            <Chip theme={theme} styles={styles} label="Needs review" count={recent.data.needsReview} selected={needsReview} onPress={() => setNeedsReview(!needsReview)} />
-          ) : null}
         </ScrollView>
       </View>
       {entries.length === 0 ? (
@@ -339,10 +339,9 @@ function EntryRow({
           <Text style={[styles.text, { flexShrink: 1 }]} numberOfLines={1}>
             {baseName(entry.path)}
           </Text>
-          {entry.review === "reviewed" ? <Icon name="Check" size={12} color={theme.colors.statusSuccess} /> : null}
+          {entry.review ? <StatusPill theme={theme} styles={styles} status={entry.review} label={styles.compact ? "short" : "full"} /> : null}
         </View>
         <Text style={styles.muted} numberOfLines={1}>
-          {entry.review === "changed" ? <Text style={{ color: theme.colors.statusWarning }}>Changed since review · </Text> : null}
           {directory ? `${directory} · ` : ""}
           {humanSize(entry.size)}
         </Text>

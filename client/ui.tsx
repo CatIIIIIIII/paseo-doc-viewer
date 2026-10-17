@@ -194,3 +194,26 @@ export function Checkbox({ theme, styles, label, checked, disabled, onChange }: 
     </Pressable>
   );
 }
+
+const STATUS_PILL = {
+  reviewed: { icon: "Check", label: "Reviewed", short: "Reviewed", tone: "statusSuccess" },
+  changed: { icon: "TriangleAlert", label: "Changed since review", short: "Changed", tone: "statusWarning" },
+} as const;
+
+// Review status as an icon and label on a tint of the status color. The tint is the color itself
+// at low opacity, since the theme has no tinted tokens.
+export function StatusPill({ theme, styles, status, label = "full" }: ChromeProps & {
+  status: keyof typeof STATUS_PILL; label?: "full" | "short" | "none";
+}) {
+  const pill = STATUS_PILL[status];
+  const color = theme.colors[pill.tone];
+  const text = label === "full" ? pill.label : label === "short" ? pill.short : null;
+  return (
+    <View accessible accessibilityLabel={pill.label}
+      style={{ flexDirection: "row", alignItems: "center", gap: 4, height: 22, minWidth: 22, paddingHorizontal: text ? 8 : 5, borderRadius: 11, overflow: "hidden", flexShrink: 0 }}>
+      <View pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, backgroundColor: color, opacity: 0.14 }} />
+      <Icon name={pill.icon} size={12} color={color} />
+      {text ? <Text style={{ color, fontSize: 12, fontWeight: "500" }} numberOfLines={1}>{text}</Text> : null}
+    </View>
+  );
+}

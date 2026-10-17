@@ -5,7 +5,7 @@ import { DownloadOriginal } from "./download-original";
 import { type PluginScreenProps, useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { docOpenRpc, type DocOpenOutput } from "../shared/rpc";
 import { BlocksViewer } from "./blocks-viewer";
 import { baseName } from "./format";
@@ -14,11 +14,11 @@ import { passwordPrompt } from "./password";
 import { PasswordPrompt } from "./password-prompt";
 import { documentQueryOptions } from "./queries";
 import { SheetViewer } from "./sheet-viewer";
-import { ErrorState, LoadingState, makeStyles, MessageState, type Styles, ToolbarButton } from "./ui";
+import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, type Styles, ToolbarButton } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
 import { useViewerPosition } from "./use-viewer-position";
 import { useViewerMarks } from "./use-viewer-marks";
-import { reviewStatus } from "./review";
+import { type DocumentReview, reviewStatus } from "./review";
 import { MediaViewer } from "./media-viewer";
 import { kindForPath } from "../shared/kinds";
 import { openHostScreen } from "./host-client";
@@ -146,6 +146,8 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
   const [finding, setFinding] = useState(false);
   const [notePage, setNotePage] = useState<number | null>(null);
   const draft = useReviewDraft(scope);
+  const marks = useViewerMarks(props.workspaceId, props.path);
+  const review = reviewStatus(marks.review, props.document.revision);
   const [navigation, setNavigation] = useState<SearchNavigation | null>(null);
   const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([]);
   const [mapOpen, setMapOpen] = useState(false);
@@ -161,6 +163,8 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
     <View style={props.styles.toolbar}>
       {searchable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="Search" label={props.compact ? undefined : "Find in document"} accessibilityLabel="Find in document"
         variant="toggle" selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} /> : null}
+      {/* Status sits left of the spacer, so it appearing never moves the buttons. */}
+      {marks.ready && review !== "never" ? <StatusPill theme={props.theme} styles={props.styles} status={review} label={props.compact ? "none" : "full"} /> : null}
       <View style={props.styles.toolbarSpacer} />
       {paged ? <ToolbarButton theme={props.theme} styles={props.styles} icon="LayoutGrid" label={props.compact ? undefined : "Pages"} accessibilityLabel="Page map"
         variant="toggle" selected={mapOpen} onPress={() => setMapOpen(!mapOpen)} /> : null}
@@ -169,7 +173,7 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
       {draft.notes.length > 0 ? <ToolbarButton theme={props.theme} styles={props.styles} icon="ClipboardList"
         label={props.compact ? String(draft.notes.length) : `Review (${draft.notes.length})`}
         accessibilityLabel={`Review notes (${draft.notes.length})`} onPress={() => openHostScreen(reviewScreen(props.workspaceId))} /> : null}
-      <ReviewControl workspaceId={props.workspaceId} path={props.path} revision={props.document.revision} compact={props.compact} theme={props.theme} styles={props.styles} />
+      {marks.ready ? <MarkReviewed marks={marks} status={review} revision={props.document.revision} compact={props.compact} theme={props.theme} styles={props.styles} /> : null}
     </View>
     {notePage !== null ? <NoteComposer key={notePage} scope={scope} workspaceId={props.workspaceId} path={props.path} revision={props.document.revision}
       page={notePage} password={props.password} draft={draft} theme={props.theme} styles={props.styles} onClose={() => setNotePage(null)} /> : null}
@@ -183,16 +187,11 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
 }
 
 // Marking is always an explicit press, for the revision on screen; opening or scrolling never marks.
-function ReviewControl({ workspaceId, path, revision, compact, theme, styles }: { workspaceId: string; path: string; revision: string; compact: boolean; theme: PluginScreenProps["theme"]; styles: Styles }) {
-  const marks = useViewerMarks(workspaceId, path);
-  if (!marks.ready) return null;
-  const status = reviewStatus(marks.review, revision);
-  if (status === "reviewed") {
-    return <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Reviewed"} accessibilityLabel="Reviewed, clear the review mark" variant="toggle" selected
-      disabled={marks.saving} onPress={() => void marks.setReview(null)} />;
-  }
-  return <>
-    {status === "changed" ? <Text style={[styles.muted, { color: theme.colors.statusWarning, flexShrink: 1 }]} numberOfLines={1}>{compact ? "Changed" : "Changed since review"}</Text> : null}
-    <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Mark reviewed"} accessibilityLabel="Mark reviewed" variant="toggle" selected={false} disabled={marks.saving} onPress={() => void marks.setReview(revision)} />
-  </>;
+function MarkReviewed({ marks, status, revision, compact, theme, styles }: {
+  marks: ReturnType<typeof useViewerMarks>; status: DocumentReview; revision: string; compact: boolean; theme: PluginScreenProps["theme"]; styles: Styles;
+}) {
+  const reviewed = status === "reviewed";
+  return <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Mark reviewed"}
+    accessibilityLabel={reviewed ? "Reviewed, clear the review mark" : "Mark reviewed"} variant="toggle" selected={reviewed}
+    disabled={marks.saving} onPress={() => void marks.setReview(reviewed ? null : revision)} />;
 }
