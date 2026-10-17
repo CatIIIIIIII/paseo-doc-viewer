@@ -55,13 +55,17 @@ export function makeStyles(theme: PluginTheme, compact: boolean, bottomInset = 0
       minWidth: controlSize,
       paddingHorizontal: 8,
       borderRadius: 6,
-      backgroundColor: c.surface2,
+      borderWidth: 1,
+      borderStyle: "solid" as const,
+      borderColor: c.border,
+      backgroundColor: "transparent",
     },
-    // Toggles sit flat until pressed on, like the host's segmented controls; accent marks the one primary action.
-    buttonToggle: { backgroundColor: "transparent" },
+    // Actions are outlined like the host's header buttons. Toggles sit flat until pressed on, then take a
+    // neutral fill like the host's segmented controls. Accent marks the one primary action.
+    buttonToggle: { borderColor: "transparent" },
     buttonHovered: { backgroundColor: c.surface1 },
-    buttonToggleOn: { backgroundColor: c.surface2 },
-    buttonPrimary: { backgroundColor: c.accent },
+    buttonToggleOn: { backgroundColor: c.surface2, borderColor: c.surface2 },
+    buttonPrimary: { backgroundColor: c.accent, borderColor: c.accent },
     buttonText: { color: c.foreground, fontSize: 12 },
     buttonTextPrimary: { color: c.accentForeground },
     disabled: { opacity: 0.5 },
@@ -170,8 +174,8 @@ export function ToolbarButton({
       onPress={onPress}
       style={({ hovered }: { pressed: boolean; hovered?: boolean }) => [
         styles.button,
-        primary ? styles.buttonPrimary : null,
-        toggle ? (toggle.on ? styles.buttonToggleOn : hovered && !disabled ? styles.buttonHovered : styles.buttonToggle) : null,
+        primary ? styles.buttonPrimary : !toggle?.on && hovered && !disabled ? styles.buttonHovered : null,
+        toggle ? (toggle.on ? styles.buttonToggleOn : styles.buttonToggle) : null,
         disabled ? styles.disabled : null,
       ]}
     >
