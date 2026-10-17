@@ -8,7 +8,7 @@ import { type DocumentGroup, filterEntries, queryTerms } from "../shared/browse"
 import { docsRecentRpc } from "../shared/rpc";
 import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, KIND_LABEL, parentDir, relativeTime } from "./format";
 import { recentQueryOptions } from "./queries";
-import { type BrowseRow, browseRows, documentScreen, filterChips, listFooter, noMatchDetail, type RecentEntry } from "./recent";
+import { type BrowseRow, browseRows, documentScreen, filterChips, listFooter, noMatchDetail, type RecentEntry, unsupportedDetail } from "./recent";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, type Styles } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
 
@@ -131,9 +131,9 @@ function DocumentsList({
           <MessageState
             theme={theme}
             styles={styles}
-            icon="SearchX"
-            title="No matching documents"
-            detail={noMatchDetail({ query, group, needsReview }, recent.data.truncated)}
+            icon={recent.data.unsupported ? "FileX" : "SearchX"}
+            title={recent.data.unsupported ? "Not a supported file type" : "No matching documents"}
+            detail={unsupportedDetail(recent.data.unsupported ?? []) ?? noMatchDetail({ query, group, needsReview }, recent.data.truncated)}
             action={{ label: "Clear filters", onPress: clearFilters }}
           />
         )

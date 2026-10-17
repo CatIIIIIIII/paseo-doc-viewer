@@ -246,6 +246,8 @@ export const docsRecentRpc = defineRpc({
     truncated: z.boolean(),
     counts: z.record(z.enum(DOCUMENT_GROUPS), z.number().int().nonnegative()),
     needsReview: z.number().int().nonnegative(),
+    // Up to 3 files matching the query that the viewer cannot open, sent only when no document matched.
+    unsupported: z.array(z.string()).max(3).optional(),
   }),
 });
 

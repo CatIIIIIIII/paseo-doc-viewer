@@ -15,6 +15,7 @@ copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/report.pdf"
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/forecast.xlsx"), join(root, "forecast.xlsx"));
 writeFileSync(join(root, "broken.pdf"), "original unsupported file");
 writeFileSync(join(root, ".env"), "SECRET=1");
+writeFileSync(join(root, "analysis.ipynb"), "{}");
 writeFileSync(join(root, "many.csv"), Array.from({ length: 120 }, (_, row) => `row ${row},needle`).join("\n"));
 const bytes = Buffer.alloc(44 + 16000);
 bytes.write("RIFF", 0); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write("WAVEfmt ", 8);

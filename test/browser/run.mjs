@@ -397,6 +397,12 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   page.off("request", recordReview);
+  // A search that only matches a file the viewer cannot open says so.
+  await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("analysis");
+  await expect(page.getByText("Not a supported file type", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Found analysis\.ipynb, but \.ipynb is not a supported type\./)).toBeVisible();
+  await page.screenshot({ path: `${directory}/search-unsupported.png`, fullPage: true });
+  await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("");
   // Review notes: collect notes on two pages, leave the document and come back, then edit,
   // preview, copy and send them, with a busy, a racing and a failing recipient keeping the draft.
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);

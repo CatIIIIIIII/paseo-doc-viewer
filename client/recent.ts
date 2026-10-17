@@ -8,6 +8,7 @@ import {
   KIND_GROUP,
   newestFirst,
 } from "../shared/browse";
+import { extensionOf } from "../shared/kinds";
 import { RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { docsRecentRpc, type DocsRecentOutput } from "../shared/rpc";
 import { formatCount, GROUP_FILES } from "./format";
@@ -52,6 +53,14 @@ export function noMatchDetail({ query = "", group = null, needsReview = false }:
   return scanIncomplete
     ? `${detail}. Only the first ${formatCount(RECENT_MAX_SCANNED_ENTRIES)} entries of this workspace were searched`
     : detail;
+}
+
+// A search that only matched files the viewer cannot open says so instead of "No files match".
+export function unsupportedDetail(paths: readonly string[]): string | null {
+  if (paths.length === 0) return null;
+  const types = [...new Set(paths.map((path) => (extensionOf(path) ? `.${extensionOf(path)}` : "a file without an extension")))];
+  const verdict = types.length === 1 ? `${types[0]} is not a supported type` : `${types.join(", ")} are not supported types`;
+  return `Found ${paths.join(", ")}, but ${verdict}. The viewer opens PDF, Word, Excel, CSV, TSV, PowerPoint, image, video and audio files.`;
 }
 
 export function listFooter(shown: number, filtered: boolean): string {

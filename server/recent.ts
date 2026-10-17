@@ -1,6 +1,6 @@
 import { opendir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, newestFirst, type ReviewStatus } from "../shared/browse";
+import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, matchesQuery, newestFirst, queryTerms, type ReviewStatus } from "../shared/browse";
 import { RECENT_MAX_ENTRIES, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { kindForPath, type DocumentKind } from "../shared/kinds";
 import { revisionOf } from "./revision";
@@ -72,8 +72,13 @@ class Queue {
 
 interface Scan {
   entries: RecentEntry[];
+  // Other files, so a search can say a file exists but is not a supported type.
+  unsupported: string[];
   complete: boolean;
 }
+
+const MAX_UNSUPPORTED_NAMES = 10_000;
+const MAX_UNSUPPORTED_SHOWN = 3;
 
 const scans = new Map<string, { result: Promise<Scan>; expiresAt: number }>();
 
@@ -81,13 +86,18 @@ export async function recentDocuments(
   root: string,
   { limit = RECENT_MAX_ENTRIES, query, group, needsReview }: BrowseFilter & { limit?: number } = {},
   reviewStatus?: (entry: RecentEntry) => ReviewStatus | undefined,
-): Promise<{ entries: RecentEntry[]; truncated: boolean; counts: GroupCounts; needsReview: number }> {
+): Promise<{ entries: RecentEntry[]; truncated: boolean; counts: GroupCounts; needsReview: number; unsupported?: string[] }> {
   const scan = await sharedScan(root);
   const cap = Math.max(1, Math.min(limit, RECENT_MAX_ENTRIES));
   const searched = filterEntries(scan.entries, { query });
   const matched = reviewStatus ? searched.map((entry) => ({ ...entry, review: reviewStatus(entry) })) : searched;
   const shown = filterEntries(matched, { group, needsReview });
+  const terms = queryTerms(query ?? "");
+  const unsupported = shown.length === 0 && terms.length > 0
+    ? scan.unsupported.filter((path) => matchesQuery(path, terms)).slice(0, MAX_UNSUPPORTED_SHOWN)
+    : [];
   return {
+    ...(unsupported.length > 0 ? { unsupported } : {}),
     entries: shown.slice(0, cap),
     truncated: !scan.complete || shown.length > cap,
     counts: countGroups(matched),
@@ -126,6 +136,7 @@ function sharedScan(root: string): Promise<Scan> {
 
 async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY): Promise<Scan> {
   const found: RecentEntry[] = [];
+  const unsupported: string[] = [];
   const queue = new Queue();
   queue.push({ path: root, depth: 0, mtimeMs: Number.POSITIVE_INFINITY, deferred: false });
   let visited = 0;
@@ -166,16 +177,19 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
       }
       if (!item.isFile() || SKIPPED_FILE_PREFIXES.some((prefix) => item.name.startsWith(prefix))) continue;
       const kind = kindForPath(item.name);
-      if (!kind) continue;
+      if (!kind) {
+        if (!item.name.startsWith(".") && unsupported.length < MAX_UNSUPPORTED_NAMES) unsupported.push(relative(root, full).split(sep).join("/"));
+        continue;
+      }
       try {
         const info = await stat(full);
         found.push({ path: relative(root, full).split(sep).join("/"), kind, mtimeMs: info.mtimeMs, size: info.size, revision: revisionOf(info) });
-        if (found.length >= stopAfter) return { entries: found, complete: false };
+        if (found.length >= stopAfter) return { entries: found, unsupported, complete: false };
       } catch {
         continue;
       }
     }
   }
   if (queue.size > 0) complete = false;
-  return { entries: newestFirst(found), complete };
+  return { entries: newestFirst(found), unsupported, complete };
 }

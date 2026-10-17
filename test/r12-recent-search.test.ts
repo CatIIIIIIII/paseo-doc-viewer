@@ -60,3 +60,22 @@ describe("R12: docs.recent searches and filters the whole scan, not just the new
     expect(docsRecentRpc.input.safeParse({ workspaceId: "ws", query: "x".repeat(201) }).success).toBe(false);
   });
 });
+
+describe("docs.recent names matching files it cannot open", () => {
+  const root = () => workspace({ "notebooks/analysis.ipynb": "{}", "data/analysis.parquet": "PAR1", ".analysis-secret": "x", "report.pdf": "%PDF-1.4" });
+
+  it("lists them only when no document matches the search", async () => {
+    const result = await listRecent(root(), { query: "analysis" });
+    expect(result.entries).toEqual([]);
+    expect([...result.unsupported!].sort()).toEqual(["data/analysis.parquet", "notebooks/analysis.ipynb"]);
+    expect(docsRecentRpc.output.parse(result)).toEqual(result);
+  });
+
+  it("stays quiet without a query, with a document match, or with no matching file at all", async () => {
+    const workspaceRoot = root();
+    expect((await listRecent(workspaceRoot, {})).unsupported).toBeUndefined();
+    expect((await listRecent(workspaceRoot, { query: "report" })).unsupported).toBeUndefined();
+    expect((await listRecent(workspaceRoot, { query: "nothing-here" })).unsupported).toBeUndefined();
+    expect((await listRecent(workspaceRoot, { query: "secret" })).unsupported).toBeUndefined();
+  });
+});
