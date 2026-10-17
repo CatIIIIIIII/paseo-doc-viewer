@@ -102,6 +102,8 @@ try {
   await expect(page.getByRole("button", { name: "Next match", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Next match", exact: true }).click();
   await expect(page.getByText("Invoices!B2", { exact: true })).toBeVisible();
+  // The jump keeps column A in view when the match fits in the first columns.
+  await expect(page.getByText(/^Columns 1-/)).toBeVisible();
   await page.getByRole("button", { name: "Close find", exact: true }).click();
   await page.getByRole("button", { name: "forecast.xlsx", exact: true }).click();
   await page.getByText("$165.00", { exact: true }).click();
@@ -144,6 +146,12 @@ try {
   await issues.getByRole("button", { name: "Show list", exact: true }).click();
   await expect(issues.getByRole("button", { name: "Summary!E7: #REF!", exact: true })).toBeVisible();
   await page.screenshot({ path: `${directory}/sheet-issues.png`, fullPage: true });
+  // Records keeps the chosen header row for the session, also after the document is reopened.
+  await page.getByRole("button", { name: "invoices.xlsx", exact: true }).click();
+  await page.getByRole("button", { name: "forecast.xlsx", exact: true }).click();
+  await page.getByRole("button", { name: "Records", exact: true }).click();
+  await expect(page.getByText(/^Record \d+ of 8 \(row \d+\)$/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use row 2 as header", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "long.pdf", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("needle");

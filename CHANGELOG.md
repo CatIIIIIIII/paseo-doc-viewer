@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Excel: a formula saved with an empty result (`<v></v>`, as openpyxl writes every formula) counts as having no saved result. The grid shows its formula text, the inspector says None saved and Issues lists it. Before, such cells looked blank.
+- Spreadsheets: a Find or Issues jump keeps column A in view when the target cell fits in the first columns. Records remembers the header row chosen for each sheet until the app reloads, also after the document is closed and reopened.
 
 ## 0.4.0 (2026-10-17)
 
