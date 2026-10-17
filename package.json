@@ -2,7 +2,7 @@
   "name": "paseo-doc-viewer",
   "private": true,
   "version": "0.3.0",
-  "description": "View PDF, Word, Excel, PowerPoint, image and video files from your workspace inside Paseo.",
+  "description": "View PDF, Word, Excel, PowerPoint, image, video and audio files from your workspace inside Paseo.",
   "license": "MIT",
   "type": "module",
   "files": [

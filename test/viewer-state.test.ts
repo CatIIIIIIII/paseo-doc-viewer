@@ -43,6 +43,14 @@ describe("durable viewer positions", () => {
     expect(statSync(join(directory, "positions.json")).size).toBeLessThanOrEqual(1024 * 1024);
     expect(await new ViewerStateStore(directory).read("newest".padEnd(2_100, "y"))).not.toBeNull();
   });
+  it("stores spreadsheet positions by sheet index, never sheet names", async () => {
+    const directory = workspace();
+    const grid = { type: "grid" as const, sheet: 2, rowOffset: 200, columnOffset: 50 };
+    await new ViewerStateStore(directory).write("book", { ...grid, sheetName: "Salaries 2026" } as never);
+    const text = readFileSync(join(directory, "positions.json"), "utf8");
+    expect(text).not.toContain("Salaries");
+    expect(await new ViewerStateStore(directory).read("book")).toMatchObject({ position: grid });
+  });
   it("canonicalizes file aliases and confines state keys to workspace paths", async () => {
     const root = workspace({ "file.pdf": "content" });
     const store = new ViewerStateStore(workspace());

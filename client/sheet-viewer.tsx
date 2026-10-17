@@ -36,9 +36,7 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
   const layout = sheetWindow(viewport, { width: CELL_WIDTH, height: ROW_HEIGHT });
   const [stored, dispatch] = useReducer(gridReducer, INITIAL_GRID, () => {
     if (initialPosition?.type !== "grid") return INITIAL_GRID;
-    const named = sheets.findIndex((sheet) => sheet.name === initialPosition.sheetName);
-    const sheet = named >= 0 ? named : initialPosition.sheet;
-    return { ...INITIAL_GRID, sheet, rowOffset: initialPosition.rowOffset, columnOffset: initialPosition.columnOffset,
+    return { ...INITIAL_GRID, sheet: initialPosition.sheet, rowOffset: initialPosition.rowOffset, columnOffset: initialPosition.columnOffset,
       rowHistory: initialPosition.rowOffset > 0 ? [0] : [], columnHistory: initialPosition.columnOffset > 0 ? [0] : [] };
   });
   const [selected, setSelected] = useState<CellRef | null>(null);
@@ -56,8 +54,8 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
   }, [grid, stored]);
   const sheet = sheets[grid.sheet];
   useEffect(() => {
-    if (sheet) onPositionChange?.({ type: "grid", sheet: grid.sheet, sheetName: sheet.name, rowOffset: grid.rowOffset, columnOffset: grid.columnOffset });
-  }, [grid.sheet, grid.rowOffset, grid.columnOffset, sheet?.name, onPositionChange]);
+    if (sheet) onPositionChange?.({ type: "grid", sheet: grid.sheet, rowOffset: grid.rowOffset, columnOffset: grid.columnOffset });
+  }, [grid.sheet, grid.rowOffset, grid.columnOffset, sheet, onPositionChange]);
   const rows = useQuery({
     queryKey: rowsQueryKey(workspaceId, path, revision, grid, layout.columns),
     queryFn: () =>
