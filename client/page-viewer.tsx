@@ -1,7 +1,7 @@
 import type { SearchMatch, SearchNavigation } from "../shared/search";
 import { activeInPart, Highlight } from "./highlight";
 import { pageHighlights, type PageHighlight } from "./highlights";
-import type { ViewerPosition } from "../shared/viewer-state";
+import { layoutClass, zoomFor, type ViewerPosition } from "../shared/viewer-state";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
@@ -72,7 +72,8 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   const toast = useToast();
   const initial = initialPosition?.type === "page" ? initialPosition : null;
   const [index, setIndex] = useState(initial?.index ?? 0);
-  const [zoom, setZoom] = useState(initial?.zoom ?? 1);
+  const layout = layoutClass(styles.compact);
+  const [zoom, setZoom] = useState(initial ? zoomFor(initial, layout) : 1);
   const [showText, setShowText] = useState(initial?.text ?? false);
   // A PDF search result opens the page text without changing the remembered mode,
   // unless the match carries page boxes: then the page itself shows the highlight.
@@ -89,7 +90,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   const requests = pageRequests(active, count);
 
   useEffect(() => { onActivePage?.(active); }, [active, onActivePage]);
-  useEffect(() => { onPositionChange?.({ type: "page", index: active, zoom, text: showText }); }, [active, zoom, showText, onPositionChange]);
+  useEffect(() => { onPositionChange?.({ type: "page", index: active, zoom, text: showText, zooms: { [layout]: zoom } }); }, [active, zoom, showText, layout, onPositionChange]);
 
   useEffect(() => {
     if (active !== index) setIndex(active);

@@ -467,6 +467,10 @@ try {
   await expect(page.getByRole("button", { name: /^Review notes/ })).toHaveCount(0);
   // Phone layout: every PDF toolbar control, including the review ones, fits inside 390 px on one line.
   // The browser runs single-process, so the same page switches to the phone viewport.
+  // Zoom is remembered per layout class: the desktop zoom set here must not reach the phone.
+  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await expect(page.getByText("1.5x", { exact: true })).toBeVisible();
+  await page.waitForTimeout(1200);
   const phone = page;
   await phone.setViewportSize({ width: 390, height: 844 });
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
@@ -502,6 +506,18 @@ try {
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "broken.pdf", exact: true }).click();
   await expect(phone.getByRole("button", { name: "Download original", exact: true })).toContainText("Download original");
+  await phone.goto(`http://127.0.0.1:${port}/?compact`);
+  await phone.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  await expect(phone.getByText("Fit", { exact: true })).toBeVisible();
+  await phone.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await phone.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await expect(phone.getByText("2x", { exact: true })).toBeVisible();
+  await phone.waitForTimeout(1200);
+  await phone.setViewportSize({ width: 1100, height: 1000 });
+  await phone.goto(`http://127.0.0.1:${port}/`);
+  await expect(phone.getByText("1.5x", { exact: true })).toBeVisible();
+  await phone.goto(`http://127.0.0.1:${port}/?compact`);
+  await expect(phone.getByText("2x", { exact: true })).toBeVisible();
   expect(failures).toEqual([]);
   console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit.");
   console.log(`Screenshots: ${directory}`);

@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { z } from "zod";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { PINS_MAX_PER_FILE } from "../shared/limits";
-import { pagePins, reviewMark, viewerPosition, type PagePin, type ViewerPosition } from "../shared/viewer-state";
+import { mergeZooms, pagePins, reviewMark, viewerPosition, type PagePin, type ViewerPosition } from "../shared/viewer-state";
 import { resolveInside } from "./paths";
 import { revisionOf } from "./revision";
 
@@ -58,7 +58,7 @@ export class ViewerStateStore {
   }
 
   write(key: string, position: ViewerPosition | null): Promise<void> {
-    return this.update(key, (current) => ({ ...current, position: position ?? undefined })).then(() => {});
+    return this.update(key, (current) => ({ ...current, position: position ? mergeZooms(current?.position, position) : undefined })).then(() => {});
   }
 
   // Applies one change to a document's record inside the queue; a record left empty is removed.
