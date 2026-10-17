@@ -75,7 +75,7 @@ function record(kind) { return function (c) { registered[kind].push(c); return n
 var subscription = { subscribe: function (observer) { observer.snapshot({ entries: [{ id: "ws" }] }); return noop; }, release: function () { return Promise.resolve(); } };
 var paseo = { workspaces: { list: function () { return Promise.resolve({ entries: [], subscription: subscription }); } } };
 function addHeaderButton(c) { registered.header.push(c); return { update: noop, remove: noop }; }
-var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addHeaderButton: addHeaderButton, openScreen: noop, openPanel: noop, paseo: paseo, rpc: function () { return Promise.resolve({ entries: [{ path: "a.pdf" }] }); } });
+var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addHeaderButton: addHeaderButton, openScreen: noop, openPanel: noop, paseo: paseo, rpc: function (contract) { return Promise.resolve(contract.name === "docs.any" ? { found: true } : { entries: [{ path: "a.pdf" }] }); } });
 var opened = [];
 var context = {
   args: "", context: "workspace", workspace: { id: "ws" },
@@ -83,7 +83,9 @@ var context = {
   rpc: function () { return Promise.resolve({ entries: [{ path: "a.pdf", kind: "pdf", mtimeMs: 1, size: 1 }, { path: "b/new.pdf", kind: "pdf", mtimeMs: 9, size: 1 }], truncated: false }); }
 };
 log(JSON.stringify({ step: "contribute", cleanup: typeof cleanup, screens: registered.screen.length, commands: registered.cc.length, panels: registered.panel.length, slash: registered.slash.length, title: registered.screen[0].title({ path: "report/main.pdf" }) }));
-registered.slash[0].onSubmit(context).then(
+// setTimeout is stubbed, so let the header probe's promise chain settle before reading buttons.
+function drain(ticks) { return ticks ? Promise.resolve().then(function () { return drain(ticks - 1); }) : Promise.resolve(); }
+registered.slash[0].onSubmit(context).then(function () { return drain(20); }).then(
   function () { log(JSON.stringify({ step: "slash", opened: opened, headerButtons: registered.header.map(function (c) { return c.workspaceId + ":" + c.button.icon; }) })); },
   function (error) { log(JSON.stringify({ step: "slash", error: String(error) })); }
 );

@@ -183,6 +183,12 @@ export const docsRecentRpc = defineRpc({
   }),
 });
 
+export const docsAnyRpc = defineRpc({
+  name: "docs.any",
+  input: z.object({ workspaceId: z.string().min(1) }),
+  output: z.object({ found: z.boolean() }),
+});
+
 export const fileInfoRpc = defineRpc({
   name: "file.info", input: z.object(documentRef),
   output: z.object({ revision, size: z.number().int().nonnegative(), name: z.string(), mimeType: z.string() }),
@@ -208,7 +214,7 @@ export const viewerStateWriteRpc = defineRpc({
   output: z.object({ saved: z.boolean() }),
 });
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;

@@ -2,7 +2,7 @@ import type { PluginButton, PluginClientContext, PluginHeaderButtonContribution 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addDocumentsHeaderButtons, HEADER_POLL_MAX_MS, HEADER_POLL_MS } from "../client/header-button";
 import { DOCUMENTS_PANEL_ID } from "../client/recent";
-import { docsRecentRpc } from "../shared/rpc";
+import { docsAnyRpc } from "../shared/rpc";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
@@ -22,7 +22,7 @@ function fakeClient() {
   const release = vi.fn(async () => {});
   const listed = new Promise<void>((resolve) => (resolveList = resolve));
   const client = {
-    rpc: vi.fn(async (_contract: unknown, _request: unknown) => ({ entries: [{ path: "report.pdf" }] })),
+    rpc: vi.fn(async (_contract: unknown, _request: unknown) => ({ found: true })),
     openPanel: vi.fn(),
     addHeaderButton: vi.fn(({ workspaceId, button }: PluginHeaderButtonContribution) => {
       if (live.has(workspaceId)) throw new Error(`duplicate header button for ${workspaceId}`);
@@ -69,15 +69,15 @@ const removal = (id: string) => ({ type: "workspace_update", payload: { kind: "r
 describe("Documents header button", () => {
   it("stays hidden for empty workspaces and follows document creation and deletion", async () => {
     const fake = fakeClient();
-    fake.rpc.mockResolvedValue({ entries: [] });
+    fake.rpc.mockResolvedValue({ found: false });
     const cleanup = addDocumentsHeaderButtons(fake.client);
     await fake.settle();
     fake.observer()!.snapshot({ entries: [{ id: "ws-1" }] });
     await fake.settle();
-    expect(fake.rpc).toHaveBeenCalledWith(docsRecentRpc, { workspaceId: "ws-1", limit: 1 });
+    expect(fake.rpc).toHaveBeenCalledWith(docsAnyRpc, { workspaceId: "ws-1" });
     expect(fake.live.size).toBe(0);
 
-    fake.rpc.mockResolvedValue({ entries: [{ path: "report.pdf" }] });
+    fake.rpc.mockResolvedValue({ found: true });
     await vi.advanceTimersByTimeAsync(HEADER_POLL_MS);
     expect([...fake.live.keys()]).toEqual(["ws-1"]);
 
@@ -85,7 +85,7 @@ describe("Documents header button", () => {
     await vi.advanceTimersByTimeAsync(HEADER_POLL_MS);
     expect([...fake.live.keys()]).toEqual(["ws-1"]);
 
-    fake.rpc.mockResolvedValue({ entries: [] });
+    fake.rpc.mockResolvedValue({ found: false });
     await vi.advanceTimersByTimeAsync(HEADER_POLL_MS);
     expect([...fake.live.keys()]).toEqual(["ws-1"]);
     await vi.advanceTimersByTimeAsync(HEADER_POLL_MS);
@@ -102,9 +102,10 @@ describe("Documents header button", () => {
     fake.observer()!.snapshot({ entries: [{ id: "ws-1" }] });
     await fake.settle();
     await vi.advanceTimersByTimeAsync(30 * 60_000);
-    // First call, retries at 1, 3 and 7 minutes, then every 5 minutes.
-    expect(fake.rpc).toHaveBeenCalledTimes(1 + 3 + Math.floor((30 * 60_000 - 420_000) / HEADER_POLL_MAX_MS));
-    fake.rpc.mockResolvedValue({ entries: [] });
+    // First call, retries at 4 and 12 minutes, then every 10 minutes.
+    expect(HEADER_POLL_MS).toBe(2 * 60_000);
+    expect(fake.rpc).toHaveBeenCalledTimes(1 + 2 + Math.floor((30 * 60_000 - 12 * 60_000) / HEADER_POLL_MAX_MS));
+    fake.rpc.mockResolvedValue({ found: false });
     await vi.advanceTimersByTimeAsync(HEADER_POLL_MAX_MS);
     const calls = fake.rpc.mock.calls.length;
     await vi.advanceTimersByTimeAsync(HEADER_POLL_MS);
@@ -114,23 +115,23 @@ describe("Documents header button", () => {
 
   it("discards pending results after removal, re-addition, and cleanup", async () => {
     const fake = fakeClient();
-    let resolve!: (result: { entries: { path: string }[] }) => void;
+    let resolve!: (result: { found: boolean }) => void;
     fake.rpc.mockImplementationOnce(() => new Promise((done) => (resolve = done)));
     const cleanup = addDocumentsHeaderButtons(fake.client);
     await fake.settle();
     fake.observer()!.snapshot({ entries: [{ id: "ws-1" }] });
     fake.observer()!.update(removal("ws-1"));
-    fake.rpc.mockResolvedValue({ entries: [] });
+    fake.rpc.mockResolvedValue({ found: false });
     fake.observer()!.update(upsert("ws-1"));
-    resolve({ entries: [{ path: "stale.pdf" }] });
+    resolve({ found: true });
     await fake.settle();
     expect(fake.live.size).toBe(0);
 
-    let finish!: (result: { entries: { path: string }[] }) => void;
+    let finish!: (result: { found: boolean }) => void;
     fake.rpc.mockImplementationOnce(() => new Promise((done) => (finish = done)));
     await vi.advanceTimersByTimeAsync(HEADER_POLL_MS);
     cleanup();
-    finish({ entries: [{ path: "late.pdf" }] });
+    finish({ found: true });
     await fake.settle();
     expect(fake.live.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
@@ -156,6 +157,25 @@ describe("Documents header button", () => {
     fake.observer()!.snapshot({ entries: [{ id: "ws-3" }, { id: "ws-4" }] });
     await fake.settle();
     expect([...fake.live.keys()].sort()).toEqual(["ws-3", "ws-4"]);
+  });
+
+  it("checks at most two workspaces at a time", async () => {
+    const fake = fakeClient();
+    const pending: ((result: { found: boolean }) => void)[] = [];
+    fake.rpc.mockImplementation(() => new Promise((done) => pending.push(done)));
+    const cleanup = addDocumentsHeaderButtons(fake.client);
+    await fake.settle();
+    fake.observer()!.snapshot({ entries: ["ws-1", "ws-2", "ws-3", "ws-4", "ws-5"].map((id) => ({ id })) });
+    await fake.settle();
+    expect(fake.rpc).toHaveBeenCalledTimes(2);
+    pending.shift()!({ found: true });
+    await fake.settle();
+    expect(fake.rpc).toHaveBeenCalledTimes(3);
+    fake.observer()!.update(removal("ws-4"));
+    while (pending.length) { pending.shift()!({ found: true }); await fake.settle(); }
+    expect(fake.rpc.mock.calls.map(([, input]) => (input as { workspaceId: string }).workspaceId)).toEqual(["ws-1", "ws-2", "ws-3", "ws-5"]);
+    expect([...fake.live.keys()].sort()).toEqual(["ws-1", "ws-2", "ws-3", "ws-5"]);
+    cleanup();
   });
 
   it("opens the Documents panel in that workspace", async () => {

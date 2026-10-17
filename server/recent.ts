@@ -85,6 +85,11 @@ export async function recentDocuments(
   return { entries: shown.slice(0, cap), truncated: !scan.complete || shown.length > cap, counts: countGroups(matched) };
 }
 
+// Cheap probe for the header button: the same rules as the list, stopping at the first match.
+export async function hasDocuments(root: string): Promise<boolean> {
+  return (await scanWorkspace(root, 1)).entries.length > 0;
+}
+
 function sharedScan(root: string): Promise<Scan> {
   const started = Date.now();
   for (const [key, cached] of scans) if (cached.expiresAt <= started) scans.delete(key);
@@ -104,7 +109,7 @@ function sharedScan(root: string): Promise<Scan> {
   return cached.result;
 }
 
-async function scanWorkspace(root: string): Promise<Scan> {
+async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY): Promise<Scan> {
   const found: RecentEntry[] = [];
   const queue = new Queue();
   queue.push({ path: root, depth: 0, mtimeMs: Number.POSITIVE_INFINITY, deferred: false });
@@ -150,6 +155,7 @@ async function scanWorkspace(root: string): Promise<Scan> {
       try {
         const info = await stat(full);
         found.push({ path: relative(root, full).split(sep).join("/"), kind, mtimeMs: info.mtimeMs, size: info.size });
+        if (found.length >= stopAfter) return { entries: found, complete: false };
       } catch {
         continue;
       }

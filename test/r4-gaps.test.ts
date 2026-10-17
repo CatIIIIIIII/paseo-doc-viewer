@@ -1,7 +1,8 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { PDFDocument } from "pdf-lib";
-import { afterEach, describe, expect, it } from "vitest";
+import { realpath } from "node:fs/promises";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readBlocks, readRows, renderPage } from "../server/documents";
 import { resolveInside, workspaceRoot } from "../server/paths";
 import { IMAGE_BUDGET_BYTES } from "../server/raster";
@@ -52,6 +53,17 @@ describe("R4: workspace containment and lookup", () => {
     writeFileSync(join(sibling, "secret.pdf"), "%PDF-1.4");
     expect(await code(() => resolveInside(root, `../${basename(root)}-x/secret.pdf`))).toBe("outside_workspace");
     expect(await code(() => resolveInside(root, join(sibling, "secret.pdf")))).toBe("outside_workspace");
+  });
+
+  it("asks the daemon for the requested workspace instead of paging every workspace", async () => {
+    const root = workspace();
+    const list = vi.fn(async ({ filter }: { filter?: { query?: string } }) => ({
+      entries: [{ id: "ws-b", workspaceDirectory: root }].filter((entry) => entry.id === filter?.query),
+      pageInfo: { hasMore: true, nextCursor: "more" },
+    }));
+    expect(await workspaceRoot({ workspaces: { list } } as never, "ws-b")).toBe(await realpath(root));
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list.mock.calls[0][0]).toMatchObject({ filter: { query: "ws-b" } });
   });
 
   it("returns the requested workspace across pages", async () => {

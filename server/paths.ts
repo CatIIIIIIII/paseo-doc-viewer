@@ -9,7 +9,8 @@ const MAX_WORKSPACE_PAGES = 100;
 export async function workspaceRoot(paseo: PluginHandlerContext["paseo"], workspaceId: string): Promise<string> {
   let cursor: string | undefined;
   for (let page = 0; page < MAX_WORKSPACE_PAGES; page++) {
-    const result = await paseo.workspaces.list({ page: { limit: WORKSPACE_PAGE_SIZE, ...(cursor ? { cursor } : {}) } });
+    // The query narrows the list to this id on the daemon; paging stays as the fallback.
+    const result = await paseo.workspaces.list({ filter: { query: workspaceId }, page: { limit: WORKSPACE_PAGE_SIZE, ...(cursor ? { cursor } : {}) } });
     const workspace = result.entries.find((entry) => entry.id === workspaceId);
     if (workspace) {
       const directory = workspace.workspaceDirectory || workspace.projectRootPath;

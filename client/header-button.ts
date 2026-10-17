@@ -1,11 +1,13 @@
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { DOCUMENTS_PANEL_ID } from "./recent";
-import { docsRecentRpc } from "../shared/rpc";
+import { docsAnyRpc } from "../shared/rpc";
 
-// Slower than the panel's poll and longer than the server scan cache, so every
-// known workspace costs one scan per interval. Failures back off up to the cap.
-export const HEADER_POLL_MS = 30_000;
-export const HEADER_POLL_MAX_MS = 5 * 60_000;
+// The SDK does not say which workspaces are on screen, so every known workspace is
+// probed with docs.any, which stops at the first document, a few at a time.
+// Failures back off up to the cap.
+export const HEADER_POLL_MS = 2 * 60_000;
+export const HEADER_POLL_MAX_MS = 10 * 60_000;
+const MAX_CONCURRENT_PROBES = 2;
 
 type HeaderButtonHost = Pick<PluginClientContext, "paseo" | "rpc" | "addHeaderButton" | "openPanel">;
 
@@ -14,6 +16,19 @@ export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void 
   const workspaces = new Map<string, { timer?: ReturnType<typeof setTimeout> }>();
   let stopped = false;
   let stop = () => {};
+  let probing = 0;
+  const queued: (() => void)[] = [];
+  const probe = async <T>(work: () => Promise<T>): Promise<T> => {
+    if (probing < MAX_CONCURRENT_PROBES) probing++;
+    else await new Promise<void>((start) => queued.push(start));
+    try {
+      return await work();
+    } finally {
+      const next = queued.shift();
+      if (next) next();
+      else probing--;
+    }
+  };
 
   const add = (workspaceId: string) => {
     if (buttons.has(workspaceId)) return;
@@ -47,9 +62,9 @@ export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void 
     const current = () => !stopped && workspaces.get(workspaceId) === state;
     const refresh = async () => {
       try {
-        const { entries } = await client.rpc(docsRecentRpc, { workspaceId, limit: 1 });
-        if (!current()) return;
-        if (entries.length > 0) add(workspaceId);
+        const found = await probe(async () => (current() ? (await client.rpc(docsAnyRpc, { workspaceId })).found : null));
+        if (found === null || !current()) return;
+        if (found) add(workspaceId);
         else remove(workspaceId);
         delay = HEADER_POLL_MS;
       } catch {

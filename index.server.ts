@@ -3,7 +3,8 @@ import { positionKey, viewerStateStore } from "./server/viewer-state";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, renderPage } from "./server/documents";
 import { workspaceRoot } from "./server/paths";
-import { docBlocksRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docTextRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc } from "./shared/rpc";
+import { hasDocuments } from "./server/recent";
+import { docBlocksRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsAnyRpc, docTextRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(docOpenRpc, async ({ workspaceId, path, password }, { paseo }) =>
@@ -27,6 +28,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(docsRecentRpc, async ({ workspaceId, ...request }, { paseo }) =>
     listRecent(await workspaceRoot(paseo, workspaceId), request),
   );
+  server.handle(docsAnyRpc, async ({ workspaceId }, { paseo }) => ({ found: await hasDocuments(await workspaceRoot(paseo, workspaceId)) }));
   server.handle(fileInfoRpc, async ({ workspaceId, path }, { paseo }) =>
     fileInfo(await workspaceRoot(paseo, workspaceId), path),
   );
