@@ -161,6 +161,29 @@ export const docRowsRpc = defineRpc({
   }),
 });
 
+const issuesCursor = z.object({ revision, sheet: z.number().int().nonnegative(), row: z.number().int().nonnegative(), column: z.number().int().nonnegative() });
+
+export const docIssuesRpc = defineRpc({
+  name: "doc.issues",
+  input: z.object({ ...documentRef, cursor: issuesCursor.nullable().optional() }),
+  output: z.object({
+    revision,
+    issues: z.array(z.object({
+      sheet: z.number().int().nonnegative(),
+      row: z.number().int().nonnegative(),
+      column: z.number().int().nonnegative(),
+      kind: z.enum(["error", "missing-result"]),
+      display: z.string(),
+      formula: z.string().nullable(),
+    })),
+    // Rows [fromRow, toRow) of each sheet were fully inspected by this call.
+    inspected: z.array(z.object({ sheet: z.number().int().nonnegative(), fromRow: z.number().int().nonnegative(), toRow: z.number().int().nonnegative() })),
+    next: issuesCursor.nullable(),
+    stopped: z.enum(["time", "rows", "issues"]).nullable(),
+  }),
+});
+export type DocIssuesOutput = RpcOutput<typeof docIssuesRpc>;
+
 const docBlock = z.discriminatedUnion("type", [
   z.object({ type: z.literal("heading"), level: z.number().int().min(1).max(6), text: z.string() }),
   z.object({ type: z.literal("paragraph"), text: z.string() }),
@@ -268,7 +291,7 @@ export const viewerStateReviewRpc = defineRpc({
   output: z.object({ review: reviewMark.nullable(), revision: documentRevision }),
 });
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;

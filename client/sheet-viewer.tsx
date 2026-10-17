@@ -1,6 +1,7 @@
 import type { SearchNavigation } from "../shared/search";
 import { CellInspector } from "./cell-inspector";
 import { Highlight } from "./highlight";
+import { IssuesPanel } from "./issues-panel";
 import { HeaderChooser, RecordCard } from "./record-view";
 import type { ViewerPosition } from "../shared/viewer-state";
 import type { PluginTheme } from "@getpaseo/plugin";
@@ -23,6 +24,7 @@ export interface SheetViewerProps {
   workspaceId: string;
   path: string;
   revision: string;
+  kind: "xlsx" | "csv";
   sheets: readonly Sheet[];
   theme: PluginTheme;
   styles: Styles;
@@ -32,7 +34,7 @@ const CELL_WIDTH = 140;
 const ROW_HEIGHT = 32;
 const ROW_NUMBER_WIDTH = 56;
 
-export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles, initialPosition, onPositionChange, navigation }: SheetViewerProps) {
+export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, styles, initialPosition, onPositionChange, navigation }: SheetViewerProps) {
   const fetchRows = useRpc(docRowsRpc);
   const viewport = useWindowDimensions();
   const layout = sheetWindow(viewport, { width: CELL_WIDTH, height: ROW_HEIGHT });
@@ -47,6 +49,7 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
   const [headers, setHeaders] = useState<ReadonlyMap<number, number | null>>(() => new Map());
   const [choosingHeader, setChoosingHeader] = useState(false);
   const [recordStart, setRecordStart] = useState(0);
+  const [checking, setChecking] = useState(false);
   const jump = useCallback((target: { sheet: number; row: number; column: number }) => {
     setMode("grid");
     dispatch({ type: "reconcile", state: { ...INITIAL_GRID, sheet: target.sheet, rowOffset: target.row, columnOffset: target.column,
@@ -159,6 +162,10 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
         {modeSwitch}
         <ToolbarButton theme={theme} styles={styles} icon="RotateCcw" accessibilityLabel="Reset reading position"
           onPress={() => { setSelected(null); dispatch({ type: "reconcile", state: INITIAL_GRID }); }} />
+        {kind === "xlsx" ? (
+          <ToolbarButton theme={theme} styles={styles} icon="TriangleAlert" label="Issues" accessibilityLabel="Check for issues"
+            selected={checking} onPress={() => setChecking(!checking)} />
+        ) : null}
         <View style={styles.toolbarGroup}>
           <ToolbarButton
             theme={theme}
@@ -212,6 +219,10 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
           />
         </View>
       </View>
+      {checking ? (
+        <IssuesPanel key={revision} workspaceId={workspaceId} path={path} revision={revision} sheetNames={sheets.map((candidate) => candidate.name)}
+          theme={theme} styles={styles} onJump={jump} onClose={() => setChecking(false)} />
+      ) : null}
       {selected ? (
         <CellInspector
           workspaceId={workspaceId}

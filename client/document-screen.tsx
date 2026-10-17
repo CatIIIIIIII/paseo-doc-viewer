@@ -127,7 +127,7 @@ function ViewerContent({
       return <BlocksViewer key={key} {...common} />;
     case "xlsx":
     case "csv":
-      return <SheetViewer key={key} {...common} {...remembered} sheets={document.sheets} />;
+      return <SheetViewer key={key} {...common} {...remembered} kind={document.kind} sheets={document.sheets} />;
     case "video":
     case "audio":
       return <MediaViewer key={key} {...common} kind={document.kind} mimeType={document.mimeType} size={document.size} />;

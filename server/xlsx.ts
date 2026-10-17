@@ -378,6 +378,15 @@ export function cellDetail(cell: string, row: number, column: number, workbook: 
   return { type, raw, display: cellText(cell, workbook, strings), numberFormat, ...(formula ? { formula } : {}) };
 }
 
+// Error cells and formulas without a saved result; any other cell is skipped before it is decoded.
+export function issueDecoder(workbook: Workbook, strings: string[], formulas: SharedFormulas): RowScan<CellDetail>["decode"] {
+  return (cell, row, column) => {
+    if (!cell.includes("<f") && attribute(/^<c\b[^>]*>/.exec(cell)?.[0] ?? cell, "t") !== "e") return undefined;
+    const detail = cellDetail(cell, row, column, workbook, strings, formulas);
+    return detail && (detail.type === "e" || (detail.formula && !detail.formula.cached)) ? detail : undefined;
+  };
+}
+
 export async function rowWindow(
   workbook: Workbook,
   strings: string[],

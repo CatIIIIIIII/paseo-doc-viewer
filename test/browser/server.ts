@@ -3,7 +3,7 @@ import { mkdtempSync, copyFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import contribute from "../../index.server";
-import { searchDocument } from "../../server/documents";
+import { scanIssues, searchDocument } from "../../server/documents";
 import { searchGenerations } from "../../server/search";
 import { readFileSync } from "node:fs";
 import { DOCUMENT_RPCS } from "../../shared/rpc";
@@ -28,6 +28,8 @@ contribute({ handle: (contract: any, handler: any) => handlers.set(contract.name
 // A tiny budget makes every search span many requests, so the client must keep going on its own.
 handlers.set("doc.search", async ({ path, password, query, cursor, searchId }) =>
   searchDocument({ root, path, password }, query, cursor, 1, searchId && searchGenerations.begin(searchId.session, searchId.generation)));
+// A five-row cap makes the issue check pause, so the client must show coverage and continue on request.
+handlers.set("doc.issues", async ({ path, cursor }) => scanIssues({ root, path }, cursor, { budgetMs: 60_000, maxRows: 5, maxIssues: 200 }));
 const paseo = { workspaces: { list: async () => ({ entries: [{ id: "workspace", workspaceDirectory: root }], pageInfo: { hasMore: false } }) } };
 const server = createServer(async (request, response) => {
   if (request.url === "/bundle.js") { response.setHeader("Content-Type", "application/javascript"); response.end(readFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/app.js"))); return; }

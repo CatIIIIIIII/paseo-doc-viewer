@@ -1,11 +1,11 @@
 import { fileInfo, fileChunk } from "./server/files";
 import { markReviewed, readViewerState, setPin, viewerStateStore } from "./server/viewer-state";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, renderPage, renderThumbnail } from "./server/documents";
+import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, renderPage, renderThumbnail, scanIssues } from "./server/documents";
 import { searchGenerations } from "./server/search";
 import { workspaceRoot } from "./server/paths";
 import { forgetScan, hasDocuments } from "./server/recent";
-import { docBlocksRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc } from "./shared/rpc";
+import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(docOpenRpc, async ({ workspaceId, path, password }, { paseo }) =>
@@ -22,6 +22,9 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(docRowsRpc, async ({ workspaceId, path, ...request }, { paseo }) =>
     readRows({ root: await workspaceRoot(paseo, workspaceId), path }, request),
+  );
+  server.handle(docIssuesRpc, async ({ workspaceId, path, cursor }, { paseo }) =>
+    scanIssues({ root: await workspaceRoot(paseo, workspaceId), path }, cursor),
   );
   server.handle(docBlocksRpc, async ({ workspaceId, path, ...request }, { paseo }) =>
     readBlocks({ root: await workspaceRoot(paseo, workspaceId), path }, request),

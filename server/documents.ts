@@ -1,5 +1,5 @@
 import type { SearchCursor, SearchMatch } from "../shared/search";
-import type { DocSearchOutput } from "../shared/rpc";
+import type { DocIssuesOutput, DocSearchOutput } from "../shared/rpc";
 import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
@@ -32,7 +32,8 @@ import { recentDocuments, type RecentEntry } from "./recent";
 import { revisionOf } from "./revision";
 import { viewerStateStore } from "./viewer-state";
 import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, position, takeStream, type SearchPosition } from "./search";
-import { loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
+import { SharedFormulas } from "./formulas";
+import { issueDecoder, loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
 import { readZipIndex, verifyEntries, type ZipIndex, type ZipLimits } from "./zip";
 import { ERROR_MESSAGES, errorText } from "../shared/errors";
 
@@ -476,4 +477,90 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
   // Reject an interleaved rewrite instead of attaching stale matches to a new revision.
   if ((await locate(ref)).revision !== file.revision) throw new Error("The document changed while searching. Search again.");
   return { revision: file.revision, matches: scan.matches, next: scan.next, notes: [...notes], scanned: scan.scanned };
+}
+
+export interface IssueLimits {
+  budgetMs: number;
+  maxRows: number;
+  maxIssues: number;
+}
+
+const ISSUE_LIMITS: IssueLimits = { budgetMs: 3_000, maxRows: 250_000, maxIssues: 200 };
+const ISSUE_YIELD_MS = 40;
+
+type IssueCursor = NonNullable<DocIssuesOutput["next"]>;
+
+// Each call inspects rows in order until a limit is reached, always making progress; rows before the
+// cursor are only tokenized, and a parked stream lets the next call continue without re-reading them.
+export async function scanIssues(ref: DocumentRef, cursor?: IssueCursor | null, limits = ISSUE_LIMITS): Promise<DocIssuesOutput> {
+  const file = await locate(ref);
+  if (file.kind !== "xlsx") throw new Error("Checking for issues is available for Excel workbooks");
+  if (cursor && cursor.revision !== file.revision) throw new Error("The workbook changed. Check again.");
+  const model = await workbook(file);
+  const strings = await sharedStrings(file, model);
+  const start = cursor ?? { revision: file.revision, sheet: 0, row: 0, column: 0 };
+  const result: DocIssuesOutput = { revision: file.revision, issues: [], inspected: [], next: null, stopped: null };
+  const deadline = Date.now() + limits.budgetMs;
+  let yielded = Date.now();
+  let rows = 0;
+  const limit = (): DocIssuesOutput["stopped"] =>
+    result.issues.length >= limits.maxIssues ? "issues" : rows >= limits.maxRows ? "rows" : rows > 0 && Date.now() >= deadline ? "time" : null;
+  const stop = (reason: NonNullable<DocIssuesOutput["stopped"]>, sheet: number, row: number, column: number) => {
+    result.stopped = reason;
+    result.next = { revision: file.revision, sheet, row, column };
+  };
+  await heavy(async () => {
+    for (let sheet = start.sheet; sheet < model.sheets.length && !result.stopped; sheet++) {
+      const resumed = sheet === start.sheet;
+      const from = resumed ? start.row : 0;
+      const reason = limit();
+      if (reason) {
+        stop(reason, sheet, from, resumed ? start.column : 0);
+        break;
+      }
+      const key = `issues\0${file.path}\0${file.revision}\0${sheet}`;
+      const stream = takeStream(key, from, () => {
+        const formulas = new SharedFormulas();
+        return sheetRows(model, model.sheets[sheet]!, from, { decode: issueDecoder(model, strings, formulas), formulas });
+      });
+      let visited = false;
+      let end = from;
+      try {
+        rowLoop: for await (const { row, cells } of stream.from(from)) {
+          if (Date.now() - yielded >= ISSUE_YIELD_MS) {
+            await new Promise((resume) => setImmediate(resume));
+            yielded = Date.now();
+          }
+          const before = limit();
+          if (before) {
+            stop(before, sheet, row, 0);
+            break;
+          }
+          visited = true;
+          rows++;
+          const skip = resumed && row === start.row ? start.column : 0;
+          for (const [column, detail] of [...(cells ?? [])].sort((a, b) => a[0] - b[0])) {
+            if (column < skip) continue;
+            if (result.issues.length >= limits.maxIssues) {
+              stop("issues", sheet, row, column);
+              break rowLoop;
+            }
+            result.issues.push({ sheet, row, column, kind: detail.type === "e" ? "error" : "missing-result", display: detail.display, formula: detail.formula?.text ?? null });
+          }
+          end = row + 1;
+        }
+      } catch (error) {
+        stream.close();
+        throw error;
+      }
+      if (result.stopped) parkStream(key, stream);
+      else {
+        stream.close();
+        end = Math.max(end, model.sheets[sheet]!.rowCount);
+      }
+      if (visited || !result.stopped) result.inspected.push({ sheet, fromRow: from, toRow: result.stopped ? result.next!.row : end });
+    }
+  });
+  if ((await locate(ref)).revision !== file.revision) throw new Error("The workbook changed while checking. Check again.");
+  return result;
 }
