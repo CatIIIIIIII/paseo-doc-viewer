@@ -5,6 +5,7 @@ import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { z } from "zod";
 import { DOCUMENT_GROUPS } from "./browse";
 import { DOCUMENT_KINDS } from "./kinds";
+import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "./limits";
 
 const documentRef = { workspaceId: z.string().min(1), path: z.string().min(1) };
 const password = z.string().min(1).max(1024).optional();
@@ -82,6 +83,23 @@ export const docPageRpc = defineRpc({
       image: encodedImage,
     }),
   ]),
+});
+
+export const docThumbnailRpc = defineRpc({
+  name: "doc.thumbnail",
+  input: z.object({
+    ...documentRef,
+    password,
+    index: z.number().int().nonnegative(),
+    width: z.number().int().min(THUMBNAIL_MIN_WIDTH_PX).max(THUMBNAIL_MAX_WIDTH_PX),
+  }),
+  output: z.object({
+    kind: z.literal("pdf"),
+    revision,
+    index: z.number().int().nonnegative(),
+    pageCount: z.number().int().nonnegative(),
+    image: encodedImage,
+  }),
 });
 
 export const docTextRpc = defineRpc({
@@ -215,12 +233,13 @@ export const viewerStateWriteRpc = defineRpc({
   output: z.object({ saved: z.boolean() }),
 });
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;
 export type DocPageInput = RpcInput<typeof docPageRpc>;
 export type DocPageOutput = RpcOutput<typeof docPageRpc>;
+export type DocThumbnailOutput = RpcOutput<typeof docThumbnailRpc>;
 export type DocTextInput = RpcInput<typeof docTextRpc>;
 export type DocTextOutput = RpcOutput<typeof docTextRpc>;
 export type DocRowsInput = RpcInput<typeof docRowsRpc>;

@@ -1,10 +1,11 @@
 import { build } from "esbuild";
 import { chromium, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { once } from "node:events";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 const directory = resolve("node_modules/.cache/viewer-browser");
 await mkdir(directory, { recursive: true });
 const pdf = await PDFDocument.create();
@@ -15,6 +16,15 @@ const long = await PDFDocument.create();
 const longPage = long.addPage([600, 1400]);
 for (let line = 0; line < 80; line++) longPage.drawText(line === 76 ? "The needle is on this line" : `Filler line ${line + 1}`, { font: await long.embedFont(StandardFonts.Helvetica), x: 40, y: 1380 - line * 17, size: 11 });
 await writeFile(`${directory}/long.pdf`, await long.save());
+const report = await PDFDocument.create();
+const reportFont = await report.embedFont(StandardFonts.HelveticaBold);
+for (let index = 0; index < 60; index++) {
+  const sheet = report.addPage([612, 792]);
+  sheet.drawText(`Section ${index + 1}`, { font: reportFont, x: 60, y: 700, size: 48 });
+  if (index === 41) sheet.drawRectangle({ x: 60, y: 200, width: 480, height: 400, color: rgb(0.2, 0.4, 0.9) });
+}
+await writeFile(`${directory}/report.pdf`, await report.save());
+const stateDirectory = await mkdtemp(resolve(tmpdir(), "viewer-browser-state-"));
 const base = { bundle: true, jsx: "automatic", logLevel: "silent" };
 await build({ ...base, entryPoints: ["test/browser/app.tsx"], outfile: `${directory}/app.js`, platform: "browser", alias: {
   "react-native": resolve("test/browser/native-shim.tsx"),
@@ -22,7 +32,7 @@ await build({ ...base, entryPoints: ["test/browser/app.tsx"], outfile: `${direct
   "@getpaseo/plugin/client": resolve("test/browser/plugin-shim.ts"),
 } });
 await build({ ...base, entryPoints: ["test/browser/server.ts"], outfile: `${directory}/server.cjs`, platform: "node", format: "cjs", external: ["@getpaseo/plugin", "zod"] });
-const server = spawn(process.execPath, [`${directory}/server.cjs`], { stdio: ["ignore", "pipe", "inherit"] });
+const server = spawn(process.execPath, [`${directory}/server.cjs`], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, PASEO_DOC_VIEWER_STATE_DIR: stateDirectory } });
 let browser;
 let page;
 try {
@@ -191,7 +201,49 @@ try {
   expect(writes).toHaveLength(0);
   page.off("request", recordWrite);
   await page.unroute("**/rpc", delayPosition);
+  const thumbnails = { requested: [], inFlight: 0, maxInFlight: 0 };
+  const isThumbnail = (request) => request.url().endsWith("/rpc") && request.postDataJSON()?.method === "doc.thumbnail";
+  page.on("request", (request) => { if (!isThumbnail(request)) return; thumbnails.requested.push(request.postDataJSON().input.index); thumbnails.maxInFlight = Math.max(thumbnails.maxInFlight, ++thumbnails.inFlight); });
+  const settled = (request) => { if (isThumbnail(request)) thumbnails.inFlight--; };
+  page.on("requestfinished", settled);
+  page.on("requestfailed", settled);
+  const slowThumbnails = async (route) => {
+    if (route.request().postDataJSON().method === "doc.thumbnail") await new Promise((resolve) => setTimeout(resolve, 150));
+    await route.continue().catch(() => {});
+  };
+  await page.route("**/rpc", slowThumbnails);
+  await page.getByRole("button", { name: "report.pdf", exact: true }).click();
+  await page.getByRole("button", { name: "Page map", exact: true }).click();
+  await expect(page.getByRole("img", { name: "Page 1 thumbnail", exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Page 10 thumbnail", exact: true })).toBeVisible();
+  await page.waitForTimeout(1500);
+  expect(thumbnails.maxInFlight).toBeLessThanOrEqual(2);
+  expect(new Set(thumbnails.requested).size).toBeLessThan(30);
+  expect(thumbnails.requested).not.toContain(59);
+  await page.screenshot({ path: `${directory}/page-map.png`, fullPage: true });
+  await page.getByLabel("Page thumbnails", { exact: true }).evaluate((element) => { element.parentElement.parentElement.scrollTop = 1e6; });
+  await expect(page.getByRole("img", { name: "Page 60 thumbnail", exact: true })).toBeVisible();
+  expect(thumbnails.maxInFlight).toBeLessThanOrEqual(2);
+  await page.getByRole("button", { name: "Open page 42", exact: true }).click();
+  await expect(page.getByText("42 / 60", { exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Page 42", exact: true })).toBeVisible();
+  // Closing the map stops further thumbnail requests; only those already sent may finish.
+  await page.unroute("**/rpc", slowThumbnails);
+  const verySlow = async (route) => {
+    if (route.request().postDataJSON().method === "doc.thumbnail") await new Promise((resolve) => setTimeout(resolve, 600));
+    await route.continue().catch(() => {});
+  };
+  await page.route("**/rpc", verySlow);
+  await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  await page.getByRole("button", { name: "Page map", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Open page 3", exact: true })).toBeVisible();
+  const sentBeforeClose = thumbnails.requested.length;
+  await page.getByRole("button", { name: "Close page map", exact: true }).click();
+  await page.waitForTimeout(1500);
+  expect(thumbnails.requested.length - sentBeforeClose).toBe(0);
+  expect(thumbnails.inFlight).toBe(0);
+  await page.unroute("**/rpc", verySlow);
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races.");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests).");
   console.log(`Screenshots: ${directory}`);
-} catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); }
+} catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

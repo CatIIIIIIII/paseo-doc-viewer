@@ -3,17 +3,15 @@ import { mkdtempSync, copyFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import contribute from "../../index.server";
-import { ViewerStateStore } from "../../server/viewer-state";
 import { searchDocument } from "../../server/documents";
 import { searchGenerations } from "../../server/search";
 import { readFileSync } from "node:fs";
 import { DOCUMENT_RPCS } from "../../shared/rpc";
 const root = mkdtempSync(join(tmpdir(), "viewer-browser-files-"));
-const state = mkdtempSync(join(tmpdir(), "viewer-browser-state-"));
-const store = new ViewerStateStore(state);
 for (const file of ["statement.pdf", "invoices.xlsx", "contract.docx", "deck.pptx", "audible.webm"]) copyFileSync(join(process.cwd(), "test/fixtures", file), join(root, file));
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/searchable.pdf"), join(root, "statement.pdf"));
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/long.pdf"), join(root, "long.pdf"));
+copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/report.pdf"), join(root, "report.pdf"));
 writeFileSync(join(root, "broken.pdf"), "original unsupported file");
 writeFileSync(join(root, ".env"), "SECRET=1");
 writeFileSync(join(root, "many.csv"), Array.from({ length: 120 }, (_, row) => `row ${row},needle`).join("\n"));
@@ -29,8 +27,6 @@ contribute({ handle: (contract: any, handler: any) => handlers.set(contract.name
 // A tiny budget makes every search span many requests, so the client must keep going on its own.
 handlers.set("doc.search", async ({ path, password, query, cursor, searchId }) =>
   searchDocument({ root, path, password }, query, cursor, 1, searchId && searchGenerations.begin(searchId.session, searchId.generation)));
-handlers.set("viewer-state.read", async ({ path }) => ({ saved: await store.read(await store.key(root, path)) }));
-handlers.set("viewer-state.write", async ({ path, position }) => { await store.write(await store.key(root, path), position); return { saved: true }; });
 const paseo = { workspaces: { list: async () => ({ entries: [{ id: "workspace", workspaceDirectory: root }], pageInfo: { hasMore: false } }) } };
 const server = createServer(async (request, response) => {
   if (request.url === "/bundle.js") { response.setHeader("Content-Type", "application/javascript"); response.end(readFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/app.js"))); return; }
@@ -44,4 +40,4 @@ const server = createServer(async (request, response) => {
   } catch (error) { response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) })); }
 });
 server.listen(0, "127.0.0.1", () => process.stdout.write(JSON.stringify(server.address()) + "\n"));
-process.on("SIGTERM", () => { server.close(); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
+process.on("SIGTERM", () => { server.close(); rmSync(root, { recursive: true, force: true }); process.exit(0); });

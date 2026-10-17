@@ -3,7 +3,7 @@ import type { DocSearchOutput } from "../shared/rpc";
 import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, XLSX_MAX_COLUMNS } from "../shared/limits";
+import { DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_COLUMNS } from "../shared/limits";
 import { KIND_REGISTRY, detectKind, extensionOf, kindForPath, type DocumentKind, type PagedRpc } from "../shared/kinds";
 import type {
   DocBlocksOutput,
@@ -11,6 +11,7 @@ import type {
   DocPageOutput,
   DocRowsOutput,
   DocTextOutput,
+  DocThumbnailOutput,
   DocsRecentInput,
   DocsRecentOutput,
   MediaChunkOutput,
@@ -49,6 +50,7 @@ interface DocumentFile {
 }
 
 type PageRequest = { index: number; maxWidth?: number };
+type ThumbnailRequest = { index: number; width: number };
 type TextRequest = { index: number };
 type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number; maxRows?: number };
 type BlocksRequest = { cursor: number };
@@ -57,6 +59,7 @@ type ChunkRequest = { offset: number; length: number; mimeType?: AnimationMimeTy
 interface KindHandler {
   open(file: DocumentFile): Promise<DocOpenOutput>;
   page?(file: DocumentFile, request: PageRequest): Promise<DocPageOutput>;
+  thumbnail?(file: DocumentFile, request: ThumbnailRequest): Promise<DocThumbnailOutput>;
   text?(file: DocumentFile, request: TextRequest): Promise<DocTextOutput>;
   rows?(file: DocumentFile, request: RowsRequest): Promise<DocRowsOutput>;
   blocks?(file: DocumentFile, request: BlocksRequest): Promise<DocBlocksOutput>;
@@ -83,6 +86,7 @@ const XLSX_LIMITS: ZipLimits = {
   streamed: (name) => /^xl\/worksheets\/[^/]+\.xml$/.test(name),
 };
 const DOCX_MAX_MARKUP = 250_000;
+const THUMBNAIL_MAX_BYTES = 256 * 1024;
 const HEAD_BYTES = 32;
 const OLE2 = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 const PASSWORD_KEY_SECRET = randomBytes(32);
@@ -212,6 +216,12 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       const { pageCount, image } = await heavyCached(file, `page\0${index}\0${fit.maxWidth}`, () => renderPdfPage(file, index, fit));
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
+    // Thumbnails skip the shared cache so a grid cannot evict the pages being read; the client keeps them.
+    thumbnail: async (file, { index, width }) => {
+      const fit = { maxWidth: Math.min(width, THUMBNAIL_MAX_WIDTH_PX), maxBytes: THUMBNAIL_MAX_BYTES };
+      const { pageCount, image } = await heavy(() => renderPdfPage(file, index, fit), { background: true });
+      return { kind: "pdf", revision: file.revision, index, pageCount, image };
+    },
     text: async (file, { index }) => ({
       kind: "pdf",
       revision: file.revision,
@@ -325,6 +335,11 @@ export async function openDocument(ref: DocumentRef): Promise<DocOpenOutput> {
 export async function renderPage(ref: DocumentRef, request: PageRequest): Promise<DocPageOutput> {
   const file = await locate(ref);
   return operation(file, "doc.page", "page")(file, request);
+}
+
+export async function renderThumbnail(ref: DocumentRef, request: ThumbnailRequest): Promise<DocThumbnailOutput> {
+  const file = await locate(ref);
+  return operation(file, "doc.thumbnail", "thumbnail")(file, request);
 }
 
 export async function readPageText(ref: DocumentRef, request: TextRequest): Promise<DocTextOutput> {

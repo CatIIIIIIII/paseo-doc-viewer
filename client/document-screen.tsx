@@ -74,7 +74,7 @@ export function DocumentScreen({ theme, layout, params }: PluginScreenProps) {
     );
   } else {
     body = (
-      <DocumentBody key={documentKey} document={opened.data} workspaceId={workspaceId} path={path} password={password} theme={theme} styles={styles} />
+      <DocumentBody key={documentKey} document={opened.data} workspaceId={workspaceId} path={path} password={password} compact={layout.compact} theme={theme} styles={styles} />
     );
   }
   return (
@@ -94,9 +94,12 @@ function ViewerContent({
   styles,
   navigation,
   searchMatches,
+  pageMap,
 }: {
   navigation?: SearchNavigation | null;
   searchMatches?: SearchMatch[];
+  pageMap?: { compact: boolean; onClose(): void } | null;
+  compact: boolean;
   document: DocOpenOutput;
   workspaceId: string;
   path: string;
@@ -112,7 +115,7 @@ function ViewerContent({
   const key = `${workspaceId}\0${path}`;
   switch (document.kind) {
     case "pdf":
-      return <PageViewer key={key} {...common} {...remembered} kind="pdf" count={document.pageCount} password={password} searchMatches={searchMatches} />;
+      return <PageViewer key={key} {...common} {...remembered} kind="pdf" count={document.pageCount} password={password} searchMatches={searchMatches} pageMap={pageMap} />;
     case "pptx":
       return <PageViewer key={key} {...common} {...remembered} kind="pptx" count={document.slideCount} />;
     case "image-raster":
@@ -133,16 +136,24 @@ function DocumentBody(props: Parameters<typeof ViewerContent>[0]) {
   const [finding, setFinding] = useState(false);
   const [navigation, setNavigation] = useState<SearchNavigation | null>(null);
   const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([]);
+  const [mapOpen, setMapOpen] = useState(false);
   useEffect(() => { setNavigation(null); setSearchMatches([]); }, [props.document.revision]);
+  useEffect(() => { if (navigation) setMapOpen(false); }, [navigation]);
   const searchable = ["pdf", "docx", "xlsx", "csv", "pptx"].includes(props.document.kind);
+  const mappable = props.document.kind === "pdf" && props.document.pageCount > 0;
+  const pageMap = useMemo(() => (mapOpen ? { compact: props.compact, onClose: () => setMapOpen(false) } : null), [mapOpen, props.compact]);
   return <FindScope enabled={searchable} onFind={() => { if (searchable) setFinding(true); }}>
     <View style={props.styles.screen}>
     {searchable ? <View style={props.styles.toolbar}><ToolbarButton theme={props.theme} styles={props.styles}
-      icon="Search" label="Find in document" selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} /></View> : null}
+      icon="Search" label="Find in document" selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} />
+      <View style={props.styles.toolbarSpacer} />
+      {mappable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="LayoutGrid" label="Pages" accessibilityLabel="Page map"
+        selected={mapOpen} onPress={() => setMapOpen(!mapOpen)} /> : null}
+    </View> : null}
     {finding ? <FindPanel key={props.document.revision} workspaceId={props.workspaceId} path={props.path} password={props.password}
       revision={props.document.revision} pageLabel={props.document.kind === "pptx" ? "Slide" : "Page"} theme={props.theme} styles={props.styles} onNavigate={setNavigation}
       onMatches={setSearchMatches}
       onClose={() => { setFinding(false); setNavigation(null); setSearchMatches([]); }} /> : null}
-    <ViewerContent {...props} navigation={navigation} searchMatches={searchMatches} />
+    <ViewerContent {...props} navigation={navigation} searchMatches={searchMatches} pageMap={pageMap} />
   </View></FindScope>;
 }

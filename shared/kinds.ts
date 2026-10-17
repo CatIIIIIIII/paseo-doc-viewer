@@ -1,7 +1,7 @@
 export const DOCUMENT_KINDS = ["pdf", "docx", "xlsx", "csv", "pptx", "video", "audio", "image-raster", "image-decoded"] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 
-export type PagedRpc = "doc.page" | "doc.text" | "doc.rows" | "doc.blocks" | "media.chunk";
+export type PagedRpc = "doc.page" | "doc.thumbnail" | "doc.text" | "doc.rows" | "doc.blocks" | "media.chunk";
 
 export interface MagicSignature {
   offset: number;
@@ -21,7 +21,7 @@ const ascii = (offset: number, text: string): MagicSignature => ({
 const zip: MagicSignature = { offset: 0, bytes: [0x50, 0x4b, 0x03, 0x04] };
 
 export const KIND_REGISTRY: { readonly [K in DocumentKind]: KindSpec } = {
-  pdf: { extensions: ["pdf"], magic: [ascii(0, "%PDF-")], rpcs: ["doc.page", "doc.text"] },
+  pdf: { extensions: ["pdf"], magic: [ascii(0, "%PDF-")], rpcs: ["doc.page", "doc.thumbnail", "doc.text"] },
   docx: { extensions: ["docx"], magic: [zip], rpcs: ["doc.blocks"] },
   xlsx: { extensions: ["xlsx"], magic: [zip], rpcs: ["doc.rows"] },
   csv: { extensions: ["csv", "tsv"], magic: "text", rpcs: ["doc.rows"] },

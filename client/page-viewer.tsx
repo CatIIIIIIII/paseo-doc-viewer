@@ -25,6 +25,7 @@ import {
   zoomGroupWidth,
   zoomLabel,
 } from "./paging";
+import { PageMap } from "./page-map";
 import { animationQueryKey, pageQueryKey, textQueryKey } from "./queries";
 import { ErrorState, LoadingState, type Styles, ToolbarButton } from "./ui";
 import { useFitWidth } from "./use-fit-width";
@@ -33,6 +34,7 @@ import { usePinchZoom } from "./use-pinch-zoom";
 type EncodedImage = Extract<DocPageOutput, { kind: "pdf" }>["image"];
 
 export interface PageViewerProps {
+  pageMap?: { compact: boolean; onClose(): void } | null;
   navigation?: SearchNavigation | null;
   searchMatches?: SearchMatch[];
   initialPosition?: ViewerPosition | null;
@@ -57,7 +59,7 @@ function dataUri(image: EncodedImage): string {
   return `data:${image.mimeType};base64,${image.data}`;
 }
 
-export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles, initialPosition, onPositionChange, navigation, searchMatches }: PageViewerProps) {
+export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles, initialPosition, onPositionChange, navigation, searchMatches, pageMap }: PageViewerProps) {
   const fetchPage = useRpc(docPageRpc);
   const fetchText = useRpc(docTextRpc);
   const fetchChunk = useRpc(mediaChunkRpc);
@@ -150,6 +152,11 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
     outerProps.ref.current?.scrollTo({ y: Math.max(0, rect.y - styles.gutter), animated: true });
     if (zoom > 1) panProps.ref.current?.scrollTo({ x: Math.max(0, rect.x - styles.gutter), animated: true });
   };
+
+  if (pageMap && kind === "pdf" && count > 0) {
+    return <PageMap workspaceId={workspaceId} path={path} password={password} revision={revision} count={count} active={active} compact={pageMap.compact}
+      theme={theme} styles={styles} onClose={pageMap.onClose} onOpen={(target) => { setIndex(target); pageMap.onClose(); }} />;
+  }
 
   return (
     <View style={styles.screen}>

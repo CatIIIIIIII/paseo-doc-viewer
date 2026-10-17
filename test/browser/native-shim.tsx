@@ -36,11 +36,11 @@ export const Text = ({ children, style, accessibilityLabel, onPress, accessibili
 // React Native Web renders Pressable as a focusable div with role=button, not a <button>.
 export const Pressable = ({ children, style, accessibilityLabel, accessibilityState, disabled, onPress }: any) => <div role="button" tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel} aria-pressed={accessibilityState?.selected} aria-disabled={disabled || undefined}
   onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }} style={{ cursor: "pointer", ...css(style) }}>{children}</div>;
-export const ScrollView = forwardRef<any, any>(function ScrollView({ children, style, contentContainerStyle, onLayout }: any, ref) {
+export const ScrollView = forwardRef<any, any>(function ScrollView({ children, style, contentContainerStyle, onLayout, onScroll }: any, ref) {
   useEffect(() => { onLayout?.({ nativeEvent: { layout: { width: 850, height: 540, x: 0, y: 0 } } }); }, [onLayout]);
   // React Native's scrollTo takes { x, y }; the DOM method takes { left, top }.
   return <div ref={(value) => { if (value) (value as any).scrollTo = ({ x, y }: { x?: number; y?: number }) => { if (y !== undefined) value.scrollTop = y; if (x !== undefined) value.scrollLeft = x; }; if (typeof ref === "function") ref(value); else if (ref) ref.current = value; }}
-    style={{ overflow: "auto", ...css(style) }}><div style={css(contentContainerStyle)}>{children}</div></div>;
+    style={{ overflow: "auto", ...css(style) }} onScroll={onScroll ? (event) => onScroll({ nativeEvent: { contentOffset: { x: event.currentTarget.scrollLeft, y: event.currentTarget.scrollTop } } }) : undefined}><div style={css(contentContainerStyle)}>{children}</div></div>;
 });
 export const TextInput = ({ value, onChangeText, onSubmitEditing, accessibilityLabel, style, placeholder, maxLength, autoFocus }: any) => <input autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onSubmitEditing?.(); }} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />;
 export const Image = ({ source, style, accessibilityLabel }: any) => <img src={source.uri} style={css(style)} alt={accessibilityLabel} />;
