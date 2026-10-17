@@ -1,6 +1,6 @@
 import type { PluginButton, PluginClientContext, PluginHeaderButtonContribution } from "@getpaseo/plugin/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addDocumentsHeaderButtons, HEADER_POLL_MAX_MS, HEADER_POLL_MS } from "../client/header-button";
+import { addDocumentsHeaderButtons, HEADER_POLL_MAX_MS, HEADER_POLL_MS, TURN_RECHECK_MIN_MS } from "../client/header-button";
 import { DOCUMENTS_PANEL_ID } from "../client/recent";
 import { docsAnyRpc } from "../shared/rpc";
 
@@ -20,6 +20,8 @@ function fakeClient() {
   let observer: Observer | null = null;
   let resolveList!: () => void;
   const release = vi.fn(async () => {});
+  let agentListener: ((update: unknown) => void) | null = null;
+  const stopAgents = vi.fn(() => void (agentListener = null));
   const listed = new Promise<void>((resolve) => (resolveList = resolve));
   const client = {
     rpc: vi.fn(async (_contract: unknown, _request: unknown) => ({ found: true })),
@@ -30,6 +32,12 @@ function fakeClient() {
       return { update: vi.fn(), remove: () => void live.delete(workspaceId) };
     }),
     paseo: {
+      agents: {
+        subscribe: vi.fn((listener: (update: unknown) => void) => {
+          agentListener = listener;
+          return stopAgents;
+        }),
+      },
       workspaces: {
         list: vi.fn(async () => {
           await listed;
@@ -60,6 +68,8 @@ function fakeClient() {
     release,
     settle,
     observer: () => observer,
+    agentUpdate: (update: unknown) => agentListener?.(update),
+    stopAgents,
   };
 }
 
@@ -221,5 +231,82 @@ describe("Documents header button", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(fake.live.size).toBe(0);
     warn.mockRestore();
+  });
+});
+
+const agentStatus = (id: string, status: string, workspaceId = "ws-1") => ({ kind: "upsert", agent: { id, status, workspaceId } });
+
+describe("Documents header button after an agent turn", () => {
+  async function hiddenWorkspace() {
+    const fake = fakeClient();
+    fake.rpc.mockResolvedValue({ found: false });
+    const cleanup = addDocumentsHeaderButtons(fake.client);
+    await fake.settle();
+    fake.observer()!.snapshot({ entries: [{ id: "ws-1" }] });
+    await fake.settle();
+    await vi.advanceTimersByTimeAsync(TURN_RECHECK_MIN_MS);
+    fake.rpc.mockClear();
+    return { fake, cleanup };
+  }
+
+  it("probes again as soon as a turn ends, without waiting for the poll", async () => {
+    const { fake, cleanup } = await hiddenWorkspace();
+    fake.rpc.mockResolvedValue({ found: true });
+    fake.agentUpdate(agentStatus("a", "running"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.rpc).not.toHaveBeenCalled();
+    fake.agentUpdate(agentStatus("a", "idle"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.rpc).toHaveBeenCalledTimes(1);
+    expect(fake.live.has("ws-1")).toBe(true);
+    // Once the button shows, a turn end costs nothing.
+    fake.agentUpdate(agentStatus("a", "running"));
+    fake.agentUpdate(agentStatus("a", "idle"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.rpc).toHaveBeenCalledTimes(1);
+    cleanup();
+    expect(fake.stopAgents).toHaveBeenCalled();
+  });
+
+  it("ignores updates that are not a turn ending and agents of unknown workspaces", async () => {
+    const { fake, cleanup } = await hiddenWorkspace();
+    fake.agentUpdate(agentStatus("a", "idle"));
+    fake.agentUpdate(agentStatus("a", "idle"));
+    fake.agentUpdate(agentStatus("b", "running", "elsewhere"));
+    fake.agentUpdate(agentStatus("b", "idle", "elsewhere"));
+    fake.agentUpdate({ kind: "remove", agentId: "a" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.rpc).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it("scans a workspace without documents at most once per interval for turn ends", async () => {
+    const { fake, cleanup } = await hiddenWorkspace();
+    for (const status of ["running", "idle"]) fake.agentUpdate(agentStatus("a", status));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.rpc).toHaveBeenCalledTimes(1);
+    for (const status of ["running", "idle", "running", "error"]) fake.agentUpdate(agentStatus("a", status));
+    await vi.advanceTimersByTimeAsync(TURN_RECHECK_MIN_MS - 1);
+    expect(fake.rpc).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fake.rpc).toHaveBeenCalledTimes(2);
+    cleanup();
+  });
+
+  it("probes again when a turn ends during a probe that may have missed the file", async () => {
+    const { fake, cleanup } = await hiddenWorkspace();
+    let answer!: (value: { found: boolean }) => void;
+    fake.rpc.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    fake.agentUpdate(agentStatus("a", "running"));
+    fake.agentUpdate(agentStatus("a", "idle"));
+    await vi.advanceTimersByTimeAsync(0);
+    fake.rpc.mockResolvedValue({ found: true });
+    fake.agentUpdate(agentStatus("b", "running"));
+    fake.agentUpdate(agentStatus("b", "idle"));
+    answer({ found: false });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.rpc).toHaveBeenCalledTimes(2);
+    expect(fake.live.has("ws-1")).toBe(true);
+    cleanup();
   });
 });

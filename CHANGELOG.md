@@ -11,6 +11,7 @@
 - Review message: each file states the modified time (to the second, UTC) and exact size in bytes of the version you reviewed, instead of an opaque revision token, so the agent can check it against the file. A note on a pinned page carries the pin label when the pin belongs to the same version. The most recently active idle agent is preselected as the recipient; busy agents, agents whose last turn failed and unloaded agents are never preselected.
 - A note being typed in the composer is kept in app memory when you leave the document or switch workspace, and the composer reopens with it on the same page. Cancel or Add note clears it.
 - The Documents button, panel and Show documents command use the FileText icon. On phones the button is icon-only, and FileStack looked like a copy button.
+- The Documents header button appears right after an agent's turn ends in a workspace that had no documents, instead of up to 2 minutes later. The client listens to the agent updates the app already receives and runs `docs.any` for that workspace again, at most every 10 seconds; the 2-minute poll is unchanged.
 
 ## 0.4.0 (2026-10-17)
 

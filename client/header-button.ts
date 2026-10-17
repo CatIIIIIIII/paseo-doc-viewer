@@ -5,16 +5,29 @@ import { docsAnyRpc } from "../shared/rpc";
 // FileText reads as "documents" at header size; FileStack looked like a copy button on phones.
 // The SDK does not say which workspaces are on screen, so every known workspace is
 // probed with docs.any, which stops at the first document, a few at a time.
-// Failures back off up to the cap.
+// Failures back off up to the cap. An agent whose turn just ended is the usual source of a first
+// document, so its workspace is probed again at once if the button is hidden. That listens to the
+// agent updates the app already receives: no extra polling and no daemon subscription of its own.
 export const HEADER_POLL_MS = 2 * 60_000;
 export const HEADER_POLL_MAX_MS = 10 * 60_000;
 const MAX_CONCURRENT_PROBES = 2;
+// Busy workspaces end many turns; a workspace with no documents is scanned at most this often for them.
+export const TURN_RECHECK_MIN_MS = 10_000;
 
 type HeaderButtonHost = Pick<PluginClientContext, "paseo" | "rpc" | "addHeaderButton" | "openPanel">;
 
+interface WorkspaceProbe {
+  timer?: ReturnType<typeof setTimeout>;
+  startedAt: number;
+  probing: boolean;
+  // A turn ended while a probe was running, which may have missed the new file.
+  again: boolean;
+  refresh(): Promise<void>;
+}
+
 export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void {
   const buttons = new Map<string, PluginButtonRegistration>();
-  const workspaces = new Map<string, { timer?: ReturnType<typeof setTimeout> }>();
+  const workspaces = new Map<string, WorkspaceProbe>();
   let stopped = false;
   let stop = () => {};
   let probing = 0;
@@ -57,11 +70,13 @@ export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void 
   };
   const observe = (workspaceId: string) => {
     if (workspaces.has(workspaceId)) return;
-    const state: { timer?: ReturnType<typeof setTimeout> } = {};
     let delay = HEADER_POLL_MS;
-    workspaces.set(workspaceId, state);
     const current = () => !stopped && workspaces.get(workspaceId) === state;
     const refresh = async () => {
+      if (state.timer !== undefined) clearTimeout(state.timer);
+      state.timer = undefined;
+      state.probing = true;
+      state.startedAt = Date.now();
       try {
         const found = await probe(async () => (current() ? (await client.rpc(docsAnyRpc, { workspaceId })).found : null));
         if (found === null || !current()) return;
@@ -72,11 +87,48 @@ export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void 
         // Keep the last known state during a failure; retry later.
         delay = Math.min(delay * 2, HEADER_POLL_MAX_MS);
       } finally {
-        if (current()) state.timer = setTimeout(() => void refresh(), delay);
+        state.probing = false;
+        const again = state.again;
+        state.again = false;
+        if (current()) {
+          if (again && !buttons.has(workspaceId)) void refresh();
+          else state.timer = setTimeout(() => void refresh(), delay);
+        }
       }
     };
+    const state: WorkspaceProbe = { startedAt: 0, probing: false, again: false, refresh };
+    workspaces.set(workspaceId, state);
     void refresh();
   };
+  const turnEnded = (workspaceId: string) => {
+    const state = workspaces.get(workspaceId);
+    if (!state || buttons.has(workspaceId)) return;
+    if (state.probing) {
+      state.again = true;
+      return;
+    }
+    const wait = state.startedAt + TURN_RECHECK_MIN_MS - Date.now();
+    if (wait <= 0) {
+      void state.refresh();
+      return;
+    }
+    if (state.timer !== undefined) clearTimeout(state.timer);
+    state.timer = setTimeout(() => void state.refresh(), wait);
+  };
+  const statuses = new Map<string, string>();
+  // Older hosts may lack agents.subscribe; the poll still covers them.
+  const stopTurns = typeof client.paseo.agents?.subscribe === "function"
+    ? client.paseo.agents.subscribe((update) => {
+      if (update.kind !== "upsert") {
+        statuses.delete(update.agentId);
+        return;
+      }
+      const { id, status, workspaceId } = update.agent;
+      const previous = statuses.get(id);
+      statuses.set(id, status);
+      if (previous === "running" && status !== "running" && workspaceId) turnEnded(workspaceId);
+    })
+    : () => {};
 
   client.paseo.workspaces
     .list({ subscribe: {} })
@@ -110,6 +162,7 @@ export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void 
   return () => {
     stopped = true;
     stop();
+    stopTurns();
     for (const id of [...workspaces.keys()]) forget(id);
   };
 }
