@@ -20,13 +20,13 @@ function fakeAgents(snapshot: RecipientAgent | null, send = vi.fn(async () => {}
 const message = { text: "Review notes", images: [{ data: "AAAA", mimeType: "image/png" }] };
 
 describe("review recipients", () => {
-  it("lists only this workspace's open agents, ready ones first and most recent first", () => {
+  it("lists this workspace's unarchived agents, ready ones first and most recent first", () => {
     const recipients = reviewRecipients(
       [
         agent("busy", { status: "running", updatedAt: "2026-10-17T12:00:00.000Z" }),
         agent("old", { updatedAt: "2026-10-17T08:00:00.000Z" }),
         agent("other", { workspaceId: "ws-2" }),
-        agent("closed", { status: "closed" }),
+        agent("closed", { status: "closed", updatedAt: "2026-10-17T07:00:00.000Z" }),
         agent("archived", { archivedAt: "2026-10-17T09:00:00.000Z" }),
         agent("failed", { status: "error", updatedAt: "2026-10-17T11:00:00.000Z" }),
         agent("asking", { pendingPermissions: [{}] }),
@@ -38,6 +38,7 @@ describe("review recipients", () => {
       ["failed", true],
       ["new", true],
       ["old", true],
+      ["closed", true],
       ["busy", false],
       ["asking", false],
     ]);
@@ -49,6 +50,7 @@ describe("review recipients", () => {
     expect(recipientStatusLabel(agent("a", { pendingPermissions: [{}] }))).toBe("Waiting for permission");
     expect(recipientStatusLabel(agent("a", { status: "initializing" }))).toBe("Starting");
     expect(recipientStatusLabel(agent("a", { status: "error" }))).toBe("Last turn failed");
+    expect(recipientStatusLabel(agent("a", { status: "closed" }))).toBe("Inactive");
   });
 });
 

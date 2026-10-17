@@ -28,12 +28,14 @@ export interface ReviewAgents {
 export type SendOutcome = { status: "sent" } | { status: "busy"; label: string } | { status: "missing" };
 
 // Only an agent with no turn in progress takes the review, so nothing is interrupted and no
-// pending permission is cleared by the send.
+// pending permission is cleared by the send. A closed agent is one the daemon has not loaded
+// since it started; sending reopens it.
 function isReady(agent: RecipientAgent): boolean {
-  return (agent.status === "idle" || agent.status === "error") && agent.pendingPermissions.length === 0 && !agent.providerUnavailable;
+  const settled = agent.status === "idle" || agent.status === "error" || agent.status === "closed";
+  return settled && agent.pendingPermissions.length === 0 && !agent.providerUnavailable;
 }
 
-const isOpen = (agent: RecipientAgent) => !agent.archivedAt && agent.status !== "closed";
+const isOpen = (agent: RecipientAgent) => !agent.archivedAt;
 
 export function recipientStatusLabel(agent: RecipientAgent): string {
   if (agent.pendingPermissions.length > 0) return "Waiting for permission";
@@ -48,7 +50,7 @@ export function recipientStatusLabel(agent: RecipientAgent): string {
     case "initializing":
       return "Starting";
     case "closed":
-      return "Closed";
+      return "Inactive";
   }
 }
 
