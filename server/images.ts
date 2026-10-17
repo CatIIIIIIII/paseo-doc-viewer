@@ -5,6 +5,7 @@ import UTIF from "utif2";
 import { matchesMagic, type MagicSignature } from "../shared/kinds";
 import { decodeGif, gifFrameCount, gifSize } from "./gif";
 import { decodePngScaled, pngHeader } from "./png";
+import { tiffDirectories } from "./tiff";
 import {
   MAX_STREAMED_PIXELS,
   assertDecodable,
@@ -128,7 +129,7 @@ function assertTiffData(bytes: Buffer, page: UTIF.IFD): void {
 }
 
 function firstTiffPage(bytes: Buffer): UTIF.IFD {
-  const page = UTIF.decode(bytes).find((ifd) => ifd.t256 && ifd.t257);
+  const page = tiffDirectories(bytes).find((ifd) => ifd.t256 && ifd.t257);
   if (!page) throw new Error(ERROR_MESSAGES.imageDamaged("TIFF", "no image directory"));
   return page;
 }

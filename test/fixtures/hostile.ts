@@ -173,3 +173,22 @@ export function selfReferentialTiff(): Buffer {
   buf.writeUInt32LE(8, at); // next IFD offset points back to this IFD
   return buf;
 }
+
+// A TIFF built from IFD entries [tag, type, count, value] laid out from offset 8, with `next` as the
+// main chain link. Values are written inline as 32-bit numbers.
+export function tiffWithEntries(entries: [number, number, number, number][], next = 0): Buffer {
+  const buf = Buffer.alloc(8 + 2 + entries.length * 12 + 4);
+  buf.write("II", 0, "latin1");
+  buf.writeUInt16LE(42, 2);
+  buf.writeUInt32LE(8, 4);
+  buf.writeUInt16LE(entries.length, 8);
+  entries.forEach(([tag, type, count, value], i) => {
+    const at = 10 + i * 12;
+    buf.writeUInt16LE(tag, at);
+    buf.writeUInt16LE(type, at + 2);
+    buf.writeUInt32LE(count, at + 4);
+    buf.writeUInt32LE(value, at + 8);
+  });
+  buf.writeUInt32LE(next, 10 + entries.length * 12);
+  return buf;
+}
