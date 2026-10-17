@@ -1,6 +1,7 @@
 import type { SearchNavigation } from "../shared/search";
 import { CellInspector } from "./cell-inspector";
 import { Highlight } from "./highlight";
+import { HeaderChooser, RecordCard } from "./record-view";
 import type { ViewerPosition } from "../shared/viewer-state";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -42,13 +43,19 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
   });
   const [selected, setSelected] = useState<CellRef | null>(null);
   const onSelect = useCallback((cell: CellRef) => setSelected(cell), []);
-  useEffect(() => {
-    if (navigation?.target.type !== "cell") return;
-    const target = navigation.target;
+  const [mode, setMode] = useState<"grid" | "records">("grid");
+  const [headers, setHeaders] = useState<ReadonlyMap<number, number | null>>(() => new Map());
+  const [choosingHeader, setChoosingHeader] = useState(false);
+  const [recordStart, setRecordStart] = useState(0);
+  const jump = useCallback((target: { sheet: number; row: number; column: number }) => {
+    setMode("grid");
     dispatch({ type: "reconcile", state: { ...INITIAL_GRID, sheet: target.sheet, rowOffset: target.row, columnOffset: target.column,
       rowHistory: target.row > 0 ? [0] : [], columnHistory: target.column > 0 ? [0] : [] } });
     setSelected({ row: target.row, column: target.column });
-  }, [navigation]);
+  }, []);
+  useEffect(() => {
+    if (navigation?.target.type === "cell") jump(navigation.target);
+  }, [navigation, jump]);
   const grid = reconcileGrid(stored, sheets);
   useEffect(() => {
     if (grid !== stored) dispatch({ type: "reconcile", state: grid });
@@ -68,7 +75,7 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
         columnOffset: grid.columnOffset,
         maxColumns: layout.columns,
       }),
-    enabled: sheet !== undefined,
+    enabled: sheet !== undefined && mode === "grid",
     retry: retryPage,
     placeholderData: (previous) => (previous?.sheet === grid.sheet ? previous : undefined),
     staleTime: Infinity,
@@ -84,35 +91,72 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
     );
   }
 
+  const modeSwitch = (
+    <View style={styles.toolbarGroup}>
+      <ToolbarButton theme={theme} styles={styles} label="Grid" selected={mode === "grid"} onPress={() => setMode("grid")} />
+      <ToolbarButton theme={theme} styles={styles} label="Records" selected={mode === "records"}
+        onPress={() => {
+          setRecordStart(selected?.row ?? grid.rowOffset);
+          setChoosingHeader(false);
+          setMode("records");
+        }} />
+    </View>
+  );
+  const recordSheet = { index: grid.sheet, ...sheet };
+  const header = headers.get(grid.sheet);
+  const common = { workspaceId, path, revision, sheet: recordSheet, theme, styles, leading: modeSwitch };
+  const sheetTabs = sheets.length > 1 ? (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}
+      contentContainerStyle={{ gap: 4, paddingHorizontal: styles.gutter, paddingVertical: 8 }}
+    >
+      {sheets.map((candidate, index) => (
+        <ToolbarButton
+          key={`${index}-${candidate.name}`}
+          theme={theme}
+          styles={styles}
+          label={candidate.name || `Sheet ${index + 1}`}
+          selected={index === grid.sheet}
+          onPress={() => {
+            setSelected(null);
+            setChoosingHeader(false);
+            setRecordStart(0);
+            dispatch({ type: "sheet", sheet: index });
+          }}
+        />
+      ))}
+    </ScrollView>
+  ) : null;
+
+  if (mode === "records") {
+    return (
+      <View style={styles.screen}>
+        {sheetTabs}
+        {header === undefined || choosingHeader ? (
+          <HeaderChooser key={grid.sheet} {...common} onChoose={(chosen) => {
+            setHeaders(new Map(headers).set(grid.sheet, chosen));
+            setChoosingHeader(false);
+          }} />
+        ) : (
+          <RecordCard key={`${grid.sheet}:${header}`} {...common} header={header} initialRow={recordStart}
+            onChangeHeader={() => setChoosingHeader(true)}
+            onShowInGrid={(row) => jump({ sheet: grid.sheet, row, column: grid.columnOffset })} />
+        )}
+      </View>
+    );
+  }
+
   const data = rows.data;
   const columnCount = data ? Math.max(0, ...data.rows.map((row) => row.length)) : 0;
   const selectedValue = data && selected ? data.rows[selected.row - data.rowOffset]?.[selected.column - data.columnOffset] : undefined;
 
   return (
     <View style={styles.screen}>
-      {sheets.length > 1 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}
-          contentContainerStyle={{ gap: 4, paddingHorizontal: styles.gutter, paddingVertical: 8 }}
-        >
-          {sheets.map((candidate, index) => (
-            <ToolbarButton
-              key={`${index}-${candidate.name}`}
-              theme={theme}
-              styles={styles}
-              label={candidate.name || `Sheet ${index + 1}`}
-              selected={index === grid.sheet}
-              onPress={() => {
-                setSelected(null);
-                dispatch({ type: "sheet", sheet: index });
-              }}
-            />
-          ))}
-        </ScrollView>
-      ) : null}
+      {sheetTabs}
       <View style={[styles.toolbar, { flexWrap: "wrap" }]}>
+        {modeSwitch}
         <ToolbarButton theme={theme} styles={styles} icon="RotateCcw" accessibilityLabel="Reset reading position"
           onPress={() => { setSelected(null); dispatch({ type: "reconcile", state: INITIAL_GRID }); }} />
         <View style={styles.toolbarGroup}>

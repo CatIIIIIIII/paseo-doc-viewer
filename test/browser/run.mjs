@@ -109,6 +109,18 @@ try {
   await expect(page.getByLabel("Cell Summary!G3", { exact: true }).getByText("None saved", { exact: true })).toBeVisible();
   await page.screenshot({ path: `${directory}/sheet-inspector.png`, fullPage: true });
   await page.getByRole("button", { name: "Close cell", exact: true }).click();
+  await page.getByRole("button", { name: "Records", exact: true }).click();
+  await page.getByRole("button", { name: "Use row 2 as header", exact: true }).click();
+  await expect(page.getByText("Record 1 of 8 (row 3)", { exact: true })).toBeVisible();
+  await expect(page.getByText("Region · A", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Record row 3", { exact: true }).getByText("North", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Next record", exact: true }).click();
+  await expect(page.getByLabel("Record row 4", { exact: true }).getByText("South", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Inspect Total", exact: true }).click();
+  await expect(page.getByLabel("Cell Summary!D4", { exact: true }).getByText("=B4+C4", { exact: true })).toBeVisible();
+  await page.screenshot({ path: `${directory}/sheet-record.png`, fullPage: true });
+  await page.getByRole("button", { name: "Show in grid", exact: true }).click();
+  await expect(page.getByText("Rows 4-10 of 10", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "long.pdf", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("needle");
@@ -320,6 +332,6 @@ try {
   await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   page.off("request", recordReview);
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }
