@@ -236,6 +236,12 @@ function formatNumber(format: string | number | undefined, value: number, date19
   }
 }
 
+// openpyxl writes `<f>..</f><v></v>` for formulas it never calculated. Only a string result can be empty.
+function savedValue(cell: string, type: string | undefined): string | undefined {
+  const raw = /<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1];
+  return raw === "" && type !== "str" ? undefined : raw;
+}
+
 function cellText(cell: string, workbook: Workbook, strings: string[]): string {
   const open = /^<c\b[^>]*>/.exec(cell)![0];
   const type = attribute(open, "t");
@@ -244,7 +250,7 @@ function cellText(cell: string, workbook: Workbook, strings: string[]): string {
     for (const run of cell.replace(PHONETIC, "").matchAll(TEXT_RUN)) text += run[1];
     return clip(decodeEntities(text));
   }
-  const raw = /<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1];
+  const raw = savedValue(cell, type);
   if (raw === undefined) {
     const formula = /<f\b[^>]*>([^<]*)<\/f>/.exec(cell)?.[1];
     return formula ? clip(`=${decodeEntities(formula)}`) : "";
@@ -369,7 +375,7 @@ export function cellDetail(cell: string, row: number, column: number, workbook: 
     for (const run of cell.replace(PHONETIC, "").matchAll(TEXT_RUN)) text += run[1];
     raw = clip(decodeEntities(text));
   } else {
-    const stored = /<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1];
+    const stored = savedValue(cell, declared);
     if (stored !== undefined) raw = type === "s" ? (strings[Number(decodeEntities(stored))] ?? null) : clip(decodeEntities(stored));
   }
   const formula = formulaDetail(cell, row, column, raw !== null, formulas);

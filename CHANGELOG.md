@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Excel: a formula saved with an empty result (`<v></v>`, as openpyxl writes every formula) counts as having no saved result. The grid shows its formula text, the inspector says None saved and Issues lists it. Before, such cells looked blank.
+
 ## 0.4.0 (2026-10-17)
 
 - PDF page map: a Pages button shows a grid of low-resolution page thumbnails (2 or 3 columns on phones). Thumbnails load visible pages first, at most two at a time per map, on one background render slot that never takes the last slot from page renders. Closing the map stops further requests; a tap opens the page. New `doc.thumbnail` RPC (PDF only, 48 to 320 px wide, under 256 KB).
