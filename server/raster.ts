@@ -19,6 +19,7 @@ export interface EncodedImage {
 export interface Fit {
   maxWidth: number;
   maxBytes: number;
+  maxEdge?: number;
 }
 
 const RESPONSE_OVERHEAD_BYTES = 64 * 1024;
@@ -55,8 +56,8 @@ export function spend(budget: DecodeBudget, pixels: number): boolean {
   return true;
 }
 
-function edgeScale(width: number, height: number, maxWidth: number): number {
-  return Math.min(maxWidth / width, MAX_RENDER_EDGE_PX / Math.max(width, height));
+function edgeScale(width: number, height: number, maxWidth: number, maxEdge = MAX_RENDER_EDGE_PX): number {
+  return Math.min(maxWidth / width, maxEdge / Math.max(width, height));
 }
 
 export function targetScale(width: number, height: number, maxWidth: number): number {
@@ -200,7 +201,7 @@ export async function fitRendered(
   render: (width: number, height: number) => Promise<Rgba>,
   fit: Fit,
 ): Promise<EncodedImage> {
-  let scale = edgeScale(size.width, size.height, fit.maxWidth);
+  let scale = edgeScale(size.width, size.height, fit.maxWidth, fit.maxEdge);
   for (let attempt = 0; attempt < MAX_FIT_ATTEMPTS; attempt++) {
     const width = Math.max(1, Math.floor(size.width * scale));
     const height = Math.max(1, Math.floor(size.height * scale));

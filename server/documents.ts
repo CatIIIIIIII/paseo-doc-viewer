@@ -3,13 +3,14 @@ import type { DocIssuesOutput, DocSearchOutput } from "../shared/rpc";
 import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_COLUMNS } from "../shared/limits";
+import { DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_COLUMNS } from "../shared/limits";
 import type { ReviewStatus } from "../shared/browse";
 import { KIND_REGISTRY, detectKind, extensionOf, kindForPath, type DocumentKind, type PagedRpc } from "../shared/kinds";
 import type {
   DocBlocksOutput,
   DocOpenOutput,
   DocPageOutput,
+  ReviewPageImageOutput,
   DocRowsOutput,
   DocTextOutput,
   DocThumbnailOutput,
@@ -27,7 +28,7 @@ import { readChunk, sliceChunk, videoMimeType, audioMimeType } from "./media";
 import { resolveInside } from "./paths";
 import { pdfPageCount, readPdfPageText, renderPdfPage, searchPdfPage } from "./pdf";
 import { loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
-import { IMAGE_BUDGET_BYTES, decodeBudget, type Fit } from "./raster";
+import { IMAGE_BUDGET_BYTES, base64Capacity, decodeBudget, type Fit } from "./raster";
 import { recentDocuments, type RecentEntry } from "./recent";
 import { revisionOf } from "./revision";
 import { viewerStateStore } from "./viewer-state";
@@ -342,6 +343,22 @@ export async function renderPage(ref: DocumentRef, request: PageRequest): Promis
 export async function renderThumbnail(ref: DocumentRef, request: ThumbnailRequest): Promise<DocThumbnailOutput> {
   const file = await locate(ref);
   return operation(file, "doc.thumbnail", "thumbnail")(file, request);
+}
+
+const REVIEW_FIT: Fit = {
+  maxWidth: REVIEW_IMAGE_MAX_EDGE_PX,
+  maxEdge: REVIEW_IMAGE_MAX_EDGE_PX,
+  maxBytes: base64Capacity(REVIEW_IMAGE_MAX_BASE64_CHARS),
+};
+
+// Renders the page a review note refers to, but only while the file is still at the note's
+// revision: an image of a later rewrite must not be attached to an older note.
+export async function renderReviewPage(ref: DocumentRef, { index, revision }: { index: number; revision: string }): Promise<ReviewPageImageOutput> {
+  const file = await locate(ref);
+  if (file.kind !== "pdf") throw new Error(ERROR_MESSAGES.unavailable("review.page-image", file.kind));
+  if (file.revision !== revision) throw new Error(ERROR_MESSAGES.revisionChanged());
+  const { image } = await heavyCached(file, `review-page\0${index}`, () => renderPdfPage(file, index, REVIEW_FIT));
+  return { revision, index, image };
 }
 
 export async function readPageText(ref: DocumentRef, request: TextRequest): Promise<DocTextOutput> {

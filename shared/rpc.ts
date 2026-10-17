@@ -291,7 +291,14 @@ export const viewerStateReviewRpc = defineRpc({
   output: z.object({ review: reviewMark.nullable(), revision: documentRevision }),
 });
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc] as const;
+export const reviewPageImageRpc = defineRpc({
+  name: "review.page-image",
+  input: z.object({ ...documentRef, password, revision, index: z.number().int().nonnegative() }),
+  output: z.object({ revision, index: z.number().int().nonnegative(), image: encodedImage }),
+});
+export type ReviewPageImageOutput = RpcOutput<typeof reviewPageImageRpc>;
+
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, reviewPageImageRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;
