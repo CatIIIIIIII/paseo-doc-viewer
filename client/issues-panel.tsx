@@ -26,6 +26,7 @@ export function IssuesPanel({ workspaceId, path, revision, sheetNames, theme, st
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [chosen, setChosen] = useState(-1);
+  const [collapsed, setCollapsed] = useState(false);
   const active = useRef(true);
   useEffect(() => () => { active.current = false; }, []);
 
@@ -48,6 +49,25 @@ export function IssuesPanel({ workspaceId, path, revision, sheetNames, theme, st
   useEffect(() => { void run(null); }, []);
 
   const full = issues.length >= MAX_LISTED;
+  const choose = (index: number) => {
+    const issue = issues[index];
+    if (!issue) return;
+    setChosen(index);
+    setCollapsed(true);
+    onJump(issue);
+  };
+  // After a jump the list folds to one line, so the inspector and grid keep the screen on a phone.
+  if (collapsed && issues[chosen]) {
+    return (
+      <View style={[styles.toolbar, { flexWrap: "wrap" }]} accessibilityLabel="Sheet issues">
+        <Text style={[styles.label, { flex: 1, minWidth: 120 }]}>Issue {formatCount(chosen + 1)} of {formatCount(issues.length)}{page?.next ? "+" : ""}</Text>
+        <ToolbarButton theme={theme} styles={styles} icon="ChevronUp" accessibilityLabel="Previous issue" disabled={chosen <= 0} onPress={() => choose(chosen - 1)} />
+        <ToolbarButton theme={theme} styles={styles} icon="ChevronDown" accessibilityLabel="Next issue" disabled={chosen + 1 >= issues.length} onPress={() => choose(chosen + 1)} />
+        <ToolbarButton theme={theme} styles={styles} label="Show list" onPress={() => setCollapsed(false)} />
+        <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel="Close issues" onPress={onClose} />
+      </View>
+    );
+  }
   return (
     <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, padding: styles.gutter, gap: 6 }} accessibilityLabel="Sheet issues">
       <View style={[styles.toolbarGroup, { flexWrap: "wrap" }]}>
@@ -65,7 +85,7 @@ export function IssuesPanel({ workspaceId, path, revision, sheetNames, theme, st
           {issues.map((issue, index) => (
             <View key={`${issue.sheet}:${issue.row}:${issue.column}`} style={{ paddingVertical: 3, alignItems: "flex-start" }}>
               <ToolbarButton theme={theme} styles={styles} label={issueLabel(issue, sheetNames)} selected={index === chosen}
-                onPress={() => { setChosen(index); onJump(issue); }} />
+                onPress={() => choose(index)} />
             </View>
           ))}
         </ScrollView>

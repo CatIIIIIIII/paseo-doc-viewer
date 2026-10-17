@@ -134,6 +134,11 @@ try {
   await issues.getByRole("button", { name: "Summary!D9: no saved result · =B9+C9", exact: true }).click();
   await expect(page.getByLabel("Cell Summary!D9", { exact: true }).getByText("None saved", { exact: true })).toBeVisible();
   await expect(page.getByText("Rows 9-10 of 10", { exact: true })).toBeVisible();
+  await expect(issues.getByText("Issue 4 of 5", { exact: true })).toBeVisible();
+  await issues.getByRole("button", { name: "Next issue", exact: true }).click();
+  await expect(page.getByLabel("Cell Summary!D10", { exact: true }).getByText("=B10+C10", { exact: true })).toBeVisible();
+  await issues.getByRole("button", { name: "Show list", exact: true }).click();
+  await expect(issues.getByRole("button", { name: "Summary!E7: #REF!", exact: true })).toBeVisible();
   await page.screenshot({ path: `${directory}/sheet-issues.png`, fullPage: true });
   await page.getByRole("button", { name: "long.pdf", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
