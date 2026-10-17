@@ -4,6 +4,8 @@ import { createDocumentsPanel } from "./client/documents-panel";
 import { addDocumentsHeaderButtons } from "./client/header-button";
 import { setHostClient } from "./client/host-client";
 import { DOCUMENT_SCREEN_ID, DOCUMENTS_PANEL_ID, openByPath, openMostRecent } from "./client/recent";
+import { REVIEW_SCREEN_ID, reviewScreen } from "./client/review-note";
+import { ReviewScreen } from "./client/review-screen";
 
 export default function contribute(client: PluginClientContext) {
   setHostClient(client);
@@ -41,6 +43,15 @@ export default function contribute(client: PluginClientContext) {
       onSubmit: openByPath,
     }),
     addDocumentsHeaderButtons(client),
+    client.addScreen({ id: REVIEW_SCREEN_ID, title: "Review notes", Component: ReviewScreen }),
+    client.addCommandCenterItem({
+      id: "show-review-notes",
+      title: "Show review notes",
+      icon: "ClipboardList",
+      keywords: ["review", "notes", "feedback", "send", "agent", "pdf"],
+      context: "workspace",
+      onSelect: ({ openScreen, workspace }) => openScreen(reviewScreen(workspace.id)),
+    }),
   ];
   return () => {
     setHostClient(null);

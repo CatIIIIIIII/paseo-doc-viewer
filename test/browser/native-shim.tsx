@@ -34,7 +34,8 @@ export const Text = ({ children, style, accessibilityLabel, onPress, accessibili
   return <span ref={node} style={{ whiteSpace: "pre-wrap", ...css(style) }} aria-label={accessibilityLabel} onClick={onPress} role={accessibilityRole}>{children}</span>;
 };
 // React Native Web renders Pressable as a focusable div with role=button, not a <button>.
-export const Pressable = ({ children, style, accessibilityLabel, accessibilityState, disabled, onPress }: any) => <div role="button" tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel} aria-pressed={accessibilityState?.selected} aria-disabled={disabled || undefined}
+export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, accessibilityState, disabled, onPress }: any) => <div role={accessibilityRole === "radio" ? "radio" : "button"} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel}
+  aria-pressed={accessibilityRole === "radio" ? undefined : accessibilityState?.selected} aria-checked={accessibilityRole === "radio" ? Boolean(accessibilityState?.selected) : undefined} aria-disabled={disabled || undefined}
   onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }} style={{ cursor: "pointer", ...css(style) }}>{children}</div>;
 export const ScrollView = forwardRef<any, any>(function ScrollView({ children, style, contentContainerStyle, onLayout, onScroll }: any, ref) {
   useEffect(() => { onLayout?.({ nativeEvent: { layout: { width: 850, height: 540, x: 0, y: 0 } } }); }, [onLayout]);
@@ -42,7 +43,9 @@ export const ScrollView = forwardRef<any, any>(function ScrollView({ children, s
   return <div ref={(value) => { if (value) (value as any).scrollTo = ({ x, y }: { x?: number; y?: number }) => { if (y !== undefined) value.scrollTop = y; if (x !== undefined) value.scrollLeft = x; }; if (typeof ref === "function") ref(value); else if (ref) ref.current = value; }}
     style={{ overflow: "auto", ...css(style) }} onScroll={onScroll ? (event) => onScroll({ nativeEvent: { contentOffset: { x: event.currentTarget.scrollLeft, y: event.currentTarget.scrollTop } } }) : undefined}><div style={css(contentContainerStyle)}>{children}</div></div>;
 });
-export const TextInput = ({ value, onChangeText, onSubmitEditing, accessibilityLabel, style, placeholder, maxLength, autoFocus }: any) => <input autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onSubmitEditing?.(); }} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />;
+export const TextInput = ({ value, onChangeText, onSubmitEditing, accessibilityLabel, style, placeholder, maxLength, autoFocus, multiline }: any) => multiline
+  ? <textarea autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />
+  : <input autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onSubmitEditing?.(); }} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />;
 export const Image = ({ source, style, accessibilityLabel }: any) => <img src={source.uri} style={css(style)} alt={accessibilityLabel} />;
 export const ActivityIndicator = () => <span aria-label="Loading">…</span>;
 export const FlatList = ({ data, renderItem, keyExtractor, ListFooterComponent, contentContainerStyle }: any) => <div style={{ overflow: "auto", ...css(contentContainerStyle) }}>{data.map((item: any, index: number) => <div key={keyExtractor?.(item, index) ?? index}>{renderItem({ item, index })}</div>)}{ListFooterComponent}</div>;

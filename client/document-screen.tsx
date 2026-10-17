@@ -21,12 +21,15 @@ import { useViewerMarks } from "./use-viewer-marks";
 import { reviewStatus } from "./review";
 import { MediaViewer } from "./media-viewer";
 import { kindForPath } from "../shared/kinds";
+import { openHostScreen } from "./host-client";
+import { reviewScope, useReviewDraft } from "./review-draft";
+import { NoteComposer, reviewScreen } from "./review-note";
 
 export function documentTitle(params: Record<string, string>): string {
   return params.path ? baseName(params.path) : "Document";
 }
 
-export function DocumentScreen({ theme, layout, params }: PluginScreenProps) {
+export function DocumentScreen({ host, theme, layout, params }: PluginScreenProps) {
   const { ref, onLayout, bottomInset } = useBottomInset();
   const styles = useMemo(() => makeStyles(theme, layout.compact, bottomInset), [theme, layout.compact, bottomInset]);
   const workspaceId = params.workspaceId ?? "";
@@ -76,7 +79,8 @@ export function DocumentScreen({ theme, layout, params }: PluginScreenProps) {
     );
   } else {
     body = (
-      <DocumentBody key={documentKey} document={opened.data} workspaceId={workspaceId} path={path} password={password} compact={layout.compact} theme={theme} styles={styles} />
+      <DocumentBody key={documentKey} document={opened.data} workspaceId={workspaceId} path={path} password={password} compact={layout.compact}
+        reviewScope={reviewScope(host?.id, workspaceId)} theme={theme} styles={styles} />
     );
   }
   return (
@@ -97,11 +101,13 @@ function ViewerContent({
   navigation,
   searchMatches,
   pageMap,
+  onAddNote,
 }: {
   navigation?: SearchNavigation | null;
   searchMatches?: SearchMatch[];
   pageMap?: { compact: boolean; onClose(): void } | null;
   compact: boolean;
+  onAddNote?: (page: number) => void;
   document: DocOpenOutput;
   workspaceId: string;
   path: string;
@@ -117,7 +123,7 @@ function ViewerContent({
   const key = `${workspaceId}\0${path}`;
   switch (document.kind) {
     case "pdf":
-      return <PageViewer key={key} {...common} {...remembered} kind="pdf" count={document.pageCount} password={password} searchMatches={searchMatches} pageMap={pageMap} />;
+      return <PageViewer key={key} {...common} {...remembered} kind="pdf" count={document.pageCount} password={password} searchMatches={searchMatches} pageMap={pageMap} onAddNote={onAddNote} />;
     case "pptx":
       return <PageViewer key={key} {...common} {...remembered} kind="pptx" count={document.slideCount} />;
     case "image-raster":
@@ -134,12 +140,15 @@ function ViewerContent({
   }
 }
 
-function DocumentBody(props: Parameters<typeof ViewerContent>[0]) {
+function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof ViewerContent>[0] & { reviewScope: string }) {
   const [finding, setFinding] = useState(false);
+  const [notePage, setNotePage] = useState<number | null>(null);
+  const draft = useReviewDraft(scope);
+  const reviewable = props.document.kind === "pdf";
   const [navigation, setNavigation] = useState<SearchNavigation | null>(null);
   const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([]);
   const [mapOpen, setMapOpen] = useState(false);
-  useEffect(() => { setNavigation(null); setSearchMatches([]); }, [props.document.revision]);
+  useEffect(() => { setNavigation(null); setSearchMatches([]); setNotePage(null); }, [props.document.revision]);
   useEffect(() => { if (navigation) setMapOpen(false); }, [navigation]);
   const searchable = ["pdf", "docx", "xlsx", "csv", "pptx"].includes(props.document.kind);
   const mappable = props.document.kind === "pdf" && props.document.pageCount > 0;
@@ -152,13 +161,17 @@ function DocumentBody(props: Parameters<typeof ViewerContent>[0]) {
       <View style={props.styles.toolbarSpacer} />
       {mappable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="LayoutGrid" label={props.compact ? undefined : "Pages"} accessibilityLabel="Page map"
         selected={mapOpen} onPress={() => setMapOpen(!mapOpen)} /> : null}
+      {draft.notes.length > 0 ? <ToolbarButton theme={props.theme} styles={props.styles} icon="ClipboardList" label={`Review (${draft.notes.length})`}
+        accessibilityLabel={`Review notes (${draft.notes.length})`} onPress={() => openHostScreen(reviewScreen(props.workspaceId))} /> : null}
       <ReviewControl workspaceId={props.workspaceId} path={props.path} revision={props.document.revision} theme={props.theme} styles={props.styles} />
     </View>
+    {notePage !== null ? <NoteComposer key={notePage} scope={scope} workspaceId={props.workspaceId} path={props.path} revision={props.document.revision}
+      page={notePage} password={props.password} draft={draft} theme={props.theme} styles={props.styles} onClose={() => setNotePage(null)} /> : null}
     {finding ? <FindPanel key={props.document.revision} workspaceId={props.workspaceId} path={props.path} password={props.password}
       revision={props.document.revision} pageLabel={props.document.kind === "pptx" ? "Slide" : "Page"} theme={props.theme} styles={props.styles} onNavigate={setNavigation}
       onMatches={setSearchMatches}
       onClose={() => { setFinding(false); setNavigation(null); setSearchMatches([]); }} /> : null}
-    <ViewerContent {...props} navigation={navigation} searchMatches={searchMatches} pageMap={pageMap} />
+    <ViewerContent {...props} navigation={navigation} searchMatches={searchMatches} pageMap={pageMap} onAddNote={reviewable ? setNotePage : undefined} />
   </View></FindScope>;
 }
 

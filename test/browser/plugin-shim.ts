@@ -7,3 +7,6 @@ export function useRpc(contract: { name: string }) {
     return value;
   }, [contract.name]);
 }
+export function usePaseo() {
+  return (globalThis as any).__fakePaseo;
+}

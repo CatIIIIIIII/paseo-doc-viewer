@@ -108,7 +108,7 @@ describe("S11: client bundle runs on the Hermes VM", () => {
     expect(result.stderr).toBe("");
     const steps = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
     expect(steps).toEqual([
-      { step: "contribute", cleanup: "function", screens: 1, commands: 2, panels: 1, slash: 1, title: "main.pdf" },
+      { step: "contribute", cleanup: "function", screens: 2, commands: 3, panels: 1, slash: 1, title: "main.pdf" },
       { step: "slash", opened: [{ screenId: "document", params: { workspaceId: "ws", path: "b/new.pdf" } }], headerButtons: ["ws:FileStack"] },
     ]);
   }, 120_000);

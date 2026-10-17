@@ -48,6 +48,7 @@ export interface PageViewerProps {
   animation?: ImageAnimation;
   theme: PluginTheme;
   styles: Styles;
+  onAddNote?: (page: number) => void;
 }
 
 const NOUN = { pdf: "Page", pptx: "Slide", image: "Image" } as const;
@@ -59,7 +60,7 @@ function dataUri(image: EncodedImage): string {
   return `data:${image.mimeType};base64,${image.data}`;
 }
 
-export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles, initialPosition, onPositionChange, navigation, searchMatches, pageMap }: PageViewerProps) {
+export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles, initialPosition, onPositionChange, navigation, searchMatches, pageMap, onAddNote }: PageViewerProps) {
   const fetchPage = useRpc(docPageRpc);
   const fetchText = useRpc(docTextRpc);
   const fetchChunk = useRpc(mediaChunkRpc);
@@ -209,6 +210,10 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
           <View style={{ width: 16, alignItems: "center" }}>
             {(textMode ? pageText.isFetching : page.isFetching) ? <ActivityIndicator size="small" color={theme.colors.foregroundMuted} /> : null}
           </View>
+          {onAddNote ? (
+            <ToolbarButton theme={theme} styles={styles} icon="MessageSquarePlus" accessibilityLabel={`Add note to ${noun.toLowerCase()} ${active + 1}`}
+              onPress={() => onAddNote(active)} />
+          ) : null}
           <ToolbarButton theme={theme} styles={styles} icon="RotateCcw" accessibilityLabel="Reset reading position"
             onPress={() => { setIndex(0); setZoom(1); setShowText(false); setSearchText(false); }} />
           {kind === "pdf" ? (

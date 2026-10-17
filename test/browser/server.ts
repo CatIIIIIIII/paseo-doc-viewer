@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtempSync, copyFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, copyFileSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import contribute from "../../index.server";
@@ -33,6 +33,8 @@ handlers.set("doc.issues", async ({ path, cursor }) => scanIssues({ root, path }
 const paseo = { workspaces: { list: async () => ({ entries: [{ id: "workspace", workspaceDirectory: root }], pageInfo: { hasMore: false } }) } };
 const server = createServer(async (request, response) => {
   if (request.url === "/bundle.js") { response.setHeader("Content-Type", "application/javascript"); response.end(readFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/app.js"))); return; }
+  // Simulates an agent rewriting a file: a new modified time gives it a new revision.
+  if (request.url === "/touch/statement.pdf") { const later = new Date(Date.now() + 60_000); utimesSync(join(root, "statement.pdf"), later, later); response.end("ok"); return; }
   if (request.url !== "/rpc") { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><html><head><meta charset="utf-8"><title>Viewer test harness</title></head><body style="background:#111827;color:#e5e7eb;font-family:system-ui"><div id="root"></div><script src="/bundle.js"></script></body></html>'); return; }
   try {
     let body = ""; for await (const part of request) body += part;
