@@ -1,4 +1,5 @@
 import type { SearchNavigation } from "../shared/search";
+import { CellInspector } from "./cell-inspector";
 import { Highlight } from "./highlight";
 import type { ViewerPosition } from "../shared/viewer-state";
 import type { PluginTheme } from "@getpaseo/plugin";
@@ -167,20 +168,19 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
           />
         </View>
       </View>
-      {selected && selectedValue ? (
-        <View style={[styles.toolbar, { alignItems: "flex-start" }]}>
-          <Text style={[styles.label, { paddingVertical: 6 }]}>
-            {columnName(selected.column)}
-            {selected.row + 1}
-          </Text>
-          <ScrollView style={{ flex: 1, maxHeight: 120 }} contentContainerStyle={{ paddingVertical: 4 }}>
-            <Text style={styles.text} selectable>
-              <Highlight text={selectedValue} query={navigation?.query} theme={theme} active={navigation?.target.type === "cell" && navigation.target.sheet === grid.sheet &&
-                navigation.target.row === selected.row && navigation.target.column === selected.column ? navigation.start : undefined} />
-            </Text>
-          </ScrollView>
-          <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel="Close cell" onPress={() => setSelected(null)} />
-        </View>
+      {selected ? (
+        <CellInspector
+          workspaceId={workspaceId}
+          path={path}
+          revision={revision}
+          sheetName={sheet.name}
+          target={{ sheet: grid.sheet, ...selected }}
+          shown={selectedValue ? <Highlight text={selectedValue} query={navigation?.query} theme={theme} active={navigation?.target.type === "cell" && navigation.target.sheet === grid.sheet &&
+            navigation.target.row === selected.row && navigation.target.column === selected.column ? navigation.start : undefined} /> : null}
+          theme={theme}
+          styles={styles}
+          onClose={() => setSelected(null)}
+        />
       ) : null}
       {rows.error && !data ? (
         <ErrorState theme={theme} styles={styles} error={rows.error} onRetry={() => void rows.refetch()} />
@@ -279,7 +279,7 @@ const SheetRow = memo(function SheetRow({
             accessibilityLabel={columnOffset + column === selectedColumn ? `Selected cell ${columnName(selectedColumn)}${row + 1}` : undefined}
             numberOfLines={1}
             ellipsizeMode="tail"
-            onPress={value ? () => onSelect({ row, column: columnOffset + column }) : undefined}
+            onPress={() => onSelect({ row, column: columnOffset + column })}
           >
             {value}
           </Text>

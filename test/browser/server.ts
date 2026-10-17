@@ -12,6 +12,7 @@ for (const file of ["statement.pdf", "invoices.xlsx", "contract.docx", "deck.ppt
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/searchable.pdf"), join(root, "statement.pdf"));
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/long.pdf"), join(root, "long.pdf"));
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/report.pdf"), join(root, "report.pdf"));
+copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/forecast.xlsx"), join(root, "forecast.xlsx"));
 writeFileSync(join(root, "broken.pdf"), "original unsupported file");
 writeFileSync(join(root, ".env"), "SECRET=1");
 writeFileSync(join(root, "many.csv"), Array.from({ length: 120 }, (_, row) => `row ${row},needle`).join("\n"));

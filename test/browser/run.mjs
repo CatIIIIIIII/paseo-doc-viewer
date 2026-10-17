@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { once } from "node:events";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { inspectionWorkbook } from "../fixtures/generators.ts";
 const directory = resolve("node_modules/.cache/viewer-browser");
 await mkdir(directory, { recursive: true });
 const pdf = await PDFDocument.create();
@@ -25,6 +26,7 @@ for (let index = 0; index < 60; index++) {
 }
 await writeFile(`${directory}/report.pdf`, await report.save());
 const stateDirectory = await mkdtemp(resolve(tmpdir(), "viewer-browser-state-"));
+await writeFile(`${directory}/forecast.xlsx`, await inspectionWorkbook());
 const base = { bundle: true, jsx: "automatic", logLevel: "silent" };
 await build({ ...base, entryPoints: ["test/browser/app.tsx"], outfile: `${directory}/app.js`, platform: "browser", alias: {
   "react-native": resolve("test/browser/native-shim.tsx"),
@@ -95,7 +97,18 @@ try {
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("button", { name: "Next match", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Next match", exact: true }).click();
-  await expect(page.getByText("B2", { exact: true })).toBeVisible();
+  await expect(page.getByText("Invoices!B2", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close find", exact: true }).click();
+  await page.getByRole("button", { name: "forecast.xlsx", exact: true }).click();
+  await page.getByText("$165.00", { exact: true }).click();
+  const inspector = page.getByLabel("Cell Summary!B8", { exact: true });
+  await expect(inspector.getByText("=B7*1.1", { exact: true })).toBeVisible();
+  await expect(inspector.getByText("165", { exact: true })).toBeVisible();
+  await expect(inspector.getByText('"$"#,##0.00', { exact: true })).toBeVisible();
+  await page.getByText("=SUM(D3:D10)", { exact: true }).click();
+  await expect(page.getByLabel("Cell Summary!G3", { exact: true }).getByText("None saved", { exact: true })).toBeVisible();
+  await page.screenshot({ path: `${directory}/sheet-inspector.png`, fullPage: true });
+  await page.getByRole("button", { name: "Close cell", exact: true }).click();
   await page.getByRole("button", { name: "long.pdf", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("needle");
@@ -307,6 +320,6 @@ try {
   await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   page.off("request", recordReview);
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

@@ -49,6 +49,10 @@ export function rowsQueryKey(
   return ["doc.rows", workspaceId, path, revision, sheet, rowOffset, columnOffset, maxColumns] as const;
 }
 
+export function cellQueryKey(workspaceId: string, path: string, revision: string, { sheet, row, column }: { sheet: number; row: number; column: number }) {
+  return ["doc.rows.cell", workspaceId, path, revision, sheet, row, column] as const;
+}
+
 export function animationQueryKey(workspaceId: string, path: string, revision: string) {
   return ["media.chunk", workspaceId, path, revision] as const;
 }
