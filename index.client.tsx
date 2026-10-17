@@ -2,9 +2,11 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { DocumentScreen, documentTitle } from "./client/document-screen";
 import { createDocumentsPanel } from "./client/documents-panel";
 import { addDocumentsHeaderButtons } from "./client/header-button";
+import { setHostClient } from "./client/host-client";
 import { DOCUMENT_SCREEN_ID, DOCUMENTS_PANEL_ID, openByPath, openMostRecent } from "./client/recent";
 
 export default function contribute(client: PluginClientContext) {
+  setHostClient(client);
   const cleanups = [
     client.addScreen({ id: DOCUMENT_SCREEN_ID, title: documentTitle, Component: DocumentScreen }),
     client.addCommandCenterItem({
@@ -41,6 +43,7 @@ export default function contribute(client: PluginClientContext) {
     addDocumentsHeaderButtons(client),
   ];
   return () => {
+    setHostClient(null);
     for (const cleanup of cleanups) cleanup();
   };
 }

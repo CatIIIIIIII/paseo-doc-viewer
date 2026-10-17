@@ -2,6 +2,8 @@ import type { MediaChunkOutput } from "../shared/rpc";
 
 export const MEDIA_REQUEST_BYTES = 2 * 1024 * 1024;
 export const MAX_PLAYABLE_BYTES = 256 * 1024 * 1024;
+// On phones the host's playAudio takes the whole file as one base64 string, so keep it smaller.
+export const NATIVE_AUDIO_MAX_BYTES = 32 * 1024 * 1024;
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const LOOKUP = new Int16Array(128).fill(-1);
@@ -109,4 +111,18 @@ export async function loadMedia(
   }
   if (!first) throw new Error("Media returned no chunks");
   return { mimeType: first.mimeType, revision: first.revision, parts, size: loaded };
+}
+
+export type HostPlayAudio = (source: { base64: string; mimeType: string }) => Promise<void>;
+
+// Loads the whole file with the usual guarantees, then hands it to the host's player.
+export async function playAudioFully(
+  fetchChunk: (request: { offset: number; length: number }) => Promise<MediaChunkOutput>,
+  playAudio: HostPlayAudio,
+  options: { signal?: { aborted: boolean }; onProgress?: (progress: MediaProgress) => void; onPlaying?: () => void } = {},
+): Promise<AssembledMedia> {
+  const media = await loadMedia(fetchChunk, options);
+  options.onPlaying?.();
+  await playAudio({ base64: encodeBase64(media.parts), mimeType: media.mimeType });
+  return media;
 }
