@@ -490,6 +490,10 @@ try {
   expect(counter.height).toBeLessThan(20);
   expect(await phone.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await phone.screenshot({ path: `${directory}/phone-toolbar.png` });
+  // Under an error the download stands alone, so it keeps its label on phones too.
+  await phone.goto(`http://127.0.0.1:${port}/?compact`);
+  await phone.getByRole("button", { name: "broken.pdf", exact: true }).click();
+  await expect(phone.getByRole("button", { name: "Download original", exact: true })).toContainText("Download original");
   expect(failures).toEqual([]);
   console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit.");
   console.log(`Screenshots: ${directory}`);

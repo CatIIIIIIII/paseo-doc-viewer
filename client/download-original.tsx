@@ -9,7 +9,7 @@ import { canDownloadOriginal, createMediaUrl, DownloadLink, revokeMediaUrl } fro
 import { ToolbarButton, type Styles } from "./ui";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 
-export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspaceId: string; path: string; theme: PluginTheme; styles: Styles }) {
+export function DownloadOriginal({ workspaceId, path, theme, styles, standalone = false }: { workspaceId: string; path: string; theme: PluginTheme; styles: Styles; standalone?: boolean }) {
   const info = useRpc(fileInfoRpc);
   const chunk = useRpc(fileChunkRpc);
   const [status, setStatus] = useState<"idle" | "loading" | "ready">("idle");
@@ -51,8 +51,9 @@ export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspa
       setStatus("idle"); toast.error(failure instanceof Error ? failure.message : String(failure));
     }
   };
-  // Lives in the document toolbar: icon-only on phones, with errors as toasts so the row keeps its height.
-  const compact = styles.compact;
+  // In the document toolbar it is icon-only on phones, with errors as toasts so the row keeps its height.
+  // Standalone (under an error or the password prompt) it keeps its words: a lone icon says too little.
+  const compact = styles.compact && !standalone;
   if (prepared) {
     return (
       <DownloadLink uri={prepared.url} name={prepared.name} style={{ ...styles.button, paddingLeft: 8, paddingRight: 8 }}>
@@ -69,5 +70,5 @@ export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspa
         onPress={() => { token.current++; setStatus("idle"); }} />
     </View>;
   }
-  return <ToolbarButton theme={theme} styles={styles} icon="Download" label={compact ? undefined : "Download"} accessibilityLabel="Download original" onPress={() => void prepare()} />;
+  return <ToolbarButton theme={theme} styles={styles} icon="Download" label={compact ? undefined : standalone ? "Download original" : "Download"} accessibilityLabel="Download original" onPress={() => void prepare()} />;
 }

@@ -47,7 +47,7 @@ export function DocumentScreen({ host, theme, layout, params }: PluginScreenProp
   const prompt = passwordPrompt(opened.error);
   const checking = unlocked !== null && opened.status === "pending";
   // The original stays downloadable when the preview cannot open.
-  const download = workspaceId && kindForPath(path) ? <DownloadOriginal key={documentKey} workspaceId={workspaceId} path={path} theme={theme} styles={styles} /> : null;
+  const download = workspaceId && kindForPath(path) ? <DownloadOriginal key={documentKey} workspaceId={workspaceId} path={path} theme={theme} styles={styles} standalone /> : null;
 
   let body: ReactNode;
   if (!workspaceId || !path) {
