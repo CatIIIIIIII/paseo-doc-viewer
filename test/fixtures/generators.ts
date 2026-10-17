@@ -363,3 +363,40 @@ export function gif(
   parts.push(Buffer.from([0x3b]));
   return Buffer.concat(parts);
 }
+
+// A forecast-style workbook for the inspector, record cards and issue scan: a merged title row above
+// the real header, a shared formula group whose last cells were never calculated, error cells and dates.
+export async function inspectionWorkbook(): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.created = EPOCH;
+  workbook.modified = EPOCH;
+  const summary = workbook.addWorksheet("Summary");
+  summary.getCell("A1").value = "Forecast 2026";
+  summary.mergeCells("A1:F1");
+  summary.getRow(2).values = ["Region", "Q1", "Q2", "Total", "Growth", "Updated"];
+  const regions = ["North", "South", "East", "West", "Central", "Islands", "Online", "Export"];
+  regions.forEach((region, i) => {
+    const row = i + 3;
+    const q1 = 100 + i * 10;
+    const q2 = 120 + i * 10;
+    summary.getCell(`A${row}`).value = region;
+    summary.getCell(`B${row}`).value = q1;
+    summary.getCell(`C${row}`).value = q2;
+    const cached = i < 6 ? { result: q1 + q2 } : {};
+    summary.getCell(`D${row}`).value = i === 0 ? { formula: "B3+C3", ...cached } : { sharedFormula: "D3", ...cached };
+    summary.getCell(`E${row}`).value = q2 / q1 - 1;
+    summary.getCell(`E${row}`).numFmt = "0.0%";
+    summary.getCell(`F${row}`).value = new Date(Date.UTC(2026, 0, 10 + i));
+    summary.getCell(`F${row}`).numFmt = "yyyy-mm-dd";
+  });
+  summary.getCell("B8").value = { formula: "B7*1.1", result: 165 };
+  summary.getCell("B8").numFmt = '"$"#,##0.00';
+  summary.getCell("E5").value = { formula: "C5/0", result: { error: "#DIV/0!" } };
+  summary.getCell("E7").value = { error: "#REF!" };
+  summary.getCell("G3").value = { formula: "SUM(D3:D10)" };
+  summary.getCell("G4").value = true;
+  const wide = workbook.addWorksheet("Wide");
+  wide.addRow(Array.from({ length: 60 }, (_, c) => `Field ${c + 1}`));
+  for (let r = 1; r <= 20; r++) wide.addRow(Array.from({ length: 60 }, (_, c) => `r${r}c${c + 1}`));
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}

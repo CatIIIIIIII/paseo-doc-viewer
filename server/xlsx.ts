@@ -3,6 +3,8 @@ import { StringDecoder } from "node:string_decoder";
 import SSF from "ssf";
 import { MAX_RESPONSE_BYTES, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS } from "../shared/limits";
 import { ERROR_MESSAGES } from "../shared/errors";
+import type { CellDetail } from "../shared/rpc";
+import { cellAddress, SharedFormulas, shiftFormula } from "./formulas";
 import { decodeEntities } from "./html";
 import { readText, streamEntry, type ZipIndex } from "./zip";
 
@@ -23,6 +25,7 @@ export interface Workbook {
   date1904: boolean;
   dateStyles: Set<number>;
   numberFormats: Map<number, string | number>;
+  formatCodes: Map<number, string>;
   sharedStringsPart: string | null;
 }
 
@@ -31,6 +34,7 @@ export interface RowWindow {
   columnCount: number;
   countsApproximate: boolean;
   rows: string[][];
+  details?: (CellDetail | null)[][];
   nextRowOffset: number | null;
   nextColumnOffset: number | null;
 }
@@ -109,8 +113,10 @@ function hasTime(code: string): boolean {
 const MAX_FORMAT_CODE_CHARS = 255;
 const isGeneral = (code: string) => code.length > MAX_FORMAT_CODE_CHARS || /^(general|@)?$/i.test(code.trim());
 
-function cellFormats(styles: string | null): Pick<Workbook, "dateStyles" | "numberFormats"> {
-  const result = { dateStyles: new Set<number>(), numberFormats: new Map<number, string | number>() };
+const BUILTIN_FORMAT_CODES = SSF.get_table() as Record<number, string | undefined>;
+
+function cellFormats(styles: string | null): Pick<Workbook, "dateStyles" | "numberFormats" | "formatCodes"> {
+  const result = { dateStyles: new Set<number>(), numberFormats: new Map<number, string | number>(), formatCodes: new Map<number, string>() };
   if (!styles) return result;
   const custom = new Map<number, string>();
   for (const [tag] of styles.matchAll(/<numFmt\b[^>]*>/g)) {
@@ -121,6 +127,7 @@ function cellFormats(styles: string | null): Pick<Workbook, "dateStyles" | "numb
   for (const [tag] of cellXfs.matchAll(/<xf\b[^>]*>/g)) {
     const id = Number(attribute(tag, "numFmtId") ?? 0);
     const code = custom.get(id);
+    if (id !== 0) result.formatCodes.set(index, (code ?? BUILTIN_FORMAT_CODES[id] ?? `Built-in format ${id}`).slice(0, MAX_FORMAT_CODE_CHARS));
     if (code === undefined) {
       if (BUILTIN_DATE_FORMATS.has(id)) result.dateStyles.add(index);
       else if (BUILTIN_NUMBER_FORMATS.has(id)) result.numberFormats.set(index, id);
@@ -263,26 +270,27 @@ function cellText(cell: string, workbook: Workbook, strings: string[]): string {
   }
 }
 
-export interface SheetRow {
+export interface SheetRow<T = string> {
   row: number;
-  cells: Map<number, string> | null;
+  cells: Map<number, T> | null;
   maxColumn: number;
+}
+
+export interface RowScan<T> {
+  columnStart?: number;
+  columnEnd?: number;
+  deadline?: number;
+  // Returns undefined to leave a cell out of the row.
+  decode(cell: string, row: number, column: number): T | undefined;
+  formulas?: SharedFormulas;
 }
 
 // Yields every row in document order. Rows before `fromRow` carry no cells, so
 // skipping them costs only tokenizing; cells outside the column range are not decoded.
-export async function* sheetRows(
-  workbook: Workbook,
-  strings: string[],
-  sheet: SheetRef,
-  fromRow: number,
-  columnStart = 0,
-  columnEnd = Number.POSITIVE_INFINITY,
-  deadline = Number.POSITIVE_INFINITY,
-  sharedMatches?: ReadonlySet<number>,
-): AsyncGenerator<SheetRow> {
+export async function* sheetRows<T>(workbook: Workbook, sheet: SheetRef, fromRow: number, options: RowScan<T>): AsyncGenerator<SheetRow<T>> {
   if (!sheet.part) return;
-  let current: SheetRow | null = null;
+  const { columnStart = 0, columnEnd = Number.POSITIVE_INFINITY, deadline = Number.POSITIVE_INFINITY, decode, formulas } = options;
+  let current: SheetRow<T> | null = null;
   let column = -1;
   let seen = 0;
   for await (const match of scan(streamEntry(workbook.index, sheet.part, "xlsx"), SHEET_TOKEN)) {
@@ -300,18 +308,74 @@ export async function* sheetRows(
     if (token === "</row>") continue;
     const reference = attribute(/^<c\b[^>]*>/.exec(token)?.[0] ?? token, "r");
     column = reference ? columnIndex(reference) : column + 1;
+    if (current) formulas?.observe(token, current.row, column);
     if (!current?.cells) continue;
     current.maxColumn = Math.max(current.maxColumn, column);
-    if (column < columnStart || column >= columnEnd || (sharedMatches && !keepsSharedString(token, sharedMatches))) continue;
-    current.cells.set(column, cellText(token, workbook, strings));
+    if (column < columnStart || column >= columnEnd) continue;
+    const value = decode(token, current.row, column);
+    if (value !== undefined) current.cells.set(column, value);
   }
   if (current) yield current;
 }
 
 // Search passes the indices of matching shared strings, so other shared-string cells are skipped undecoded.
+export function textDecoder(workbook: Workbook, strings: string[], sharedMatches?: ReadonlySet<number>): RowScan<string>["decode"] {
+  return (cell) => (sharedMatches && !keepsSharedString(cell, sharedMatches) ? undefined : cellText(cell, workbook, strings));
+}
+
 function keepsSharedString(cell: string, matches: ReadonlySet<number>): boolean {
   if (attribute(/^<c\b[^>]*>/.exec(cell)?.[0] ?? cell, "t") !== "s") return true;
   return matches.has(Number(/<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1]));
+}
+
+const CELL_TYPES = new Set(["n", "s", "b", "e", "d", "str", "inlineStr"]);
+const FORMULA_KINDS = new Set(["normal", "shared", "array", "dataTable"]);
+const MAX_FORMULA_CHARS = 8192;
+
+function formulaDetail(cell: string, row: number, column: number, cached: boolean, formulas?: SharedFormulas): CellDetail["formula"] {
+  const formula = /<f\b([^>]*?)(?:\/>|>([^<]*)<\/f>)/.exec(cell);
+  if (!formula) return undefined;
+  const tag = formula[1]!;
+  const declared = attribute(tag, "t") ?? "normal";
+  const kind = (FORMULA_KINDS.has(declared) ? declared : "normal") as NonNullable<CellDetail["formula"]>["kind"];
+  const range = attribute(tag, "ref");
+  const stored = formula[2] ? decodeEntities(formula[2]) : "";
+  const text = (value: string | null) =>
+    value !== null && value.length > MAX_FORMULA_CHARS ? { text: value.slice(0, MAX_FORMULA_CHARS), truncated: true } : { text: value };
+  if (kind === "dataTable") return { kind, text: null, cached, ...(range ? { range } : {}) };
+  if (kind === "shared" && !(stored && range)) {
+    const master = formulas?.master(attribute(tag, "si") ?? "");
+    if (!master) return { kind, text: null, cached };
+    const shifted = shiftFormula(master.text, row - master.row, column - master.column);
+    return { kind, ...text(shifted), cached, master: cellAddress(master.row, master.column), masterText: master.text.slice(0, MAX_FORMULA_CHARS), range: master.range };
+  }
+  return {
+    kind,
+    ...text(stored || null),
+    cached,
+    ...(kind === "shared" ? { master: cellAddress(row, column) } : {}),
+    ...(range && kind !== "normal" ? { range } : {}),
+  };
+}
+
+// The stored representation of one cell, or undefined when it holds neither a value nor a formula.
+export function cellDetail(cell: string, row: number, column: number, workbook: Workbook, strings: string[], formulas?: SharedFormulas): CellDetail | undefined {
+  const open = /^<c\b[^>]*>/.exec(cell)?.[0] ?? cell;
+  const declared = attribute(open, "t") ?? "n";
+  const type = (CELL_TYPES.has(declared) ? declared : "n") as CellDetail["type"];
+  let raw: string | null = null;
+  if (type === "inlineStr") {
+    let text = "";
+    for (const run of cell.replace(PHONETIC, "").matchAll(TEXT_RUN)) text += run[1];
+    raw = clip(decodeEntities(text));
+  } else {
+    const stored = /<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1];
+    if (stored !== undefined) raw = type === "s" ? (strings[Number(decodeEntities(stored))] ?? null) : clip(decodeEntities(stored));
+  }
+  const formula = formulaDetail(cell, row, column, raw !== null, formulas);
+  if (raw === null && !formula) return undefined;
+  const numberFormat = workbook.formatCodes.get(Number(attribute(open, "s") ?? 0)) ?? "General";
+  return { type, raw, display: cellText(cell, workbook, strings), numberFormat, ...(formula ? { formula } : {}) };
 }
 
 export async function rowWindow(
@@ -322,14 +386,20 @@ export async function rowWindow(
   columnOffset: number,
   maxColumns = XLSX_MAX_COLUMNS,
   maxRows = XLSX_MAX_ROWS,
+  detail = false,
 ): Promise<RowWindow> {
   const rowEnd = rowOffset + maxRows;
-  const present = new Map<number, Map<number, string>>();
+  const present = new Map<number, Map<number, string | CellDetail>>();
   let lastRow = -1;
   let maxColumn = -1;
   let beyond = -1;
   const deadline = Date.now() + WINDOW_DEADLINE_MS;
-  for await (const { row, cells, maxColumn: rowColumns } of sheetRows(workbook, strings, sheet, rowOffset, columnOffset, columnOffset + maxColumns, deadline)) {
+  const formulas = detail ? new SharedFormulas() : undefined;
+  const decode: RowScan<string | CellDetail>["decode"] = detail
+    ? (cell, row, column) => cellDetail(cell, row, column, workbook, strings, formulas)
+    : textDecoder(workbook, strings);
+  const scan = { columnStart: columnOffset, columnEnd: columnOffset + maxColumns, deadline, decode, formulas };
+  for await (const { row, cells, maxColumn: rowColumns } of sheetRows(workbook, sheet, rowOffset, scan)) {
     if (row >= rowEnd) {
       beyond = row;
       break;
@@ -344,15 +414,22 @@ export async function rowWindow(
   const columnEnd = Math.min(columnCount, columnOffset + maxColumns);
   const rowLimit = Math.min(rowCount, rowEnd);
   const rows: string[][] = [];
+  const details: (CellDetail | null)[][] = [];
   let bytes = 0;
   let next = rowOffset;
   for (; next < rowLimit; next++) {
     const cells = present.get(next);
     const row: string[] = [];
-    for (let c = columnOffset; c < columnEnd; c++) row.push(cells?.get(c) ?? "");
-    const rowBytes = Buffer.byteLength(JSON.stringify(row), "utf8") + 1;
+    const rowDetails: (CellDetail | null)[] = [];
+    for (let c = columnOffset; c < columnEnd; c++) {
+      const value = cells?.get(c);
+      row.push(typeof value === "object" ? value.display : (value ?? ""));
+      if (detail) rowDetails.push(typeof value === "object" ? value : null);
+    }
+    const rowBytes = Buffer.byteLength(JSON.stringify(row), "utf8") + (detail ? Buffer.byteLength(JSON.stringify(rowDetails), "utf8") : 0) + 2;
     if (rows.length > 0 && bytes + rowBytes > ROWS_BUDGET_BYTES) break;
     rows.push(row);
+    if (detail) details.push(rowDetails);
     bytes += rowBytes;
   }
   return {
@@ -360,6 +437,7 @@ export async function rowWindow(
     columnCount,
     countsApproximate: sheet.countsApproximate,
     rows,
+    ...(detail ? { details } : {}),
     nextRowOffset: next < rowCount ? next : null,
     nextColumnOffset: columnEnd < columnCount ? columnEnd : null,
   };

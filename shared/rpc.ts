@@ -115,6 +115,25 @@ export const docTextRpc = defineRpc({
   }),
 });
 
+// `raw` is the stored value (the text for shared strings), null when nothing is stored; a formula
+// without a stored value has no saved result. A shared formula's text is null when it cannot be derived.
+export const cellDetail = z.object({
+  type: z.enum(["n", "s", "b", "e", "d", "str", "inlineStr", "text"]),
+  raw: z.string().nullable(),
+  display: z.string(),
+  numberFormat: z.string().optional(),
+  formula: z.object({
+    kind: z.enum(["normal", "shared", "array", "dataTable"]),
+    text: z.string().nullable(),
+    cached: z.boolean(),
+    master: z.string().optional(),
+    masterText: z.string().optional(),
+    range: z.string().optional(),
+    truncated: z.boolean().optional(),
+  }).optional(),
+});
+export type CellDetail = z.infer<typeof cellDetail>;
+
 export const docRowsRpc = defineRpc({
   name: "doc.rows",
   input: z.object({
@@ -123,6 +142,8 @@ export const docRowsRpc = defineRpc({
     rowOffset: z.number().int().nonnegative(),
     columnOffset: z.number().int().nonnegative(),
     maxColumns: z.number().int().positive().optional(),
+    maxRows: z.number().int().positive().optional(),
+    detail: z.boolean().optional(),
   }),
   output: z.object({
     kind: z.enum(["xlsx", "csv"]),
@@ -134,6 +155,7 @@ export const docRowsRpc = defineRpc({
     columnCount: z.number().int().nonnegative(),
     countsApproximate: z.boolean().optional(),
     rows: z.array(z.array(z.string())),
+    details: z.array(z.array(cellDetail.nullable())).optional(),
     nextRowOffset: z.number().int().nonnegative().nullable(),
     nextColumnOffset: z.number().int().nonnegative().nullable(),
   }),

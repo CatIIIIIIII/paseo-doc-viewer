@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
 import { MAX_RESPONSE_BYTES, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS } from "../shared/limits";
 import { ERROR_MESSAGES } from "../shared/errors";
+import type { CellDetail } from "../shared/rpc";
 import type { RowWindow } from "./xlsx";
 
 export interface CsvIndex {
@@ -221,17 +222,21 @@ export async function csvWindow(
   columnOffset: number,
   maxColumns = XLSX_MAX_COLUMNS,
   maxRows = XLSX_MAX_ROWS,
+  detail = false,
 ): Promise<RowWindow> {
   const { rowCount, columnCount } = index;
   const rowEnd = Math.min(rowCount, rowOffset + maxRows);
   const columnEnd = Math.min(columnCount, columnOffset + maxColumns);
   const rows: string[][] = [];
+  const details: (CellDetail | null)[][] = [];
   let bytes = 0;
   if (rowOffset < rowEnd) {
     await csvRows(path, index, rowOffset, columnOffset, columnEnd, Date.now() + WINDOW_DEADLINE_MS, (row, cells) => {
-      const rowBytes = Buffer.byteLength(JSON.stringify(cells), "utf8") + 1;
+      const rowDetails = detail ? cells.map((text) => (text ? { type: "text" as const, raw: text, display: text } : null)) : [];
+      const rowBytes = Buffer.byteLength(JSON.stringify(cells), "utf8") + (detail ? Buffer.byteLength(JSON.stringify(rowDetails), "utf8") : 0) + 2;
       if (rows.length > 0 && bytes + rowBytes > ROWS_BUDGET_BYTES) return false;
       rows.push(cells);
+      if (detail) details.push(rowDetails);
       bytes += rowBytes;
       return row + 1 < rowEnd;
     });
@@ -242,6 +247,7 @@ export async function csvWindow(
     columnCount,
     countsApproximate: false,
     rows,
+    ...(detail ? { details } : {}),
     nextRowOffset: next < rowCount ? next : null,
     nextColumnOffset: columnEnd < columnCount ? columnEnd : null,
   };

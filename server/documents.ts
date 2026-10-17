@@ -32,7 +32,7 @@ import { recentDocuments, type RecentEntry } from "./recent";
 import { revisionOf } from "./revision";
 import { viewerStateStore } from "./viewer-state";
 import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, position, takeStream, type SearchPosition } from "./search";
-import { loadSharedStrings, loadWorkbook, rowWindow, sheetRows, type Workbook } from "./xlsx";
+import { loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
 import { readZipIndex, verifyEntries, type ZipIndex, type ZipLimits } from "./zip";
 import { ERROR_MESSAGES, errorText } from "../shared/errors";
 
@@ -55,7 +55,7 @@ interface DocumentFile {
 type PageRequest = { index: number; maxWidth?: number };
 type ThumbnailRequest = { index: number; width: number };
 type TextRequest = { index: number };
-type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number; maxRows?: number };
+type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number; maxRows?: number; detail?: boolean };
 type BlocksRequest = { cursor: number };
 type ChunkRequest = { offset: number; length: number; mimeType?: AnimationMimeType };
 
@@ -254,14 +254,14 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
         sheetsTruncated: model.sheetsTruncated,
       };
     },
-    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns, maxRows }) => {
+    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns, maxRows, detail = false }) => {
       const model = await workbook(file);
       inRange(sheet, model.sheets.length, "Sheet");
       const strings = await sharedStrings(file, model);
       const columns = Math.min(maxColumns ?? XLSX_MAX_COLUMNS, XLSX_MAX_COLUMNS);
       const rows = Math.min(maxRows ?? 200, 200);
-      const window = await heavyCached(file, `rows\0${sheet}\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}`, () =>
-        rowWindow(model, strings, model.sheets[sheet], rowOffset, columnOffset, columns, rows),
+      const window = await heavyCached(file, `rows\0${sheet}\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}\0${detail}`, () =>
+        rowWindow(model, strings, model.sheets[sheet], rowOffset, columnOffset, columns, rows, detail),
       );
       return { kind: "xlsx", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
     },
@@ -271,13 +271,13 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       const { rowCount, columnCount } = await csvIndex(file);
       return { kind: "csv", revision: file.revision, sheets: [{ name: basename(file.path), rowCount, columnCount, countsApproximate: false }] };
     },
-    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns, maxRows }) => {
+    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns, maxRows, detail = false }) => {
       inRange(sheet, 1, "Sheet");
       const index = await csvIndex(file);
       const columns = Math.min(maxColumns ?? XLSX_MAX_COLUMNS, XLSX_MAX_COLUMNS);
       const rows = Math.min(maxRows ?? 200, 200);
-      const window = await heavyCached(file, `rows\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}`, () =>
-        csvWindow(file.path, index, rowOffset, columnOffset, columns, rows),
+      const window = await heavyCached(file, `rows\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}\0${detail}`, () =>
+        csvWindow(file.path, index, rowOffset, columnOffset, columns, rows, detail),
       );
       return { kind: "csv", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
     },
@@ -457,7 +457,7 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
         for (let sheet = state.sheet; sheet < model.sheets.length && !scan.next; sheet++) {
           const from = sheet === state.sheet ? state : position(sheet, 0);
           const key = `${file.path}\0${file.revision}\0${sheet}\0${query}`;
-          const stream = takeStream(key, from.unit, () => sheetRows(model, strings, model.sheets[sheet], from.unit, 0, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, sharedMatches));
+          const stream = takeStream(key, from.unit, () => sheetRows(model, model.sheets[sheet], from.unit, { decode: textDecoder(model, strings, sharedMatches) }));
           try {
             for await (const { row, cells } of stream.from(from.unit)) {
               await scan.breathe();
