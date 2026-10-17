@@ -2,18 +2,21 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
+import { DATA_SAMPLE_ROWS } from "../shared/limits";
 import { docIssuesRpc, type DocIssuesOutput } from "../shared/rpc";
 import { formatCount } from "./format";
-import { coverageText, issueLabel, issueSummary, mergeInspected, pausedText, type InspectedRange, type SheetIssue } from "./issues";
+import { coverageText, dataIssueSummary, issueLabel, issueSummary, mergeInspected, pausedText, type InspectedRange, type SheetIssue } from "./issues";
 import { ToolbarButton, type Styles } from "./ui";
 
 const MAX_LISTED = 1_000;
 
-export function IssuesPanel({ workspaceId, path, revision, sheetNames, theme, styles, onJump, onClose }: {
+export function IssuesPanel({ workspaceId, path, revision, sheetNames, data = false, theme, styles, onJump, onClose }: {
   workspaceId: string;
   path: string;
   revision: string;
   sheetNames: readonly string[];
+  // A JSON Lines file: lists unreadable lines instead of error cells and formulas.
+  data?: boolean;
   theme: PluginTheme;
   styles: Styles;
   onJump(target: { sheet: number; row: number; column: number }): void;
@@ -22,7 +25,7 @@ export function IssuesPanel({ workspaceId, path, revision, sheetNames, theme, st
   const check = useRpc(docIssuesRpc);
   const [issues, setIssues] = useState<SheetIssue[]>([]);
   const [inspected, setInspected] = useState<InspectedRange[]>([]);
-  const [page, setPage] = useState<Pick<DocIssuesOutput, "next" | "stopped"> | null>(null);
+  const [page, setPage] = useState<Pick<DocIssuesOutput, "next" | "stopped" | "omitted"> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [chosen, setChosen] = useState(-1);
@@ -39,7 +42,7 @@ export function IssuesPanel({ workspaceId, path, revision, sheetNames, theme, st
       if (result.revision !== revision) throw new Error("The workbook changed. Check again.");
       setIssues((previous) => [...previous, ...result.issues].slice(0, MAX_LISTED));
       setInspected((previous) => mergeInspected(previous, result.inspected));
-      setPage({ next: result.next, stopped: result.stopped });
+      setPage({ next: result.next, stopped: result.stopped, omitted: result.omitted });
     } catch (failure) {
       if (active.current) setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
@@ -71,7 +74,8 @@ export function IssuesPanel({ workspaceId, path, revision, sheetNames, theme, st
   return (
     <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, padding: styles.gutter, gap: 6 }} accessibilityLabel="Sheet issues">
       <View style={[styles.toolbarGroup, { flexWrap: "wrap" }]}>
-        <Text style={[styles.text, { flex: 1, minWidth: 160 }]}>{page ? issueSummary(issues) : "Checking for error cells and formulas without a saved result…"}</Text>
+        <Text style={[styles.text, { flex: 1, minWidth: 160 }]}>{page ? (data ? dataIssueSummary(issues, page.omitted) : issueSummary(issues))
+          : data ? "Checking every line…" : "Checking for error cells and formulas without a saved result…"}</Text>
         {busy ? <ActivityIndicator size="small" color={theme.colors.foregroundMuted} /> : null}
         {page?.next && !busy && !full ? <ToolbarButton theme={theme} styles={styles} label="Continue check" onPress={() => void run(page.next)} /> : null}
         <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel="Close issues" onPress={onClose} />
@@ -79,7 +83,10 @@ export function IssuesPanel({ workspaceId, path, revision, sheetNames, theme, st
       {page ? <Text style={styles.muted}>{coverageText(inspected, sheetNames)}{page.next && page.stopped ? ` ${pausedText(page.stopped, page.next, sheetNames)}` : ""}</Text> : null}
       {full && page?.next ? <Text style={styles.muted}>Showing the first {formatCount(MAX_LISTED)} issues.</Text> : null}
       {error ? <Text style={styles.danger} accessibilityRole="alert">{error}</Text> : null}
-      <Text style={styles.muted}>Nothing is recalculated, and saved results can be stale. A missing saved result is not necessarily a mistake.</Text>
+      {page?.omitted ? <Text style={styles.muted}>Showing the first {formatCount(issues.length)} issues.</Text> : null}
+      <Text style={styles.muted}>{data
+        ? `Columns come from the first ${formatCount(DATA_SAMPLE_ROWS)} records. An invalid line shows its error in the first column.`
+        : "Nothing is recalculated, and saved results can be stale. A missing saved result is not necessarily a mistake."}</Text>
       {issues.length ? (
         <ScrollView style={{ maxHeight: 150 }}>
           {issues.map((issue, index) => (

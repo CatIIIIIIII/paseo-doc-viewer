@@ -1,7 +1,7 @@
-export const DOCUMENT_KINDS = ["pdf", "docx", "xlsx", "csv", "pptx", "video", "audio", "image-raster", "image-decoded"] as const;
+export const DOCUMENT_KINDS = ["pdf", "docx", "xlsx", "csv", "jsonl", "pptx", "video", "audio", "image-raster", "image-decoded"] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 
-export type PagedRpc = "doc.page" | "doc.thumbnail" | "doc.text" | "doc.rows" | "doc.blocks" | "media.chunk";
+export type PagedRpc = "doc.page" | "doc.thumbnail" | "doc.text" | "doc.rows" | "doc.cell" | "doc.blocks" | "media.chunk";
 
 export interface MagicSignature {
   offset: number;
@@ -25,6 +25,7 @@ export const KIND_REGISTRY: { readonly [K in DocumentKind]: KindSpec } = {
   docx: { extensions: ["docx"], magic: [zip], rpcs: ["doc.blocks"] },
   xlsx: { extensions: ["xlsx"], magic: [zip], rpcs: ["doc.rows"] },
   csv: { extensions: ["csv", "tsv"], magic: "text", rpcs: ["doc.rows"] },
+  jsonl: { extensions: ["jsonl", "ndjson"], magic: "text", rpcs: ["doc.rows", "doc.cell"] },
   pptx: { extensions: ["pptx"], magic: [zip], rpcs: ["doc.page"] },
   video: {
     extensions: ["mp4", "m4v", "mov", "webm"],

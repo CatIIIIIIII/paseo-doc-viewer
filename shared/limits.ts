@@ -20,3 +20,10 @@ export const REVIEW_MAX_NOTE_CHARS = 2000;
 export const REVIEW_MAX_IMAGES = 5;
 export const REVIEW_IMAGE_MAX_EDGE_PX = 2000;
 export const REVIEW_IMAGE_MAX_BASE64_CHARS = 3_000_000;
+// JSON Lines and Parquet: columns come from the first DATA_SAMPLE_ROWS records of a JSON Lines file,
+// nested objects are split into key paths up to DATA_MAX_DEPTH keys deep, and at most DATA_MAX_COLUMNS are listed.
+export const DATA_SAMPLE_ROWS = 1000;
+export const DATA_MAX_DEPTH = 3;
+export const DATA_MAX_COLUMNS = 500;
+// The inspector's full cell value (doc.cell) is cut at this many characters.
+export const CELL_FULL_MAX_CHARS = 256 * 1024;

@@ -2,10 +2,11 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { docRowsRpc } from "../shared/rpc";
-import { cellReference, inspectorFields } from "./cell-detail";
+import { cellReference, hasFullValue, inspectorFields } from "./cell-detail";
+import { FullValuePanel } from "./full-value";
 import { describeError } from "./format";
 import { retryPage } from "./paging";
 import { cellQueryKey } from "./queries";
@@ -17,11 +18,13 @@ export interface CellTarget {
   column: number;
 }
 
-export function CellInspector({ workspaceId, path, revision, sheetName, target, shown, theme, styles, onClose, actions }: {
+export function CellInspector({ workspaceId, path, revision, sheetName, columnLabel, target, shown, theme, styles, onClose, actions }: {
   workspaceId: string;
   path: string;
   revision: string;
   sheetName: string;
+  // Files with named columns (JSON Lines, Parquet) refer to a cell by column name and row.
+  columnLabel?: string;
   target: CellTarget;
   shown: ReactNode;
   theme: PluginTheme;
@@ -37,8 +40,11 @@ export function CellInspector({ workspaceId, path, revision, sheetName, target, 
     staleTime: Infinity,
   });
   const data = detail.data;
-  const reference = cellReference(data?.kind === "csv" ? null : sheetName, target.row, target.column);
-  const fields = data ? inspectorFields(data.details?.[0]?.[0] ?? null) : [];
+  const [showFull, setShowFull] = useState(false);
+  useEffect(() => setShowFull(false), [revision, target.sheet, target.row, target.column]);
+  const reference = columnLabel !== undefined ? `${columnLabel}, row ${target.row + 1}` : cellReference(data?.kind === "csv" ? null : sheetName, target.row, target.column);
+  const stored = data?.details?.[0]?.[0] ?? null;
+  const fields = data ? inspectorFields(stored) : [];
   return (
     <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingHorizontal: styles.gutter, paddingVertical: 8, gap: 6 }}
       accessibilityLabel={`Cell ${reference}`}>
@@ -70,6 +76,16 @@ export function CellInspector({ workspaceId, path, revision, sheetName, target, 
           ))}
         </ScrollView>
       )}
+      {data && hasFullValue(stored) ? (
+        showFull ? (
+          <FullValuePanel workspaceId={workspaceId} path={path} revision={revision} target={target} title="Full value" theme={theme} styles={styles}
+            onClose={() => setShowFull(false)} />
+        ) : (
+          <View style={styles.toolbarGroup}>
+            <ToolbarButton theme={theme} styles={styles} icon="WrapText" label="Show full value" onPress={() => setShowFull(true)} />
+          </View>
+        )
+      ) : null}
     </View>
   );
 }

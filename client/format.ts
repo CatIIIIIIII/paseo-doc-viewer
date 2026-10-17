@@ -48,6 +48,7 @@ export const KIND_ICON: { readonly [K in DocumentKind]: string } = {
   docx: "FileType",
   xlsx: "FileSpreadsheet",
   csv: "FileSpreadsheet",
+  jsonl: "FileJson",
   pptx: "Presentation",
   video: "FileVideoCamera",
   audio: "FileAudio",
@@ -60,6 +61,7 @@ export const KIND_LABEL: { readonly [K in DocumentKind]: string } = {
   docx: "Word document",
   xlsx: "Spreadsheet",
   csv: "CSV table",
+  jsonl: "JSON Lines",
   pptx: "Presentation",
   video: "Video",
   audio: "Audio",
@@ -70,7 +72,7 @@ export const KIND_LABEL: { readonly [K in DocumentKind]: string } = {
 export const GROUP_LABEL: { readonly [G in DocumentGroup]: string } = {
   pdf: "PDF",
   word: "Word",
-  excel: "Spreadsheets",
+  excel: "Spreadsheets and data",
   powerpoint: "PowerPoint",
   image: "Images",
   video: "Video",
@@ -80,7 +82,7 @@ export const GROUP_LABEL: { readonly [G in DocumentGroup]: string } = {
 export const GROUP_FILES: { readonly [G in DocumentGroup]: string } = {
   pdf: "PDF files",
   word: "Word files",
-  excel: "spreadsheets",
+  excel: "spreadsheets and data files",
   powerpoint: "PowerPoint files",
   image: "images",
   video: "Video files",

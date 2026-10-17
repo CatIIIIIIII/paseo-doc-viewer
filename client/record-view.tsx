@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import { XLSX_MAX_COLUMNS } from "../shared/limits";
 import { docRowsRpc } from "../shared/rpc";
 import { CellInspector } from "./cell-inspector";
+import { FullValuePanel } from "./full-value";
 import { columnName, rangeLabel, retryPage } from "./paging";
 import { rowsQueryKey } from "./queries";
 import { clampRecord, firstRecord, headerPreview, recordFields, recordLabel } from "./records";
@@ -84,8 +85,10 @@ export function HeaderChooser({ onChoose, leading, ...common }: Common & { onCho
   );
 }
 
-export function RecordCard({ header, initialRow, onChangeHeader, onShowInGrid, leading, ...common }: Common & {
+export function RecordCard({ header, named = false, initialRow, onChangeHeader, onShowInGrid, leading, ...common }: Common & {
   header: number | null;
+  // Columns are named by the file (JSON Lines, Parquet): labels come with the rows and the record can be read as JSON.
+  named?: boolean;
   initialRow: number;
   onChangeHeader(): void;
   onShowInGrid(row: number): void;
@@ -94,6 +97,7 @@ export function RecordCard({ header, initialRow, onChangeHeader, onShowInGrid, l
   const [row, setRow] = useState(() => clampRecord(initialRow, header, Math.max(sheet.rowCount, initialRow + 1)));
   const [fieldOffset, setFieldOffset] = useState(0);
   const [inspected, setInspected] = useState<number | null>(null);
+  const [showJson, setShowJson] = useState(false);
   useEffect(() => setInspected(null), [row, fieldOffset]);
   const headerRow = useRow(common, header ?? 0, fieldOffset, 1, { enabled: header !== null });
   const record = useRow(common, row, fieldOffset, 1, { detail: true });
@@ -103,14 +107,20 @@ export function RecordCard({ header, initialRow, onChangeHeader, onShowInGrid, l
   const columnCount = data?.columnCount ?? sheet.columnCount;
   const values = data?.rows[0];
   const shown = values ? Math.min(values.length, columnCount - fieldOffset) : 0;
-  const card = values && (header === null || headerRow.data) ? recordFields(header === null ? null : (headerRow.data?.rows[0] ?? []), values, fieldOffset, data?.details?.[0]) : null;
+  const labels = named ? (data?.columnNames ?? null) : header === null ? null : (headerRow.data?.rows[0] ?? []);
+  const card = values && (header === null || headerRow.data) ? recordFields(labels, values, fieldOffset, data?.details?.[0]) : null;
   const field = card?.fields.find((candidate) => candidate.column === inspected);
   return (
     <View style={{ flex: 1 }}>
       <View style={[styles.toolbar, { flexWrap: "wrap" }]}>
         {leading}
-        <ToolbarButton theme={theme} styles={styles} label={header === null ? "No header row" : `Header: row ${header + 1}`}
-          accessibilityLabel="Change header row" onPress={onChangeHeader} />
+        {named ? (
+          <ToolbarButton theme={theme} styles={styles} icon="Braces" label="Record JSON" accessibilityLabel="Show record JSON" variant="toggle"
+            selected={showJson} onPress={() => setShowJson(!showJson)} />
+        ) : (
+          <ToolbarButton theme={theme} styles={styles} label={header === null ? "No header row" : `Header: row ${header + 1}`}
+            accessibilityLabel="Change header row" onPress={onChangeHeader} />
+        )}
         <View style={styles.toolbarSpacer} />
         <View style={styles.toolbarGroup}>
           <ToolbarButton theme={theme} styles={styles} icon="ChevronLeft" accessibilityLabel="Previous record"
@@ -131,8 +141,14 @@ export function RecordCard({ header, initialRow, onChangeHeader, onShowInGrid, l
           <View style={{ width: 16 }}>{record.isFetching ? <ActivityIndicator size="small" color={theme.colors.foregroundMuted} /> : null}</View>
         </View>
       ) : null}
+      {named && showJson ? (
+        <View style={{ paddingHorizontal: styles.gutter, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+          <FullValuePanel workspaceId={workspaceId} path={path} revision={revision} target={{ sheet: sheet.index, row, column: null }}
+            title="Record JSON" theme={theme} styles={styles} onClose={() => setShowJson(false)} />
+        </View>
+      ) : null}
       {field ? (
-        <CellInspector workspaceId={workspaceId} path={path} revision={revision} sheetName={sheet.name}
+        <CellInspector workspaceId={workspaceId} path={path} revision={revision} sheetName={sheet.name} columnLabel={named ? field.label : undefined}
           target={{ sheet: sheet.index, row, column: field.column }} shown={field.value} theme={theme} styles={styles} onClose={() => setInspected(null)} />
       ) : null}
       {record.error && !data ? (

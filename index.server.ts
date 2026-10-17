@@ -1,11 +1,11 @@
 import { fileInfo, fileChunk } from "./server/files";
 import { markReviewed, readViewerState, setPin, viewerStateStore } from "./server/viewer-state";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, renderPage, renderThumbnail, scanIssues, renderReviewPage } from "./server/documents";
+import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, readCell, renderPage, renderThumbnail, scanIssues, renderReviewPage } from "./server/documents";
 import { searchGenerations } from "./server/search";
 import { workspaceRoot } from "./server/paths";
 import { forgetScan, hasDocuments } from "./server/recent";
-import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
+import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docCellRpc, docsRecentRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(docOpenRpc, async ({ workspaceId, path, password }, { paseo }) =>
@@ -22,6 +22,9 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(docRowsRpc, async ({ workspaceId, path, ...request }, { paseo }) =>
     readRows({ root: await workspaceRoot(paseo, workspaceId), path }, request),
+  );
+  server.handle(docCellRpc, async ({ workspaceId, path, ...request }, { paseo }) =>
+    readCell({ root: await workspaceRoot(paseo, workspaceId), path }, request),
   );
   server.handle(docIssuesRpc, async ({ workspaceId, path, cursor }, { paseo }) =>
     scanIssues({ root: await workspaceRoot(paseo, workspaceId), path }, cursor),

@@ -123,7 +123,7 @@ function ViewerContent({
   styles: Styles;
 }) {
   const position = useViewerPosition(workspaceId, path);
-  const remembers = ["pdf", "pptx", "image-raster", "image-decoded", "xlsx", "csv"].includes(document.kind);
+  const remembers = ["pdf", "pptx", "image-raster", "image-decoded", "xlsx", "csv", "jsonl"].includes(document.kind);
   if (remembers && !position.ready) return <LoadingState theme={theme} styles={styles} />;
   const common = { workspaceId, path, revision: document.revision, theme, styles, navigation };
   const remembered = { initialPosition: position.initial, onPositionChange: position.save };
@@ -140,6 +140,7 @@ function ViewerContent({
       return <BlocksViewer key={key} {...common} />;
     case "xlsx":
     case "csv":
+    case "jsonl":
       return <SheetViewer key={key} {...common} {...remembered} kind={document.kind} sheets={document.sheets} />;
     case "video":
     case "audio":
@@ -159,7 +160,7 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
   const [activePage, setActivePage] = useState(0);
   useEffect(() => { setNavigation(null); setSearchMatches([]); setNotePage(null); }, [props.document.revision]);
   useEffect(() => { if (navigation) setMapOpen(false); }, [navigation]);
-  const searchable = ["pdf", "docx", "xlsx", "csv", "pptx"].includes(props.document.kind);
+  const searchable = ["pdf", "docx", "xlsx", "csv", "jsonl", "pptx"].includes(props.document.kind);
   // Page map and review notes act on a PDF page, so both need at least one.
   const paged = props.document.kind === "pdf" && props.document.pageCount > 0;
   const pageMap = useMemo(() => (mapOpen ? { compact: props.compact, onClose: () => setMapOpen(false) } : null), [mapOpen, props.compact]);

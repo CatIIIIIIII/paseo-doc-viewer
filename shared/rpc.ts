@@ -7,6 +7,10 @@ import { DOCUMENT_GROUPS } from "./browse";
 import { DOCUMENT_KINDS } from "./kinds";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "./limits";
 
+// Kinds shown in the sheet grid. JSON Lines and Parquet have named columns instead of a header row.
+export const SHEET_KINDS = ["xlsx", "csv", "jsonl"] as const;
+export type SheetKind = (typeof SHEET_KINDS)[number];
+
 const documentRef = { workspaceId: z.string().min(1), path: z.string().min(1) };
 const password = z.string().min(1).max(1024).optional();
 const revision = z.string();
@@ -25,7 +29,7 @@ export const docOpenRpc = defineRpc({
     z.object({ kind: z.literal("pdf"), revision, pageCount: z.number().int().nonnegative() }),
     z.object({ kind: z.literal("docx"), revision }),
     z.object({
-      kind: z.enum(["xlsx", "csv"]),
+      kind: z.enum(SHEET_KINDS),
       revision,
       sheets: z.array(
         z.object({
@@ -118,9 +122,16 @@ export const docTextRpc = defineRpc({
 // `raw` is the stored value (the text for shared strings), null when nothing is stored; a formula
 // without a stored value has no saved result. A shared formula's text is null when it cannot be derived.
 export const cellDetail = z.object({
-  type: z.enum(["n", "s", "b", "e", "d", "str", "inlineStr", "text"]),
+  type: z.enum(["n", "s", "b", "e", "d", "str", "inlineStr", "text", "json"]),
   raw: z.string().nullable(),
   display: z.string(),
+  // The stored value is longer than `raw` and `display` show; doc.cell returns it in full.
+  truncated: z.boolean().optional(),
+  // JSON Lines: the value's JSON type, its key path, the line it came from and why the line is unreadable.
+  valueType: z.string().optional(),
+  keyPath: z.string().optional(),
+  line: z.number().int().positive().optional(),
+  error: z.string().optional(),
   numberFormat: z.string().optional(),
   formula: z.object({
     kind: z.enum(["normal", "shared", "array", "dataTable"]),
@@ -146,7 +157,7 @@ export const docRowsRpc = defineRpc({
     detail: z.boolean().optional(),
   }),
   output: z.object({
-    kind: z.enum(["xlsx", "csv"]),
+    kind: z.enum(SHEET_KINDS),
     revision,
     sheet: z.number().int().nonnegative(),
     rowOffset: z.number().int().nonnegative(),
@@ -156,10 +167,34 @@ export const docRowsRpc = defineRpc({
     countsApproximate: z.boolean().optional(),
     rows: z.array(z.array(z.string())),
     details: z.array(z.array(cellDetail.nullable())).optional(),
+    // Names of the returned columns, for kinds whose columns are named by the file.
+    columnNames: z.array(z.string()).optional(),
     nextRowOffset: z.number().int().nonnegative().nullable(),
     nextColumnOffset: z.number().int().nonnegative().nullable(),
   }),
 });
+
+// One cell's stored value in full (up to CELL_FULL_MAX_CHARS), for values the grid cuts short. With `column`
+// null it returns the whole record as JSON (JSON Lines and Parquet only).
+export const docCellRpc = defineRpc({
+  name: "doc.cell",
+  input: z.object({
+    ...documentRef,
+    sheet: z.number().int().nonnegative(),
+    row: z.number().int().nonnegative(),
+    column: z.number().int().nonnegative().nullable(),
+  }),
+  output: z.object({
+    revision,
+    text: z.string(),
+    format: z.enum(["text", "json"]),
+    truncated: z.boolean(),
+    // Length in characters of the whole value, when known.
+    length: z.number().int().nonnegative().optional(),
+    line: z.number().int().positive().optional(),
+  }),
+});
+export type DocCellOutput = RpcOutput<typeof docCellRpc>;
 
 const issuesCursor = z.object({ revision, sheet: z.number().int().nonnegative(), row: z.number().int().nonnegative(), column: z.number().int().nonnegative() });
 
@@ -172,10 +207,14 @@ export const docIssuesRpc = defineRpc({
       sheet: z.number().int().nonnegative(),
       row: z.number().int().nonnegative(),
       column: z.number().int().nonnegative(),
-      kind: z.enum(["error", "missing-result"]),
+      // JSON Lines: "invalid-json" is an unreadable line; "unlisted-key" is a key first seen after the column sample.
+      kind: z.enum(["error", "missing-result", "invalid-json", "unlisted-key"]),
       display: z.string(),
       formula: z.string().nullable(),
+      line: z.number().int().positive().optional(),
     })),
+    // Issues found but not listed because the list is full.
+    omitted: z.number().int().nonnegative().optional(),
     // Rows [fromRow, toRow) of each sheet were fully inspected by this call.
     inspected: z.array(z.object({ sheet: z.number().int().nonnegative(), fromRow: z.number().int().nonnegative(), toRow: z.number().int().nonnegative() })),
     next: issuesCursor.nullable(),
@@ -298,7 +337,7 @@ export const reviewPageImageRpc = defineRpc({
 });
 export type ReviewPageImageOutput = RpcOutput<typeof reviewPageImageRpc>;
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, reviewPageImageRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, reviewPageImageRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;
