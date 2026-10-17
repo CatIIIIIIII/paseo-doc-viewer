@@ -23,8 +23,8 @@ const zip: MagicSignature = { offset: 0, bytes: [0x50, 0x4b, 0x03, 0x04] };
 export const KIND_REGISTRY: { readonly [K in DocumentKind]: KindSpec } = {
   pdf: { extensions: ["pdf"], magic: [ascii(0, "%PDF-")], rpcs: ["doc.page", "doc.thumbnail", "doc.text"] },
   docx: { extensions: ["docx"], magic: [zip], rpcs: ["doc.blocks"] },
-  xlsx: { extensions: ["xlsx"], magic: [zip], rpcs: ["doc.rows"] },
-  csv: { extensions: ["csv", "tsv"], magic: "text", rpcs: ["doc.rows"] },
+  xlsx: { extensions: ["xlsx"], magic: [zip], rpcs: ["doc.rows", "doc.cell"] },
+  csv: { extensions: ["csv", "tsv"], magic: "text", rpcs: ["doc.rows", "doc.cell"] },
   jsonl: { extensions: ["jsonl", "ndjson"], magic: "text", rpcs: ["doc.rows", "doc.cell"] },
   pptx: { extensions: ["pptx"], magic: [zip], rpcs: ["doc.page"] },
   video: {

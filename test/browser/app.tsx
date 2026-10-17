@@ -38,7 +38,7 @@ function App() {
   useEffect(() => { setHostClient({ openScreen: ({ screenId }: { screenId: string }) => setScreen(screenId) } as any); return () => setHostClient(null); }, []);
   const props = { host: {} as any, theme: theme as any, layout: { compact } as any, navigation: { openAgent: ({ agentId }: { agentId: string }) => { (window as any).__openedAgent = agentId; } } as any };
   return <QueryClientProvider client={query}>
-    <nav style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>{["statement.pdf", "invoices.xlsx", "contract.docx", "deck.pptx", "tone.wav", "clip.mp4", "audible.webm", "animated.webp", "broken.pdf", "many.csv", "long.pdf", "report.pdf", "forecast.xlsx", ".env"].map((file) => <button key={file} onClick={() => { setPath(file); setOpened(true); setBrowsing(false); setScreen("document"); }}>{file}</button>)}
+    <nav style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>{["statement.pdf", "invoices.xlsx", "contract.docx", "deck.pptx", "tone.wav", "clip.mp4", "audible.webm", "animated.webp", "broken.pdf", "many.csv", "long.pdf", "report.pdf", "forecast.xlsx", "evals.jsonl", ".env"].map((file) => <button key={file} onClick={() => { setPath(file); setOpened(true); setBrowsing(false); setScreen("document"); }}>{file}</button>)}
       <button onClick={() => { setBrowsing(true); setScreen("document"); }}>Documents</button>
       <button onClick={() => setOpened(!opened)}>{opened ? "Close viewer" : "Reopen viewer"}</button></nav>
     <main style={{ display: "flex", height: 780, width: compact ? 390 : 950 }}>{screen === "review"

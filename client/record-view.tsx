@@ -166,7 +166,7 @@ export function RecordCard({ header, named = false, initialRow, onChangeHeader, 
               <Pressable key={entry.column} accessibilityRole="button" accessibilityLabel={`Inspect ${entry.label}`} onPress={() => setInspected(entry.column)}
                 style={{ paddingHorizontal: 12, paddingVertical: 8, gap: 2, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: theme.colors.border,
                   backgroundColor: entry.column === inspected ? theme.colors.surface2 : undefined }}>
-                <Text style={styles.label}>{entry.label === columnName(entry.column) ? entry.label : `${entry.label} · ${columnName(entry.column)}`}</Text>
+                <Text style={styles.label}>{named || entry.label === columnName(entry.column) ? entry.label : `${entry.label} · ${columnName(entry.column)}`}</Text>
                 {entry.value ? <Text style={styles.content} selectable>{entry.value}</Text> : null}
                 {entry.note ? <Text style={styles.muted}>{entry.note}</Text> : null}
               </Pressable>

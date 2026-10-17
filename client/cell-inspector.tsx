@@ -12,6 +12,8 @@ import { retryPage } from "./paging";
 import { cellQueryKey } from "./queries";
 import { ToolbarButton, type Styles } from "./ui";
 
+const SHORTENED_FIELDS = new Set(["Raw value", "JSON", "Line text"]);
+
 export interface CellTarget {
   sheet: number;
   row: number;
@@ -44,14 +46,15 @@ export function CellInspector({ workspaceId, path, revision, sheetName, columnLa
   useEffect(() => setShowFull(false), [revision, target.sheet, target.row, target.column]);
   const reference = columnLabel !== undefined ? `${columnLabel}, row ${target.row + 1}` : cellReference(data?.kind === "csv" ? null : sheetName, target.row, target.column);
   const stored = data?.details?.[0]?.[0] ?? null;
-  const fields = data ? inspectorFields(stored) : [];
+  // With the full value open, the shortened copies above it would only repeat its start.
+  const fields = data ? inspectorFields(stored).filter((field) => !showFull || !SHORTENED_FIELDS.has(field.label)) : [];
   return (
     <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingHorizontal: styles.gutter, paddingVertical: 8, gap: 6 }}
       accessibilityLabel={`Cell ${reference}`}>
       <View style={[styles.toolbarGroup, { alignItems: "flex-start" }]}>
         <Text style={[styles.label, { paddingVertical: 6 }]} selectable>{reference}</Text>
         <ScrollView style={{ flex: 1, maxHeight: 72 }} contentContainerStyle={{ paddingVertical: 4 }}>
-          <Text style={styles.text} selectable>{shown}</Text>
+          <Text style={styles.text} selectable numberOfLines={showFull ? 1 : undefined}>{shown}</Text>
         </ScrollView>
         {actions}
         <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel="Close cell" onPress={onClose} />

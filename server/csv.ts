@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { MAX_RESPONSE_BYTES, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS } from "../shared/limits";
+import { CELL_FULL_MAX_CHARS, MAX_RESPONSE_BYTES, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS } from "../shared/limits";
 import { ERROR_MESSAGES } from "../shared/errors";
 import type { CellDetail } from "../shared/rpc";
 import type { RowWindow } from "./xlsx";
@@ -43,9 +43,14 @@ export function delimiterFor(extension: string): number {
 
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
-const clip = (text: string) => (text.length > XLSX_MAX_CELL_CHARS ? text.slice(0, XLSX_MAX_CELL_CHARS) : text);
+interface DecodedCell {
+  text: string;
+  // The stored field is longer than `text`.
+  truncated: boolean;
+}
 
-function decodeCell(bytes: Buffer, truncated: boolean): string {
+function decodeField(bytes: Buffer, truncated: boolean, maxChars: number): DecodedCell {
+  const clip = (text: string) => (text.length > maxChars ? { text: text.slice(0, maxChars), truncated: true } : { text, truncated });
   for (let cut = 0; cut <= (truncated ? 3 : 0); cut++) {
     try {
       return clip(utf8.decode(bytes.subarray(0, bytes.length - cut)));
@@ -54,7 +59,9 @@ function decodeCell(bytes: Buffer, truncated: boolean): string {
   return clip(bytes.toString("latin1"));
 }
 
-async function scanCsv(path: string, start: number, delimiter: number, visitor: Visitor): Promise<void> {
+const decodeCell = (bytes: Buffer, truncated: boolean) => decodeField(bytes, truncated, XLSX_MAX_CELL_CHARS);
+
+async function scanCsv(path: string, start: number, delimiter: number, visitor: Visitor, maxCellBytes = MAX_CELL_BYTES): Promise<void> {
   let state = State.FieldStart;
   let column = 0;
   let rowOpen = false;
@@ -66,7 +73,7 @@ async function scanCsv(path: string, start: number, delimiter: number, visitor: 
 
   const append = (chunk: Buffer, from: number, to: number) => {
     if (!collecting || to <= from) return;
-    const end = Math.min(to, from + MAX_CELL_BYTES - partBytes);
+    const end = Math.min(to, from + maxCellBytes - partBytes);
     if (end < to) truncated = true;
     if (end <= from) return;
     parts.push(chunk.subarray(from, end));
@@ -192,21 +199,25 @@ export async function csvRows(
   columnStart: number,
   columnEnd: number,
   deadline: number,
-  visit: (row: number, cells: string[]) => boolean,
+  visit: (row: number, cells: string[], truncated: ReadonlySet<number>) => boolean,
 ): Promise<void> {
   const checkpoint = Math.min(Math.floor(fromRow / CHECKPOINT_ROWS), index.checkpoints.length - 1);
   let row = checkpoint * CHECKPOINT_ROWS;
   let current = new Array<string>(Math.max(0, columnEnd - columnStart)).fill("");
+  let cut = new Set<number>();
   await scanCsv(path, index.checkpoints[checkpoint]!, index.delimiter, {
     wants: (column) => row >= fromRow && column >= columnStart && column < columnEnd,
     cell: (column, value, truncated) => {
-      current[column - columnStart] = decodeCell(value, truncated);
+      const decoded = decodeCell(value, truncated);
+      current[column - columnStart] = decoded.text;
+      if (decoded.truncated) cut.add(column - columnStart);
     },
     row: () => {
       let more = true;
       if (row >= fromRow) {
-        more = visit(row, current);
+        more = visit(row, current, cut);
         current = new Array<string>(current.length).fill("");
+        if (cut.size > 0) cut = new Set();
       }
       row++;
       if (row % 4096 === 0 && Date.now() > deadline) throw new Error(ERROR_MESSAGES.slowWindow());
@@ -231,8 +242,10 @@ export async function csvWindow(
   const details: (CellDetail | null)[][] = [];
   let bytes = 0;
   if (rowOffset < rowEnd) {
-    await csvRows(path, index, rowOffset, columnOffset, columnEnd, Date.now() + WINDOW_DEADLINE_MS, (row, cells) => {
-      const rowDetails = detail ? cells.map((text) => (text ? { type: "text" as const, raw: text, display: text } : null)) : [];
+    await csvRows(path, index, rowOffset, columnOffset, columnEnd, Date.now() + WINDOW_DEADLINE_MS, (row, cells, truncated) => {
+      const rowDetails = detail
+        ? cells.map((text, column) => (text ? { type: "text" as const, raw: text, display: text, ...(truncated.has(column) ? { truncated: true } : {}) } : null))
+        : [];
       const rowBytes = Buffer.byteLength(JSON.stringify(cells), "utf8") + (detail ? Buffer.byteLength(JSON.stringify(rowDetails), "utf8") : 0) + 2;
       if (rows.length > 0 && bytes + rowBytes > ROWS_BUDGET_BYTES) return false;
       rows.push(cells);
@@ -251,4 +264,24 @@ export async function csvWindow(
     nextRowOffset: next < rowCount ? next : null,
     nextColumnOffset: columnEnd < columnCount ? columnEnd : null,
   };
+}
+
+// One field without the grid's cut, up to CELL_FULL_MAX_CHARS characters.
+export async function csvFullCell(path: string, index: CsvIndex, row: number, column: number): Promise<{ text: string; truncated: boolean; length?: number }> {
+  const checkpoint = Math.min(Math.floor(row / CHECKPOINT_ROWS), index.checkpoints.length - 1);
+  let current = checkpoint * CHECKPOINT_ROWS;
+  let found: DecodedCell = { text: "", truncated: false };
+  const deadline = Date.now() + WINDOW_DEADLINE_MS;
+  await scanCsv(path, index.checkpoints[checkpoint]!, index.delimiter, {
+    wants: (candidate) => current === row && candidate === column,
+    cell: (_, value, truncated) => {
+      found = decodeField(value, truncated, CELL_FULL_MAX_CHARS);
+    },
+    row: () => {
+      current++;
+      if (current % 4096 === 0 && Date.now() > deadline) throw new Error(ERROR_MESSAGES.slowWindow());
+      return current <= row;
+    },
+  }, CELL_FULL_MAX_CHARS * 4);
+  return found.truncated ? found : { ...found, length: found.text.length };
 }

@@ -1,9 +1,9 @@
 import type { SearchCursor, SearchMatch } from "../shared/search";
-import type { DocCellOutput, DocIssuesOutput, DocSearchOutput } from "../shared/rpc";
+import type { CellDetail, DocCellOutput, DocIssuesOutput, DocSearchOutput } from "../shared/rpc";
 import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_COLUMNS } from "../shared/limits";
+import { CELL_FULL_MAX_CHARS, DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS } from "../shared/limits";
 import type { ReviewStatus } from "../shared/browse";
 import { KIND_REGISTRY, detectKind, extensionOf, kindForPath, type DocumentKind, type PagedRpc } from "../shared/kinds";
 import type {
@@ -20,7 +20,7 @@ import type {
 } from "../shared/rpc";
 import { estimateBytes, memo } from "./cache";
 import { isEncryptedOoxml } from "./cfb";
-import { csvRows, csvWindow, indexCsv } from "./csv";
+import { csvFullCell, csvRows, csvWindow, indexCsv } from "./csv";
 import { recordCells, type FullValue } from "./data-table";
 import { indexJsonl, jsonlFullValue, jsonlRecords, jsonlWindow } from "./jsonl";
 import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, type DocxModel, type SourceBlock } from "./docx";
@@ -36,7 +36,7 @@ import { revisionOf } from "./revision";
 import { viewerStateStore } from "./viewer-state";
 import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, position, takeStream, type SearchPosition } from "./search";
 import { SharedFormulas } from "./formulas";
-import { issueDecoder, loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
+import { fullCellText, issueDecoder, loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
 import { readZipIndex, verifyEntries, type ZipIndex, type ZipLimits } from "./zip";
 import { ERROR_MESSAGES, errorText } from "../shared/errors";
 
@@ -183,6 +183,12 @@ const docx = (file: DocumentFile) =>
     docxModelBytes,
   );
 
+// Workbook text is cut at XLSX_MAX_CELL_CHARS when it is read, so a value at that length may be longer in the file.
+function markCut(details: (CellDetail | null)[][]): (CellDetail | null)[][] {
+  return details.map((row) => row.map((detail) =>
+    detail && ((detail.raw?.length ?? 0) >= XLSX_MAX_CELL_CHARS || detail.display.length >= XLSX_MAX_CELL_CHARS) ? { ...detail, truncated: true } : detail));
+}
+
 function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamily): KindHandler {
   return {
     open: async (file) => ({
@@ -273,7 +279,15 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       const window = await heavyCached(file, `rows\0${sheet}\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}\0${detail}`, () =>
         rowWindow(model, strings, model.sheets[sheet], rowOffset, columnOffset, columns, rows, detail),
       );
-      return { kind: "xlsx", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
+      return { kind: "xlsx", revision: file.revision, sheet, rowOffset, columnOffset, ...window, ...(window.details ? { details: markCut(window.details) } : {}) };
+    },
+    cell: async (file, { sheet, row, column }) => {
+      const model = await workbook(file);
+      inRange(sheet, model.sheets.length, "Sheet");
+      if (column === null) throw new Error(ERROR_MESSAGES.unavailable("doc.cell for a whole row", "xlsx"));
+      const strings = await sharedStrings(file, model);
+      const found = await heavy(() => fullCellText(model, strings, model.sheets[sheet]!, row, column, CELL_FULL_MAX_CHARS, Date.now() + 18_000));
+      return { format: "text", ...(found ?? { text: "", truncated: false, length: 0 }) };
     },
   },
   csv: {
@@ -290,6 +304,13 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
         csvWindow(file.path, index, rowOffset, columnOffset, columns, rows, detail),
       );
       return { kind: "csv", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
+    },
+    cell: async (file, { sheet, row, column }) => {
+      inRange(sheet, 1, "Sheet");
+      if (column === null) throw new Error(ERROR_MESSAGES.unavailable("doc.cell for a whole row", "csv"));
+      const index = await csvIndex(file);
+      if (row >= index.rowCount) throw new Error(ERROR_MESSAGES.outOfRange("Row", row, index.rowCount));
+      return { format: "text", ...(await heavy(() => csvFullCell(file.path, index, row, column))) };
     },
   },
   jsonl: {

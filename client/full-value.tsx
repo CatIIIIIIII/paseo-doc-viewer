@@ -3,9 +3,9 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from "react-native";
-import { CELL_FULL_MAX_CHARS } from "../shared/limits";
-import { docCellRpc, type DocCellOutput } from "../shared/rpc";
-import { describeError, formatCount } from "./format";
+import { docCellRpc } from "../shared/rpc";
+import { fullValueSummary } from "./cell-detail";
+import { describeError } from "./format";
 import { retryPage } from "./paging";
 import { ToolbarButton, type Styles } from "./ui";
 
@@ -18,16 +18,6 @@ export interface FullValueTarget {
 
 export function fullValueQueryKey(workspaceId: string, path: string, revision: string, { sheet, row, column }: FullValueTarget) {
   return ["doc.cell", workspaceId, path, revision, sheet, row, column] as const;
-}
-
-export function fullValueSummary(value: Pick<DocCellOutput, "text" | "truncated" | "length" | "format">): string {
-  const shown = formatCount(value.text.length);
-  if (value.truncated) {
-    return value.length !== undefined
-      ? `Showing the first ${shown} of ${formatCount(value.length)} characters`
-      : `Showing the first ${shown} characters (the limit is ${formatCount(CELL_FULL_MAX_CHARS)})`;
-  }
-  return `${shown} ${value.text.length === 1 ? "character" : "characters"}${value.format === "json" ? ", indented JSON" : ""}`;
 }
 
 // A cell's whole value (or a record's JSON), read only when asked for, wrapped and selectable, with Copy.

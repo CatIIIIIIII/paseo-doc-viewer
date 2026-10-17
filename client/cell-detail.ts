@@ -1,4 +1,6 @@
-import type { CellDetail } from "../shared/rpc";
+import { CELL_FULL_MAX_CHARS } from "../shared/limits";
+import type { CellDetail, DocCellOutput } from "../shared/rpc";
+import { formatCount } from "./format";
 import { columnName } from "./paging";
 
 export interface InspectorField {
@@ -103,4 +105,14 @@ export function inspectorFields(detail: CellDetail | null): InspectorField[] {
   fields.push({ label: "Type", value: detail.raw === null ? "Not known without a saved result" : TYPE_LABELS[detail.type] });
   if (detail.numberFormat !== undefined) fields.push({ label: "Number format", value: detail.numberFormat });
   return fields;
+}
+
+export function fullValueSummary(value: Pick<DocCellOutput, "text" | "truncated" | "length" | "format">): string {
+  const shown = formatCount(value.text.length);
+  if (value.truncated) {
+    return value.length !== undefined
+      ? `Showing the first ${shown} of ${formatCount(value.length)} characters`
+      : `Showing the first ${shown} characters (the limit is ${formatCount(CELL_FULL_MAX_CHARS)})`;
+  }
+  return `${shown} ${value.text.length === 1 ? "character" : "characters"}${value.format === "json" ? ", indented JSON" : ""}`;
 }
