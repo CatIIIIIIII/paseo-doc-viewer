@@ -22,6 +22,10 @@ npm run typecheck
 npm test
 ```
 
+`npm run test:browser` renders the viewer components in headless Chromium against the real RPC handlers, with a test DOM adapter in place of React Native. It does not replace checks inside Paseo. Run `npx playwright install chromium` first, or set `CHROMIUM_EXECUTABLE_PATH` to an existing Chromium.
+
+[docs/host-api-proposals.md](docs/host-api-proposals.md) sketches Paseo host APIs the viewer would need for opening files from the Files tree, saving on mobile and streaming media.
+
 Set `PASEO_SOURCE` to a checkout of `getpaseo/paseo` to also run the install test against Paseo's own plugin compiler. `scripts/install-check.sh` installs the committed HEAD into a throwaway Paseo home under `/tmp` and never touches `~/.paseo`.
 
 [SCENARIOS.md](SCENARIOS.md) maps each test scenario to the reports in [getpaseo/paseo#3109](https://github.com/getpaseo/paseo/discussions/3109).
@@ -31,24 +35,3 @@ Set `PASEO_SOURCE` to a checkout of `getpaseo/paseo` to also run the install tes
 ## License
 
 MIT. See [LICENSE](LICENSE) and [NOTICE](NOTICE) for adapted code and third-party licenses.
-
-## Feature branch review
-
-The current feature branch adds audio, reading positions, in-document search and
-browser original-file saving. See [docs/review-notes.md](docs/review-notes.md) for
-scope, adversarial reviews, verification and host-dependent follow-up work.
-
-The browser harness renders plugin components against real RPC handlers, using a
-test DOM adapter for React Native. It does not replace smoke tests inside Paseo.
-
-```sh
-npx playwright install chromium
-npm run test:browser
-```
-
-Set `CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium binary. Screenshots and
-generated harness files are kept under `node_modules/.cache/viewer-browser`.
-
-Reading metadata defaults to `~/.local/state/paseo-doc-viewer`. Set
-`PASEO_DOC_VIEWER_STATE_DIR` to an absolute directory to isolate simultaneous
-daemons under the same OS account.
