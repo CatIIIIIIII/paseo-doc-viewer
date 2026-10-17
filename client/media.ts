@@ -175,3 +175,31 @@ export async function playAudioFully(
   await playAudio({ base64, mimeType: media.mimeType });
   return media;
 }
+
+// The SDK has no appearance flag, so native media controls follow the luminance of the
+// theme background. Unknown color formats leave the browser default.
+export function colorSchemeFor(background: string): "light" | "dark" | undefined {
+  const value = background.trim().toLowerCase();
+  let rgb: number[] | null = null;
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})(?:[0-9a-f]{2})?$/.exec(value) ?? /^#([0-9a-f]{3})[0-9a-f]$/.exec(value);
+  if (hex) {
+    const digits = hex[1]!.length === 3 ? hex[1]!.split("").map((digit) => digit + digit) : hex[1]!.match(/../g)!;
+    rgb = digits.map((pair) => parseInt(pair, 16));
+  } else {
+    const functional = /^rgba?\(\s*(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)/.exec(value);
+    if (functional) rgb = functional.slice(1, 4).map(Number);
+  }
+  if (!rgb) return undefined;
+  const [r, g, b] = rgb.map((channel) => {
+    const unit = channel / 255;
+    return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.4 ? "light" : "dark";
+}
+
+// The largest box with the media's aspect ratio inside the frame.
+export function fittedBox(frame: { width: number; height: number }, ratio: number): { width: number; height: number } {
+  if (!(frame.width > 0) || !(frame.height > 0) || !(ratio > 0)) return { width: 0, height: 0 };
+  const width = Math.min(frame.width, frame.height * ratio);
+  return { width: Math.round(width), height: Math.round(width / ratio) };
+}

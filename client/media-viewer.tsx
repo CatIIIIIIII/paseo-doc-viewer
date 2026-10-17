@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { mediaChunkRpc } from "../shared/rpc";
 import { humanSize } from "./format";
-import { loadMedia, MAX_PLAYABLE_BYTES, NATIVE_AUDIO_MAX_BYTES, playAudioFully, yieldToUI, type HostPlayAudio } from "./media";
+import { colorSchemeFor, fittedBox, loadMedia, MAX_PLAYABLE_BYTES, NATIVE_AUDIO_MAX_BYTES, playAudioFully, yieldToUI, type HostPlayAudio } from "./media";
 import { getPlayAudio } from "./host-client";
 import { ErrorState, MessageState, type Styles } from "./ui";
 import { TransferState } from "./transfer-state";
@@ -22,6 +22,8 @@ export interface MediaViewerProps {
 }
 
 const AUTOLOAD_BYTES = 32 * 1024 * 1024;
+// The facts line and its gap under a video.
+const FACTS_SPACE = 28;
 
 type Playback =
   | { status: "idle" }
@@ -87,6 +89,8 @@ function WebMedia({ workspaceId, path, revision, size, theme, styles, facts, kin
   const [attempt, setAttempt] = useState(0);
   const [playback, setPlayback] = useState<Playback>({ status: size <= AUTOLOAD_BYTES ? "loading" : "idle", loaded: 0 });
   const transfer = useRef<{ aborted: boolean } | null>(null);
+  const [ratio, setRatio] = useState<number | null>(null);
+  const [frame, setFrame] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     if (!requested) return;
@@ -121,13 +125,29 @@ function WebMedia({ workspaceId, path, revision, size, theme, styles, facts, kin
   }, [requested, attempt, fetchChunk, workspaceId, path, revision]);
 
   if (playback.status === "ready") {
-    return (
-      <View style={[styles.screen, { padding: styles.gutter, gap: 8 }]}>
-        <View style={{ flex: 1, minHeight: 0 }}>
-          <MediaElement uri={playback.url} label={path} background={theme.colors.surface0} kind={kind}
-            onError={() => setPlayback({ status: "error", error: new Error("This device could not decode the media. Try MP3 or WAV audio, or MP4 video with H.264/AAC.") })} />
+    const onError = () => setPlayback({ status: "error", error: new Error("This device could not decode the media. Try MP3 or WAV audio, or MP4 video with H.264/AAC.") });
+    const colorScheme = colorSchemeFor(theme.colors.surface0);
+    // The player and its facts stay together: audio in one card, video in a box sized to the clip.
+    if (kind === "audio") {
+      return (
+        <View style={[styles.screen, { padding: styles.gutter }]}>
+          <View style={[styles.card, { padding: 12, gap: 8, width: "100%", maxWidth: 720, alignSelf: "center" }]}>
+            <MediaElement uri={playback.url} label={path} background={theme.colors.surface1} colorScheme={colorScheme} kind="audio" onError={onError} />
+            <Text style={styles.muted}>{facts}</Text>
+          </View>
         </View>
-        <Text style={styles.muted}>{facts}</Text>
+      );
+    }
+    const box = ratio ? fittedBox({ width: frame.width, height: frame.height - FACTS_SPACE }, ratio) : null;
+    return (
+      <View style={[styles.screen, { padding: styles.gutter }]}>
+        <View style={{ flex: 1, minHeight: 0, alignItems: "center", gap: 8 }}
+          onLayout={(event) => setFrame({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
+          <View style={box && box.width > 0 ? box : { width: "100%", flex: 1, minHeight: 0 }}>
+            <MediaElement uri={playback.url} label={path} background={theme.colors.surface1} colorScheme={colorScheme} onError={onError} onAspectRatio={setRatio} />
+          </View>
+          <Text style={[styles.muted, { alignSelf: "stretch", textAlign: box ? "center" : "left" }]}>{facts}</Text>
+        </View>
       </View>
     );
   }

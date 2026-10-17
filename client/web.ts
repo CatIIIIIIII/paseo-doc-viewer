@@ -21,20 +21,26 @@ export interface MediaElementProps {
   uri: string;
   label: string;
   background: string;
+  colorScheme?: "light" | "dark";
   kind?: "video" | "audio";
   onError?: () => void;
+  onAspectRatio?: (ratio: number) => void;
 }
 
-export function MediaElement({ uri, label, background, kind = "video", onError }: MediaElementProps): ReactElement | null {
+export function MediaElement({ uri, label, background, colorScheme, kind = "video", onError, onAspectRatio }: MediaElementProps): ReactElement | null {
   if (Platform.OS !== "web") return null;
   return createElement(kind, {
     src: uri,
     controls: true,
     onError,
+    onLoadedMetadata: onAspectRatio ? (event: { currentTarget: { videoWidth?: number; videoHeight?: number } }) => {
+      const { videoWidth = 0, videoHeight = 0 } = event.currentTarget;
+      if (videoWidth > 0 && videoHeight > 0) onAspectRatio(videoWidth / videoHeight);
+    } : undefined,
     preload: "metadata",
     playsInline: true,
     "aria-label": label,
-    style: { width: "100%", height: kind === "audio" ? 54 : "100%", objectFit: "contain", backgroundColor: background, display: "block" },
+    style: { width: "100%", height: kind === "audio" ? 54 : "100%", objectFit: "contain", backgroundColor: background, display: "block", colorScheme },
   });
 }
 
