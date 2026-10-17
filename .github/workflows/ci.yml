@@ -74,6 +74,6 @@ jobs:
         working-directory: plugin
         run: npm run typecheck
 
-      - name: Install test against Paseo main
+      - name: Install and icon tests against Paseo main
         working-directory: plugin
-        run: npx vitest run --dir test test/s1-install.test.ts
+        run: npx vitest run --dir test test/s1-install.test.ts test/s10-open-path.test.ts
