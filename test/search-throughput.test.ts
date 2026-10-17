@@ -89,4 +89,22 @@ describe("search throughput", () => {
     expect(waited).toBeLessThan(150);
     expect(order).toEqual(["render", "search"]);
   }, 30_000);
+
+  it("matches the shared-string table once and still searches inline and number cells", async () => {
+    const strings = ["other text", "shared needle 42", "more other"];
+    const sst = `<?xml version="1.0"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${strings.map((text) => `<si><t>${text}</t></si>`).join("")}</sst>`;
+    const filler = Array.from({ length: 1_000 }, (_, row) =>
+      `<row r="${row + 3}"><c r="A${row + 3}" t="s"><v>${row % 2 === 0 ? 0 : 2}</v></c><c r="B${row + 3}" t="s"><v>0</v></c></row>`).join("");
+    const rows = '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>'
+      + '<row r="2"><c r="A2" t="inlineStr"><is><t>inline 42</t></is></c><c r="B2"><v>42</v></c></row>' + filler;
+    const root = workspace({ "shared.xlsx": rawZip(xlsxEntries([{ name: "Data", xml: worksheetXml(rows) }], [{ name: "xl/sharedStrings.xml", data: sst }])) });
+    const result = await searchDocument({ root, path: "shared.xlsx" }, "42");
+    expect(result.matches.map((match) => match.target)).toEqual([
+      { type: "cell", sheet: 0, row: 0, column: 1 },
+      { type: "cell", sheet: 0, row: 1, column: 0 },
+      { type: "cell", sheet: 0, row: 1, column: 1 },
+    ]);
+    expect(result.next).toBeNull();
+    expect(result.scanned).toBeLessThan(10);
+  });
 });

@@ -27,7 +27,7 @@ import { pdfPageCount, readPdfPageText, renderPdfPage } from "./pdf";
 import { loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
 import { IMAGE_BUDGET_BYTES, decodeBudget, type Fit } from "./raster";
 import { recentDocuments } from "./recent";
-import { SEARCH_BUDGET_MS, SearchScan, parkStream, position, takeStream, type SearchPosition } from "./search";
+import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, position, takeStream, type SearchPosition } from "./search";
 import { loadSharedStrings, loadWorkbook, rowWindow, sheetRows, type Workbook } from "./xlsx";
 import { readZipIndex, verifyEntries, type ZipIndex, type ZipLimits } from "./zip";
 import { ERROR_MESSAGES, errorText } from "../shared/errors";
@@ -417,11 +417,12 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
       const model = await workbook(file);
       const strings = await sharedStrings(file, model);
       if (model.sheetsTruncated) notes.add("Sheets beyond the viewer's 500-sheet limit are excluded.");
+      const sharedMatches = matchingSharedStrings(strings, query);
       await heavy(async () => {
         for (let sheet = state.sheet; sheet < model.sheets.length && !scan.next; sheet++) {
           const from = sheet === state.sheet ? state : position(sheet, 0);
-          const key = `${file.path}\0${file.revision}\0${sheet}`;
-          const stream = takeStream(key, from.unit, () => sheetRows(model, strings, model.sheets[sheet], from.unit));
+          const key = `${file.path}\0${file.revision}\0${sheet}\0${query}`;
+          const stream = takeStream(key, from.unit, () => sheetRows(model, strings, model.sheets[sheet], from.unit, 0, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, sharedMatches));
           try {
             for await (const { row, cells } of stream.from(from.unit)) {
               await scan.breathe();

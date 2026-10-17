@@ -279,6 +279,7 @@ export async function* sheetRows(
   columnStart = 0,
   columnEnd = Number.POSITIVE_INFINITY,
   deadline = Number.POSITIVE_INFINITY,
+  sharedMatches?: ReadonlySet<number>,
 ): AsyncGenerator<SheetRow> {
   if (!sheet.part) return;
   let current: SheetRow | null = null;
@@ -301,9 +302,16 @@ export async function* sheetRows(
     column = reference ? columnIndex(reference) : column + 1;
     if (!current?.cells) continue;
     current.maxColumn = Math.max(current.maxColumn, column);
-    if (column >= columnStart && column < columnEnd) current.cells.set(column, cellText(token, workbook, strings));
+    if (column < columnStart || column >= columnEnd || (sharedMatches && !keepsSharedString(token, sharedMatches))) continue;
+    current.cells.set(column, cellText(token, workbook, strings));
   }
   if (current) yield current;
+}
+
+// Search passes the indices of matching shared strings, so other shared-string cells are skipped undecoded.
+function keepsSharedString(cell: string, matches: ReadonlySet<number>): boolean {
+  if (attribute(/^<c\b[^>]*>/.exec(cell)?.[0] ?? cell, "t") !== "s") return true;
+  return matches.has(Number(/<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1]));
 }
 
 export async function rowWindow(

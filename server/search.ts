@@ -53,6 +53,22 @@ export class SearchScan {
   }
 }
 
+const sharedMatchCache = new WeakMap<readonly string[], { query: string; matches: ReadonlySet<number> }>();
+
+// Each shared string is matched once per query instead of once per cell that uses it.
+export function matchingSharedStrings(strings: readonly string[], query: string): ReadonlySet<number> {
+  const cached = sharedMatchCache.get(strings);
+  if (cached?.query === query) return cached.matches;
+  const pattern = literalPattern(query);
+  const matches = new Set<number>();
+  strings.forEach((text, index) => {
+    pattern.lastIndex = 0;
+    if (pattern.test(text)) matches.add(index);
+  });
+  sharedMatchCache.set(strings, { query, matches });
+  return matches;
+}
+
 // A row stream that can be parked between calls, so a long sheet is parsed once per search.
 export class RowStream<Row extends { row: number }> {
   private head: Row | null = null;
