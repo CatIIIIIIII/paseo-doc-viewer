@@ -1,6 +1,6 @@
 import type { SearchMatch, SearchNavigation } from "../shared/search";
 import { FindPanel } from "./find-panel";
-import { canDownloadOriginal, FindScope } from "./web";
+import { FindScope } from "./web";
 import { DownloadOriginal } from "./download-original";
 import { type PluginScreenProps, useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
@@ -46,6 +46,8 @@ export function DocumentScreen({ host, theme, layout, params }: PluginScreenProp
   });
   const prompt = passwordPrompt(opened.error);
   const checking = unlocked !== null && opened.status === "pending";
+  // The original stays downloadable when the preview cannot open.
+  const download = workspaceId && kindForPath(path) ? <DownloadOriginal key={documentKey} workspaceId={workspaceId} path={path} theme={theme} styles={styles} /> : null;
 
   let body: ReactNode;
   if (!workspaceId || !path) {
@@ -64,14 +66,18 @@ export function DocumentScreen({ host, theme, layout, params }: PluginScreenProp
           incorrect={prompt?.incorrect ?? false}
           busy={checking}
           onSubmit={(value) => setUnlock({ documentKey, password: value, attempt: (unlocked?.attempt ?? 0) + 1 })}
-        />
+        >
+          {download}
+        </PasswordPrompt>
       </View>
     );
   } else if (!opened.data) {
     body = (
       <View style={styles.screen}>
         {opened.error ? (
-          <ErrorState theme={theme} styles={styles} error={opened.error} onRetry={() => void opened.refetch()} />
+          <ErrorState theme={theme} styles={styles} error={opened.error} onRetry={() => void opened.refetch()}>
+            {download}
+          </ErrorState>
         ) : (
           <LoadingState theme={theme} styles={styles} />
         )}
@@ -85,7 +91,6 @@ export function DocumentScreen({ host, theme, layout, params }: PluginScreenProp
   }
   return (
     <View ref={ref} onLayout={onLayout} style={{ flex: 1 }}>
-      {workspaceId && kindForPath(path) && canDownloadOriginal ? <View style={styles.toolbar}><DownloadOriginal key={documentKey} workspaceId={workspaceId} path={path} theme={theme} styles={styles} /></View> : null}
       {body}
     </View>
   );
@@ -174,6 +179,7 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
         label={props.compact ? String(draft.notes.length) : `Review (${draft.notes.length})`}
         accessibilityLabel={`Review notes (${draft.notes.length})`} onPress={() => openHostScreen(reviewScreen(props.workspaceId))} /> : null}
       {marks.ready ? <MarkReviewed marks={marks} status={review} revision={props.document.revision} compact={props.compact} theme={props.theme} styles={props.styles} /> : null}
+      <DownloadOriginal workspaceId={props.workspaceId} path={props.path} theme={props.theme} styles={props.styles} />
     </View>
     {notePage !== null ? <NoteComposer key={notePage} scope={scope} workspaceId={props.workspaceId} path={props.path} revision={props.document.revision}
       page={notePage} password={props.password} draft={draft} theme={props.theme} styles={props.styles} onClose={() => setNotePage(null)} /> : null}

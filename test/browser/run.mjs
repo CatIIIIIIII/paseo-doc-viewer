@@ -463,6 +463,10 @@ try {
   await phone.setViewportSize({ width: 390, height: 844 });
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "report.pdf", exact: true }).click();
+  // Download sits in the tools row: no row of its own above the toolbar.
+  const findBox = await phone.getByRole("button", { name: "Find in document", exact: true }).boundingBox();
+  const downloadBox = await phone.getByRole("button", { name: "Download original", exact: true }).boundingBox();
+  expect(Math.abs(downloadBox.y - findBox.y)).toBeLessThan(2);
   // Phones show `< n / N >` without chips; n / N opens the page map, and Reset is left to Fit and the map.
   await expect(phone.getByRole("button", { name: /^Page \d+$/ })).toHaveCount(0);
   await expect(phone.getByRole("button", { name: "Reset reading position", exact: true })).toHaveCount(0);
@@ -474,7 +478,7 @@ try {
   await phone.getByRole("textbox", { name: "Note text", exact: true }).fill("Fits on a phone");
   await phone.getByRole("button", { name: "Add note", exact: true }).click();
   await expect(phone.getByRole("button", { name: "Review notes (1)", exact: true })).toBeVisible();
-  for (const name of ["Find in document", "Page map", "Add note to page 1", "Review notes (1)", "Mark reviewed", "Previous page", "Page 1 of 59, open page map", "Next page", "Show page text", "Zoom out", "Zoom in"]) {
+  for (const name of ["Find in document", "Page map", "Add note to page 1", "Review notes (1)", "Mark reviewed", "Download original", "Previous page", "Page 1 of 59, open page map", "Next page", "Show page text", "Zoom out", "Zoom in"]) {
     const box = await phone.getByRole("button", { name, exact: true }).boundingBox();
     expect(box, name).not.toBeNull();
     expect(box.x, name).toBeGreaterThanOrEqual(0);

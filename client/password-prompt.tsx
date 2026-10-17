@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import { type Styles, ToolbarButton } from "./ui";
 import { useKeyboardInset } from "./use-keyboard-inset";
@@ -12,9 +12,10 @@ export interface PasswordPromptProps {
   incorrect: boolean;
   busy: boolean;
   onSubmit(password: string): void;
+  children?: ReactNode;
 }
 
-export function PasswordPrompt({ theme, styles, compact, incorrect, busy, onSubmit }: PasswordPromptProps) {
+export function PasswordPrompt({ theme, styles, compact, incorrect, busy, onSubmit, children }: PasswordPromptProps) {
   const [value, setValue] = useState("");
   const frame = useRef<View>(null);
   const keyboardInset = useKeyboardInset(frame);
@@ -63,6 +64,7 @@ export function PasswordPrompt({ theme, styles, compact, incorrect, busy, onSubm
             Incorrect password. Try again.
           </Text>
         ) : null}
+        {children}
       </ScrollView>
     </View>
   );

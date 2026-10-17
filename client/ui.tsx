@@ -1,5 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
+import type { ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { describeError } from "./format";
 import { canRetry } from "./paging";
@@ -92,12 +93,14 @@ export function MessageState({
   detail,
   tone = "muted",
   action,
+  children,
 }: ChromeProps & {
   icon: string;
   title: string;
   detail?: string;
   tone?: "muted" | "danger";
   action?: { label: string; onPress(): void };
+  children?: ReactNode;
 }) {
   const iconColor = tone === "danger" ? theme.colors.statusDanger : theme.colors.foregroundMuted;
   return (
@@ -109,12 +112,17 @@ export function MessageState({
           {detail}
         </Text>
       ) : null}
-      {action ? <ToolbarButton styles={styles} theme={theme} label={action.label} onPress={action.onPress} /> : null}
+      {action || children ? (
+        <View style={styles.toolbarGroup}>
+          {action ? <ToolbarButton styles={styles} theme={theme} label={action.label} onPress={action.onPress} /> : null}
+          {children}
+        </View>
+      ) : null}
     </View>
   );
 }
 
-export function ErrorState({ theme, styles, error, onRetry }: ChromeProps & { error: unknown; onRetry?: () => void }) {
+export function ErrorState({ theme, styles, error, onRetry, children }: ChromeProps & { error: unknown; onRetry?: () => void; children?: ReactNode }) {
   const described = describeError(error);
   return (
     <MessageState
@@ -125,7 +133,9 @@ export function ErrorState({ theme, styles, error, onRetry }: ChromeProps & { er
       detail={described.detail}
       tone="danger"
       action={onRetry && canRetry(error) ? { label: "Try again", onPress: onRetry } : undefined}
-    />
+    >
+      {children}
+    </MessageState>
   );
 }
 

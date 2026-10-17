@@ -7,14 +7,14 @@ import { decodeBase64, MEDIA_REQUEST_BYTES, yieldToUI } from "./media";
 import { humanSize } from "./format";
 import { canDownloadOriginal, createMediaUrl, DownloadLink, revokeMediaUrl } from "./web";
 import { ToolbarButton, type Styles } from "./ui";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 
 export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspaceId: string; path: string; theme: PluginTheme; styles: Styles }) {
   const info = useRpc(fileInfoRpc);
   const chunk = useRpc(fileChunkRpc);
   const [status, setStatus] = useState<"idle" | "loading" | "ready">("idle");
   const [progress, setProgress] = useState("");
-  const [error, setError] = useState("");
+  const toast = useToast();
   const [prepared, setPrepared] = useState<{ url: string; name: string } | null>(null);
   const token = useRef(0);
   const url = useRef<string | null>(null);
@@ -23,7 +23,7 @@ export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspa
   const prepare = async () => {
     const attempt = ++token.current;
     if (url.current) { revokeMediaUrl(url.current); url.current = null; }
-    setPrepared(null); setStatus("loading"); setError(""); setProgress("");
+    setPrepared(null); setStatus("loading"); setProgress("");
     try {
       await yieldToUI();
       if (token.current !== attempt) return;
@@ -48,24 +48,26 @@ export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspa
       setPrepared({ url: url.current, name: file.name }); setStatus("ready");
     } catch (failure) {
       if (token.current !== attempt) return;
-      setStatus("idle"); setError(failure instanceof Error ? failure.message : String(failure));
+      setStatus("idle"); toast.error(failure instanceof Error ? failure.message : String(failure));
     }
   };
-  return <View style={{ gap: 4 }}>
-    <View style={[styles.toolbarGroup, { flexWrap: "wrap" }]}>
-      {prepared ? (
-        <DownloadLink uri={prepared.url} name={prepared.name} style={{ ...styles.button, paddingLeft: 8, paddingRight: 8 }}>
-          <Icon name="Download" size={14} color={theme.colors.foreground} />
-          <Text style={styles.buttonText}>{styles.compact ? "Save" : "Save original"}</Text>
-        </DownloadLink>
-      ) :
-        <ToolbarButton theme={theme} styles={styles} icon="Download" label="Download original" disabled={status === "loading"} onPress={() => void prepare()} />}
-      {status === "loading" ? <>
-        <ActivityIndicator size="small" color={theme.colors.foregroundMuted} accessibilityLabel="Preparing original file" />
-        <Text style={styles.label}>{progress || "Preparing…"}</Text>
-        <ToolbarButton theme={theme} styles={styles} label="Cancel" onPress={() => { token.current++; setStatus("idle"); }} />
-      </> : null}
-    </View>
-    {error ? <Text style={styles.danger} accessibilityRole="alert">{error}</Text> : null}
-  </View>;
+  // Lives in the document toolbar: icon-only on phones, with errors as toasts so the row keeps its height.
+  const compact = styles.compact;
+  if (prepared) {
+    return (
+      <DownloadLink uri={prepared.url} name={prepared.name} style={{ ...styles.button, paddingLeft: 8, paddingRight: 8 }}>
+        <Icon name="Download" size={14} color={theme.colors.foreground} />
+        <Text style={styles.buttonText}>{compact ? "Save" : "Save original"}</Text>
+      </DownloadLink>
+    );
+  }
+  if (status === "loading") {
+    return <View style={styles.toolbarGroup}>
+      <ActivityIndicator size="small" color={theme.colors.foregroundMuted} accessibilityLabel="Preparing original file" />
+      {compact ? null : <Text style={styles.label}>{progress || "Preparing…"}</Text>}
+      <ToolbarButton theme={theme} styles={styles} icon={compact ? "X" : undefined} label={compact ? undefined : "Cancel"} accessibilityLabel="Cancel"
+        onPress={() => { token.current++; setStatus("idle"); }} />
+    </View>;
+  }
+  return <ToolbarButton theme={theme} styles={styles} icon="Download" label={compact ? undefined : "Download"} accessibilityLabel="Download original" onPress={() => void prepare()} />;
 }
