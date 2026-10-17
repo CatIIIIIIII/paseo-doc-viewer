@@ -3,6 +3,7 @@ import { PDFiumLibrary, type PDFiumDocument, type PDFiumPage } from "@hyzyla/pdf
 import { fitRendered, type EncodedImage, type Fit } from "./raster";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { PDF_MAX_TEXT_CHARS } from "../shared/limits";
+import { literalPattern, type SearchBox } from "../shared/search";
 
 export interface PdfFile {
   path: string;
@@ -170,6 +171,117 @@ function capText(text: string): { text: string; truncated: boolean } {
   return { text: text.slice(0, end), truncated: true };
 }
 
+function normalizeBreaks(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
+}
+
 export function readPdfPageText(file: PdfFile, index: number): Promise<{ pageCount: number; text: string; truncated: boolean }> {
-  return withPage(file, index, async (page, pageCount) => ({ pageCount, ...capText(page.getText().replace(/\r\n?/g, "\n")) }));
+  return withPage(file, index, async (page, pageCount) => ({ pageCount, ...capText(normalizeBreaks(page.getText())) }));
+}
+
+// Normalizes line breaks like readPdfPageText and keeps the raw index of every normalized
+// character, so a match found in normalized text maps back to PDFium character indices.
+function normalizeWithMap(raw: string): { text: string; rawIndex: number[] } {
+  let text = "";
+  const rawIndex: number[] = [];
+  let index = 0;
+  while (index < raw.length) {
+    const code = raw.charCodeAt(index);
+    if (code === 13 && raw.charCodeAt(index + 1) === 10) {
+      index++;
+      continue;
+    }
+    rawIndex.push(index);
+    text += code === 13 ? "\n" : raw[index];
+    index++;
+  }
+  return { text, rawIndex };
+}
+
+// The wrapper keeps the raw PDFium module private; these are the stable wasm exports the search uses.
+interface PdfiumTextModule {
+  _FPDFText_GetCharBox(textPage: number, index: number, left: number, right: number, bottom: number, top: number): number;
+  wasmExports: { malloc(size: number): number; free(ptr: number): void };
+  HEAPU8: Uint8Array;
+}
+type TextPageSource = { loadTextPage(): number };
+
+export interface PdfPageMatch {
+  start: number;
+  count: number;
+  snippet: string;
+  boxes: SearchBox[];
+}
+
+const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
+
+// Merges a match's character boxes into one box per line, normalized to the page (origin top-left).
+function matchBoxes(module: PdfiumTextModule, textPage: number, start: number, count: number, width: number, height: number): SearchBox[] {
+  if (width <= 0 || height <= 0) return [];
+  const ptr = module.wasmExports.malloc(32);
+  try {
+    const lines: SearchBox[] = [];
+    let top = 0;
+    let bottom = 0;
+    let left = 0;
+    let right = 0;
+    const flush = () => {
+      lines.push({
+        x: clamp01(left / width),
+        y: clamp01(1 - top / height),
+        width: clamp01((right - left) / width),
+        height: clamp01((top - bottom) / height),
+      });
+    };
+    let open = false;
+    for (let index = start; index < start + count; index++) {
+      const view = new Float64Array(module.HEAPU8.buffer, ptr, 4);
+      if (!module._FPDFText_GetCharBox(textPage, index, ptr, ptr + 8, ptr + 16, ptr + 24)) continue;
+      const [charLeft, charRight, charBottom, charTop] = [view[0]!, view[1]!, view[2]!, view[3]!];
+      if (!open || Math.abs(charTop - top) > 1 || Math.abs(charBottom - bottom) > 1) {
+        if (open) flush();
+        open = true;
+        left = charLeft;
+        right = charRight;
+        bottom = charBottom;
+        top = charTop;
+      } else {
+        left = Math.min(left, charLeft);
+        right = Math.max(right, charRight);
+      }
+    }
+    if (open) flush();
+    return lines;
+  } finally {
+    module.wasmExports.free(ptr);
+  }
+}
+
+// Searches one page with the same pattern as the other kinds, then locates each match on the page.
+// Match start/count use the normalized text the text RPC shows; boxes use raw character indices.
+export function searchPdfPage(file: PdfFile, index: number, query: string): Promise<{ pageCount: number; truncated: boolean; matches: PdfPageMatch[] }> {
+  return withPage(file, index, async (page, pageCount) => {
+    const capped = capText(page.getText());
+    const { text, rawIndex } = normalizeWithMap(capped.text);
+    const pattern = literalPattern(query);
+    const matches: PdfPageMatch[] = [];
+    for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+      matches.push({
+        start: match.index,
+        count: match[0].length,
+        snippet: text.slice(Math.max(0, match.index - 45), match.index + match[0].length + 65),
+        boxes: [],
+      });
+    }
+    if (matches.length === 0) return { pageCount, truncated: capped.truncated, matches };
+    const module = (page as unknown as { module: PdfiumTextModule }).module;
+    const { originalWidth, originalHeight } = page.getOriginalSize();
+    const textPage = (page as unknown as TextPageSource).loadTextPage();
+    for (const match of matches) {
+      const rawStart = rawIndex[match.start]!;
+      const rawEnd = match.start + match.count < rawIndex.length ? rawIndex[match.start + match.count]! : capped.text.length;
+      match.boxes = matchBoxes(module, textPage, rawStart, rawEnd - rawStart, originalWidth, originalHeight);
+    }
+    return { pageCount, truncated: capped.truncated, matches };
+  });
 }

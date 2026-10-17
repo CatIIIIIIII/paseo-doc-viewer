@@ -10,9 +10,9 @@ import { ToolbarButton, type Styles } from "./ui";
 
 const MAX_RESULTS = 500;
 
-export function FindPanel({ workspaceId, path, revision, password, theme, styles, onNavigate, onClose, pageLabel = "Page" }: {
+export function FindPanel({ workspaceId, path, revision, password, theme, styles, onNavigate, onMatches, onClose, pageLabel = "Page" }: {
   workspaceId: string; path: string; revision: string; password?: string; theme: PluginTheme; styles: Styles;
-  onNavigate(value: SearchNavigation): void; onClose(): void; pageLabel?: string;
+  onNavigate(value: SearchNavigation): void; onMatches?(matches: SearchMatch[]): void; onClose(): void; pageLabel?: string;
 }) {
   const search = useRpc(docSearchRpc);
   const [query, setQuery] = useState("");
@@ -31,6 +31,7 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
   useEffect(() => {
     generation.current++;
     setMatches([]); setNext(null); setNotes([]); setStarted(false); setBusy(false); setError(""); setSelected(-1);
+    onMatches?.([]);
   }, [query, revision]);
 
   // Keeps requesting while the panel is open; each request is bounded by the server's time budget.
@@ -38,8 +39,10 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
     if (!query.trim()) return;
     const token = ++generation.current;
     setBusy(true); setError(""); setStarted(true); setMatches([]); setNext(null); setNotes([]); setSelected(-1);
+    onMatches?.([]);
     let cursor: SearchCursor | null = null;
     let total = 0;
+    let all: SearchMatch[] = [];
     try {
       do {
         const result = await search({ workspaceId, path, password, query: query.trim(), cursor, searchId: { session, generation: token } });
@@ -47,7 +50,9 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
         if (result.revision !== revision) throw new Error("The document changed. Search again.");
         cursor = result.next;
         total += result.matches.length;
-        setMatches((previous) => [...previous, ...result.matches].slice(0, MAX_RESULTS));
+        all = [...all, ...result.matches].slice(0, MAX_RESULTS);
+        setMatches(all);
+        onMatches?.(all);
         setNotes((previous) => [...new Set([...previous, ...result.notes])]);
         setNext(cursor);
       } while (cursor && total < MAX_RESULTS);
@@ -60,7 +65,7 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
   const choose = (index: number) => {
     if (!matches[index]) return;
     setSelected(index);
-    onNavigate({ target: matches[index].target, query: query.trim(), start: matches[index].start, serial: ++navigation.current });
+    onNavigate({ target: matches[index].target, query: query.trim(), start: matches[index].start, serial: ++navigation.current, boxes: matches[index].boxes });
   };
   return (
     <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, padding: styles.gutter, gap: 8 }}>

@@ -75,6 +75,24 @@ export class SearchScan {
     this.next = { ...cursor, ...after, offset: 0 };
     return false;
   }
+
+  // Same resume, cap and deadline rules as visit(), for matches a caller found itself (PDFium).
+  visitMatches(found: SearchMatch[], at: SearchPosition, after: SearchPosition): boolean {
+    if (++this.scanned % 1024 === 0) this.checkCurrent();
+    const { cursor } = this;
+    const resumes = at.sheet === cursor.sheet && at.unit === cursor.unit && at.column === cursor.column;
+    for (const match of found) {
+      if (resumes && match.start < cursor.offset) continue;
+      this.matches.push(match);
+      if (this.matches.length === SEARCH_MAX_MATCHES) {
+        this.next = { ...cursor, ...at, offset: match.start + match.length };
+        return false;
+      }
+    }
+    if (Date.now() < this.deadline) return true;
+    this.next = { ...cursor, ...after, offset: 0 };
+    return false;
+  }
 }
 
 const sharedMatchCache = new WeakMap<readonly string[], { query: string; matches: ReadonlySet<number> }>();

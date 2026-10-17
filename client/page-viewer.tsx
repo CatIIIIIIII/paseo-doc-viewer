@@ -1,5 +1,6 @@
-import type { SearchNavigation } from "../shared/search";
+import type { SearchMatch, SearchNavigation } from "../shared/search";
 import { activeInPart, Highlight } from "./highlight";
+import { pageHighlights, type PageHighlight } from "./highlights";
 import type { ViewerPosition } from "../shared/viewer-state";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -33,6 +34,7 @@ type EncodedImage = Extract<DocPageOutput, { kind: "pdf" }>["image"];
 
 export interface PageViewerProps {
   navigation?: SearchNavigation | null;
+  searchMatches?: SearchMatch[];
   initialPosition?: ViewerPosition | null;
   onPositionChange?: (position: ViewerPosition) => void;
   workspaceId: string;
@@ -55,7 +57,7 @@ function dataUri(image: EncodedImage): string {
   return `data:${image.mimeType};base64,${image.data}`;
 }
 
-export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles, initialPosition, onPositionChange, navigation }: PageViewerProps) {
+export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles, initialPosition, onPositionChange, navigation, searchMatches }: PageViewerProps) {
   const fetchPage = useRpc(docPageRpc);
   const fetchText = useRpc(docTextRpc);
   const fetchChunk = useRpc(mediaChunkRpc);
@@ -65,11 +67,14 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   const [index, setIndex] = useState(initial?.index ?? 0);
   const [zoom, setZoom] = useState(initial?.zoom ?? 1);
   const [showText, setShowText] = useState(initial?.text ?? false);
-  // A PDF search result opens the page text without changing the remembered mode.
+  // A PDF search result opens the page text without changing the remembered mode,
+  // unless the match carries page boxes: then the page itself shows the highlight.
   const [searchText, setSearchText] = useState(false);
   const textMode = kind === "pdf" && (showText || searchText);
   useEffect(() => {
-    if (navigation?.target.type === "page") { setIndex(navigation.target.index); if (kind === "pdf") setSearchText(true); }
+    if (navigation?.target.type !== "page") return;
+    setIndex(navigation.target.index);
+    if (kind === "pdf") setSearchText(!navigation.boxes?.length);
   }, [navigation, kind]);
   const { contentWidth, contentHeight, requestWidth, onLayout } = useFitWidth(styles.gutter * 2, kind === "pptx" ? 1 : zoom);
 
@@ -133,6 +138,22 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
     );
   };
   const { zoomTo, frameProps, outerProps, panProps, bodyProps } = usePinchZoom(zoom, setZoom, zoomable && page.data !== undefined, styles.gutter);
+
+  // Search matches on the page being shown; the selected one scrolls into view once per navigation.
+  const highlights = kind === "pdf" ? pageHighlights(searchMatches ?? [], active, navigation ?? null) : undefined;
+  const revealedNavigation = useRef(0);
+  useEffect(() => {
+    if (kind !== "pdf" || textMode || !navigation || navigation.target.type !== "page" || navigation.target.index !== active) return;
+    const boxes = navigation.boxes;
+    if (!boxes?.length || page.data?.kind !== "pdf" || page.data.index !== active) return;
+    if (revealedNavigation.current === navigation.serial) return;
+    revealedNavigation.current = navigation.serial;
+    const frame = fitSize(Math.round(contentWidth * zoom), page.data.image);
+    if (frame.width <= 0 || frame.height <= 0) return;
+    const y = styles.gutter + boxes[0]!.y * frame.height - contentHeight / 3;
+    outerProps.ref.current?.scrollTo({ y: Math.max(0, y), animated: true });
+    if (zoom > 1) panProps.ref.current?.scrollTo({ x: Math.max(0, boxes[0]!.x * frame.width - contentWidth / 3), animated: true });
+  }, [navigation, active, textMode, kind, page.data, contentWidth, contentHeight, zoom, styles.gutter, outerProps.ref, panProps.ref]);
 
   return (
     <View style={styles.screen}>
@@ -267,7 +288,8 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
             <ScrollView {...panProps} horizontal showsHorizontalScrollIndicator={zoom > 1}>
               <View {...bodyProps}>
                 <PageBody page={page.data} animationUri={motion.data} contentWidth={contentWidth} contentHeight={contentHeight} zoom={zoom} theme={theme} styles={styles} noun={noun} query={navigation?.query}
-                  active={navigation?.target.type === "page" && navigation.target.index === active ? navigation.start : undefined} />
+                  active={navigation?.target.type === "page" && navigation.target.index === active ? navigation.start : undefined}
+                  highlights={page.data.kind === "pdf" && page.data.index === active ? highlights : undefined} />
               </View>
             </ScrollView>
           )}
@@ -324,6 +346,7 @@ const PageBody = memo(function PageBody({
   noun,
   query,
   active,
+  highlights,
 }: {
   page: DocPageOutput;
   animationUri?: string;
@@ -335,16 +358,33 @@ const PageBody = memo(function PageBody({
   noun: string;
   query?: string;
   active?: number;
+  highlights?: PageHighlight[];
 }) {
   const zoomed = (width: number) => Math.round(width * zoom);
   if (page.kind === "pdf") {
+    const frame = fitSize(zoomed(contentWidth), page.image);
+    if (frame.width === 0) return null;
     return (
-      <FittedImage
-        image={page.image}
-        width={zoomed(contentWidth)}
-        label={`${noun} ${page.index + 1}`}
-        style={{ borderWidth: 1, borderColor: theme.colors.border }}
-      />
+      <View style={[frame, { borderWidth: 1, borderColor: theme.colors.border }]}>
+        <Image source={{ uri: dataUri(page.image) }} style={frame} resizeMode="contain" accessibilityLabel={`${noun} ${page.index + 1}`} />
+        {(highlights ?? []).map((highlight, index) =>
+          highlight.boxes.map((box, line) => (
+            <View
+              key={`${index}-${line}`}
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: box.x * frame.width,
+                top: box.y * frame.height,
+                width: box.width * frame.width,
+                height: box.height * frame.height,
+                backgroundColor: theme.colors.accent,
+                opacity: highlight.selected ? 0.5 : 0.22,
+              }}
+            />
+          )),
+        )}
+      </View>
     );
   }
   if (page.kind === "pptx") {

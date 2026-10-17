@@ -1,4 +1,4 @@
-import type { SearchNavigation } from "../shared/search";
+import type { SearchMatch, SearchNavigation } from "../shared/search";
 import { FindPanel } from "./find-panel";
 import { canDownloadOriginal, FindScope } from "./web";
 import { DownloadOriginal } from "./download-original";
@@ -93,8 +93,10 @@ function ViewerContent({
   theme,
   styles,
   navigation,
+  searchMatches,
 }: {
   navigation?: SearchNavigation | null;
+  searchMatches?: SearchMatch[];
   document: DocOpenOutput;
   workspaceId: string;
   path: string;
@@ -110,7 +112,7 @@ function ViewerContent({
   const key = `${workspaceId}\0${path}`;
   switch (document.kind) {
     case "pdf":
-      return <PageViewer key={key} {...common} {...remembered} kind="pdf" count={document.pageCount} password={password} />;
+      return <PageViewer key={key} {...common} {...remembered} kind="pdf" count={document.pageCount} password={password} searchMatches={searchMatches} />;
     case "pptx":
       return <PageViewer key={key} {...common} {...remembered} kind="pptx" count={document.slideCount} />;
     case "image-raster":
@@ -130,15 +132,17 @@ function ViewerContent({
 function DocumentBody(props: Parameters<typeof ViewerContent>[0]) {
   const [finding, setFinding] = useState(false);
   const [navigation, setNavigation] = useState<SearchNavigation | null>(null);
-  useEffect(() => setNavigation(null), [props.document.revision]);
+  const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([]);
+  useEffect(() => { setNavigation(null); setSearchMatches([]); }, [props.document.revision]);
   const searchable = ["pdf", "docx", "xlsx", "csv", "pptx"].includes(props.document.kind);
   return <FindScope enabled={searchable} onFind={() => { if (searchable) setFinding(true); }}>
     <View style={props.styles.screen}>
     {searchable ? <View style={props.styles.toolbar}><ToolbarButton theme={props.theme} styles={props.styles}
-      icon="Search" label="Find in document" selected={finding} onPress={() => { setFinding(!finding); if (finding) setNavigation(null); }} /></View> : null}
+      icon="Search" label="Find in document" selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} /></View> : null}
     {finding ? <FindPanel key={props.document.revision} workspaceId={props.workspaceId} path={props.path} password={props.password}
       revision={props.document.revision} pageLabel={props.document.kind === "pptx" ? "Slide" : "Page"} theme={props.theme} styles={props.styles} onNavigate={setNavigation}
-      onClose={() => { setFinding(false); setNavigation(null); }} /> : null}
-    <ViewerContent {...props} navigation={navigation} />
+      onMatches={setSearchMatches}
+      onClose={() => { setFinding(false); setNavigation(null); setSearchMatches([]); }} /> : null}
+    <ViewerContent {...props} navigation={navigation} searchMatches={searchMatches} />
   </View></FindScope>;
 }

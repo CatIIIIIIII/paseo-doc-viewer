@@ -1,4 +1,4 @@
-import type { SearchCursor } from "../shared/search";
+import type { SearchCursor, SearchMatch } from "../shared/search";
 import type { DocSearchOutput } from "../shared/rpc";
 import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
@@ -23,7 +23,7 @@ import { heavy } from "./heavy";
 import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
 import { readChunk, sliceChunk, videoMimeType, audioMimeType } from "./media";
 import { resolveInside } from "./paths";
-import { pdfPageCount, readPdfPageText, renderPdfPage } from "./pdf";
+import { pdfPageCount, readPdfPageText, renderPdfPage, searchPdfPage } from "./pdf";
 import { loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
 import { IMAGE_BUDGET_BYTES, decodeBudget, type Fit } from "./raster";
 import { recentDocuments } from "./recent";
@@ -374,9 +374,16 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
     const pageCount = "pageCount" in opened ? opened.pageCount : 0;
     for (let page = state.unit; page < pageCount; page++) {
       await scan.breathe();
-      const { text, truncated } = await HANDLERS.pdf.text!(file, { index: page });
-      if (truncated) notes.add("Some page text exceeds the extraction limit and was not searched.");
-      if (!scan.visit(text, { type: "page", index: page }, position(0, page), position(0, page + 1))) break;
+      const result = await searchPdfPage(file, page, query);
+      if (result.truncated) notes.add("Some page text exceeds the extraction limit and was not searched.");
+      const found: SearchMatch[] = result.matches.map((match) => ({
+        target: { type: "page", index: page },
+        start: match.start,
+        length: match.count,
+        snippet: match.snippet,
+        boxes: match.boxes,
+      }));
+      if (!scan.visitMatches(found, position(0, page), position(0, page + 1))) break;
     }
   } else if (file.kind === "pptx") {
     notes.add("Search covers extracted slide text, subject to the viewer's text limits; pictures and notes are excluded.");
