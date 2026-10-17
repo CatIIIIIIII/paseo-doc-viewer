@@ -2,6 +2,7 @@ import { fileInfo, fileChunk } from "./server/files";
 import { viewerStateStore } from "./server/viewer-state";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, renderPage } from "./server/documents";
+import { searchGenerations } from "./server/search";
 import { workspaceRoot } from "./server/paths";
 import { hasDocuments } from "./server/recent";
 import { docBlocksRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsAnyRpc, docTextRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc } from "./shared/rpc";
@@ -35,8 +36,9 @@ export default function contribute(server: PluginServerContext) {
   server.handle(fileChunkRpc, async ({ workspaceId, path, revision, offset, length }, { paseo }) =>
     fileChunk(await workspaceRoot(paseo, workspaceId), path, revision, offset, length),
   );
-  server.handle(docSearchRpc, async ({ workspaceId, path, password, query, cursor }, { paseo }) =>
-    searchDocument({ root: await workspaceRoot(paseo, workspaceId), path, password }, query, cursor),
+  server.handle(docSearchRpc, async ({ workspaceId, path, password, query, cursor, searchId }, { paseo }) =>
+    searchDocument({ root: await workspaceRoot(paseo, workspaceId), path, password }, query, cursor, undefined,
+      searchId && searchGenerations.begin(searchId.session, searchId.generation)),
   );
   server.handle(viewerStateReadRpc, async ({ workspaceId, path }, { paseo }) => {
     const key = await viewerStateStore.key(await workspaceRoot(paseo, workspaceId), path);

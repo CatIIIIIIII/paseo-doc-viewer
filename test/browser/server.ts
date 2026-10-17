@@ -5,6 +5,7 @@ import { join } from "node:path";
 import contribute from "../../index.server";
 import { ViewerStateStore } from "../../server/viewer-state";
 import { searchDocument } from "../../server/documents";
+import { searchGenerations } from "../../server/search";
 import { readFileSync } from "node:fs";
 import { DOCUMENT_RPCS } from "../../shared/rpc";
 const root = mkdtempSync(join(tmpdir(), "viewer-browser-files-"));
@@ -26,7 +27,8 @@ writeFileSync(join(root, "tone.wav"), bytes);
 const handlers = new Map<string, (input: any, context: any) => Promise<any>>();
 contribute({ handle: (contract: any, handler: any) => handlers.set(contract.name, handler) } as any);
 // A tiny budget makes every search span many requests, so the client must keep going on its own.
-handlers.set("doc.search", async ({ path, password, query, cursor }) => searchDocument({ root, path, password }, query, cursor, 1));
+handlers.set("doc.search", async ({ path, password, query, cursor, searchId }) =>
+  searchDocument({ root, path, password }, query, cursor, 1, searchId && searchGenerations.begin(searchId.session, searchId.generation)));
 handlers.set("viewer-state.read", async ({ path }) => ({ saved: await store.read(await store.key(root, path)) }));
 handlers.set("viewer-state.write", async ({ path, position }) => { await store.write(await store.key(root, path), position); return { saved: true }; });
 const paseo = { workspaces: { list: async () => ({ entries: [{ id: "workspace", workspaceDirectory: root }], pageInfo: { hasMore: false } }) } };

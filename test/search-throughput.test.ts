@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { describe, expect, it, vi } from "vitest";
 import { openDocument, renderPage, searchDocument } from "../server/documents";
+import { SearchGenerations } from "../server/search";
 import type { SearchCursor, SearchMatch } from "../shared/search";
 import { workspace } from "./helpers";
 import { rawZip, worksheetXml, xlsxEntries } from "./zip-builder";
@@ -107,4 +108,20 @@ describe("search throughput", () => {
     expect(result.next).toBeNull();
     expect(result.scanned).toBeLessThan(10);
   });
+
+  it("abandons a running search when the same panel starts a newer one", async () => {
+    const rows = Array.from({ length: 40_000 }, (_, row) =>
+      `<row r="${row + 1}"><c r="A${row + 1}" t="inlineStr"><is><t>row ${row}</t></is></c></row>`).join("");
+    const root = workspace({ "big.xlsx": rawZip(xlsxEntries([{ name: "Data", xml: worksheetXml(rows) }])) });
+    const ref = { root, path: "big.xlsx" };
+    const generations = new SearchGenerations();
+    const old = searchDocument(ref, "absent", null, 60_000, generations.begin("panel-a", 1));
+    const other = searchDocument(ref, "absent", null, 60_000, generations.begin("panel-b", 1));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const newer = generations.begin("panel-a", 2);
+    await expect(old).rejects.toThrow(/newer search/);
+    await expect(other).resolves.toMatchObject({ matches: [] });
+    expect(newer()).toBe(true);
+    expect(generations.begin("panel-a", 1)()).toBe(false);
+  }, 30_000);
 });

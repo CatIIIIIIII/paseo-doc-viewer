@@ -359,13 +359,14 @@ const blockText = (block: SourceBlock) =>
 
 // Each call scans units in document order until it holds 50 matches or its time budget
 // is spent, always making progress. The cursor resumes within a unit, so dense matches are not lost.
-export async function searchDocument(ref: DocumentRef, query: string, cursor?: SearchCursor | null, budgetMs = SEARCH_BUDGET_MS): Promise<DocSearchOutput> {
+export async function searchDocument(ref: DocumentRef, query: string, cursor?: SearchCursor | null, budgetMs = SEARCH_BUDGET_MS, current?: () => boolean): Promise<DocSearchOutput> {
   query = query.trim();
   if (!query || query.length > 200) throw new Error("Enter a search term of 1–200 characters");
   const file = await locate(ref);
   if (cursor && (cursor.revision !== file.revision || cursor.query !== query)) throw new Error("The document or search changed. Search again.");
   const state: SearchCursor = cursor ?? { revision: file.revision, query, sheet: 0, unit: 0, column: 0, offset: 0 };
-  const scan = new SearchScan(state, Date.now() + budgetMs);
+  const scan = new SearchScan(state, Date.now() + budgetMs, current);
+  scan.checkCurrent();
   const notes = new Set<string>();
   if (file.kind === "pdf") {
     notes.add("Search covers selectable text; scanned pages and outlined text require OCR.");

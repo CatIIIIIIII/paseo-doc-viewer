@@ -5,10 +5,29 @@ export const SEARCH_MAX_MATCHES = 50;
 const YIELD_EVERY_MS = 40;
 const STREAM_IDLE_MS = 60_000;
 const MAX_PARKED_STREAMS = 8;
+const MAX_SEARCH_SESSIONS = 256;
 
 export type SearchPosition = Pick<SearchCursor, "sheet" | "unit" | "column">;
 
 export const position = (sheet: number, unit: number, column = 0): SearchPosition => ({ sheet, unit, column });
+
+// Each find panel numbers its searches; starting a newer one abandons the older loop on the daemon.
+export class SearchGenerations {
+  private readonly latest = new Map<string, number>();
+
+  begin(session: string, generation: number): () => boolean {
+    const known = this.latest.get(session) ?? -1;
+    this.latest.delete(session);
+    this.latest.set(session, Math.max(known, generation));
+    for (const oldest of this.latest.keys()) {
+      if (this.latest.size <= MAX_SEARCH_SESSIONS) break;
+      this.latest.delete(oldest);
+    }
+    return () => (this.latest.get(session) ?? generation) <= generation;
+  }
+}
+
+export const searchGenerations = new SearchGenerations();
 
 // Visits text in document order within one call's time budget and records where the next call resumes.
 export class SearchScan {
@@ -18,7 +37,7 @@ export class SearchScan {
   private readonly pattern: RegExp;
   private yielded = Date.now();
 
-  constructor(private readonly cursor: SearchCursor, private readonly deadline: number) {
+  constructor(private readonly cursor: SearchCursor, private readonly deadline: number, private readonly current: () => boolean = () => true) {
     this.pattern = literalPattern(cursor.query);
   }
 
@@ -27,11 +46,16 @@ export class SearchScan {
     if (Date.now() - this.yielded < YIELD_EVERY_MS) return;
     await new Promise((resume) => setImmediate(resume));
     this.yielded = Date.now();
+    this.checkCurrent();
+  }
+
+  checkCurrent(): void {
+    if (!this.current()) throw new Error("A newer search replaced this one.");
   }
 
   // Positions before the cursor must already be skipped by the caller.
   visit(text: string, target: SearchTarget, at: SearchPosition, after: SearchPosition): boolean {
-    this.scanned++;
+    if (++this.scanned % 1024 === 0) this.checkCurrent();
     const { pattern, cursor } = this;
     const resumes = at.sheet === cursor.sheet && at.unit === cursor.unit && at.column === cursor.column;
     pattern.lastIndex = resumes ? cursor.offset : 0;

@@ -200,7 +200,8 @@ export const fileChunkRpc = defineRpc({
 
 export const docSearchRpc = defineRpc({
   name: "doc.search",
-  input: z.object({ ...documentRef, password, query: z.string().trim().min(1).max(200), cursor: searchCursor.nullable().optional() }),
+  input: z.object({ ...documentRef, password, query: z.string().trim().min(1).max(200), cursor: searchCursor.nullable().optional(),
+    searchId: z.object({ session: z.string().min(1).max(64), generation: z.number().int().nonnegative() }).optional() }),
   output: z.object({ revision, matches: z.array(searchMatch).max(50), next: searchCursor.nullable(), notes: z.array(z.string()), scanned: z.number().int().nonnegative() }),
 });
 export type DocSearchOutput = RpcOutput<typeof docSearchRpc>;

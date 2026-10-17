@@ -24,6 +24,7 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(-1);
   const generation = useRef(0);
+  const [session] = useState(() => Math.random().toString(36).slice(2, 12));
   const navigation = useRef(0);
   const active = useRef(true);
   useEffect(() => { active.current = true; return () => { active.current = false; generation.current++; }; }, []);
@@ -41,7 +42,7 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
     let total = 0;
     try {
       do {
-        const result = await search({ workspaceId, path, password, query: query.trim(), cursor });
+        const result = await search({ workspaceId, path, password, query: query.trim(), cursor, searchId: { session, generation: token } });
         if (!active.current || token !== generation.current) return;
         if (result.revision !== revision) throw new Error("The document changed. Search again.");
         cursor = result.next;
