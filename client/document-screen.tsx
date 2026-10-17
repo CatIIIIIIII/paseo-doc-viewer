@@ -8,7 +8,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { docOpenRpc, type DocOpenOutput } from "../shared/rpc";
 import { BlocksViewer } from "./blocks-viewer";
-import { baseName, originalReachable } from "./format";
+import { originalReachable } from "./format";
 import { PageViewer } from "./page-viewer";
 import { passwordPrompt } from "./password";
 import { PasswordPrompt } from "./password-prompt";
@@ -24,10 +24,6 @@ import { kindForPath } from "../shared/kinds";
 import { openHostScreen } from "./host-client";
 import { reviewScope, useReviewDraft } from "./review-draft";
 import { NoteComposer, reviewScreen } from "./review-note";
-
-export function documentTitle(params: Record<string, string>): string {
-  return params.path ? baseName(params.path) : "Document";
-}
 
 export function DocumentScreen({ host, theme, layout, params }: PluginScreenProps) {
   const { ref, onLayout, bottomInset } = useBottomInset();

@@ -6,6 +6,7 @@
 - Spreadsheets: a Find or Issues jump keeps column A in view when the target cell fits in the first columns. Records remembers the header row chosen for each sheet until the app reloads, also after the document is closed and reopened.
 - Zoom is remembered per layout class (phone-sized or wide). The page, text mode and sheet window stay shared across clients, but a 1.5x zoom set on desktop no longer opens cropped on a phone. A zoom saved by an earlier version counts as a wide zoom.
 - Bare `/doc` and "Open recent document" open the newest PDF, Word, spreadsheet or slide file instead of the newest file of any type, so a screenshot written after a report no longer wins. Images, video and audio are opened only when the workspace has no such document.
+- The document screen title shows the folder after the file name (`report.pdf · runs/2026-10-17-rag-eval`), so two files with the same name can be told apart. A long folder keeps its last 40 characters.
 
 ## 0.4.0 (2026-10-17)
 

@@ -12,6 +12,19 @@ export function parentDir(path: string): string {
   return parts.slice(0, -1).join("/");
 }
 
+const TITLE_FOLDER_CHARS = 40;
+
+// The name leads so it survives truncation; the folder tells apart files that share a name.
+// A long folder keeps its end, which is the part closest to the file.
+export function documentTitle(params: Record<string, string>): string {
+  if (!params.path) return "Document";
+  const name = baseName(params.path);
+  const folder = parentDir(params.path);
+  if (!folder) return name;
+  const shown = folder.length > TITLE_FOLDER_CHARS ? `…${folder.slice(folder.length - TITLE_FOLDER_CHARS + 1)}` : folder;
+  return `${name} · ${shown}`;
+}
+
 const UNITS = ["B", "KB", "MB", "GB"];
 
 export function humanSize(bytes: number): string {

@@ -1,5 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
-import { DocumentScreen, documentTitle } from "./client/document-screen";
+import { DocumentScreen } from "./client/document-screen";
+import { documentTitle } from "./client/format";
 import { createDocumentsPanel } from "./client/documents-panel";
 import { addDocumentsHeaderButtons } from "./client/header-button";
 import { setHostClient } from "./client/host-client";
