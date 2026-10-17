@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
-import { describeError } from "../client/format";
+import { describeError, originalReachable } from "../client/format";
 import { retryPage } from "../client/paging";
 import { openDocument } from "../server/documents";
 import { workspaceRoot } from "../server/paths";
@@ -137,7 +137,26 @@ describe("R2: the client maps errors by code", () => {
     expect(errorCode(envelope(ERROR_MESSAGES.busy()))).toBe("timeout");
     expect(errorText(envelope(ERROR_MESSAGES.busy()))).toBe("The viewer is busy with other documents; try again");
     expect(errorText(envelope("Plugin service is unavailable"))).toBe("Plugin service is unavailable");
-    expect(describeError(envelope(ERROR_MESSAGES.pdfDamaged())).detail).toBe("PDF is damaged or invalid");
+    expect(describeError(envelope(ERROR_MESSAGES.contentMismatch("xlsx"))).detail).toBe("File content does not match its .xlsx extension");
+  });
+
+  it("does not repeat the title in the detail of a damaged PDF", () => {
+    expect(describeError(new Error(ERROR_MESSAGES.pdfDamaged())).detail).toBe("It may be incomplete or still being written. Try again later, or open the original in another app.");
+  });
+
+  it("shows files the viewer cannot or may not show as information, and failures as errors", () => {
+    expect(describeError(new Error(ERROR_MESSAGES.legacyOffice())).tone).toBe("muted");
+    expect(describeError(new Error(ERROR_MESSAGES.unsupportedType("txt"))).tone).toBe("muted");
+    expect(describeError(new Error(ERROR_MESSAGES.fileNotFound("a.pdf"))).tone).toBe("muted");
+    expect(describeError(new Error(ERROR_MESSAGES.pdfDamaged())).tone).toBe("danger");
+    expect(describeError(new Error("disk on fire")).tone).toBe("danger");
+  });
+
+  it("offers the original unless the file cannot be reached", () => {
+    expect(originalReachable(new Error(ERROR_MESSAGES.fileNotFound("a.pdf")))).toBe(false);
+    expect(originalReachable(new Error(ERROR_MESSAGES.outsideWorkspace()))).toBe(false);
+    expect(originalReachable(new Error(ERROR_MESSAGES.pdfDamaged()))).toBe(true);
+    expect(originalReachable(new Error(ERROR_MESSAGES.legacyOffice()))).toBe(true);
   });
 
   it.each([

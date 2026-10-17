@@ -131,7 +131,7 @@ export function ErrorState({ theme, styles, error, onRetry, children }: ChromePr
       icon={described.icon}
       title={described.title}
       detail={described.detail}
-      tone="danger"
+      tone={described.tone}
       action={onRetry && canRetry(error) ? { label: "Try again", onPress: onRetry } : undefined}
     >
       {children}

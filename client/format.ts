@@ -87,34 +87,49 @@ export const GROUP_FILES: { readonly [G in DocumentGroup]: string } = {
   audio: "audio files",
 };
 
+// "muted" is for files the viewer cannot or may not show; "danger" is for something that broke.
+export type ErrorTone = "muted" | "danger";
+
 export interface ErrorState {
   icon: string;
   title: string;
   detail: string;
+  tone: ErrorTone;
 }
 
-const ERROR_STATES: { readonly [C in ErrorCode]: { icon: string; title: string; detail?: string } } = {
-  password_required: { icon: "Lock", title: "This PDF is password protected", detail: "Enter its password to open it" },
-  password_incorrect: { icon: "Lock", title: "Incorrect password" },
-  unsupported_encryption: { icon: "Lock", title: "This file is encrypted" },
-  encrypted_office: { icon: "Lock", title: "This file is password protected", detail: "Remove the password in Office to preview it here" },
-  legacy_format: { icon: "FileX", title: "Legacy Office format", detail: "Save it as .docx, .xlsx, or .pptx to preview it here" },
-  unsupported_format: { icon: "FileX", title: "Unsupported file" },
-  too_large: { icon: "TriangleAlert", title: "Too large to preview" },
-  outside_workspace: { icon: "TriangleAlert", title: "Outside the workspace", detail: "Only files inside the workspace can be opened" },
-  not_found: { icon: "FileX", title: "File not found", detail: "It may have been moved or deleted" },
-  workspace_not_found: { icon: "TriangleAlert", title: "Workspace not found", detail: "The workspace may have been closed or removed" },
-  damaged: { icon: "FileX", title: "The file looks damaged" },
-  out_of_range: { icon: "TriangleAlert", title: "Nothing to show here" },
-  timeout: { icon: "TriangleAlert", title: "The host took too long to respond" },
-  invalid_request: { icon: "TriangleAlert", title: "Unable to open document" },
-  stopped: { icon: "PowerOff", title: "The document viewer stopped", detail: "Reload the plugin or restart Paseo" },
+const ERROR_STATES: { readonly [C in ErrorCode]: { icon: string; title: string; detail?: string; tone: ErrorTone } } = {
+  password_required: { icon: "Lock", title: "This PDF is password protected", detail: "Enter its password to open it", tone: "muted" },
+  password_incorrect: { icon: "Lock", title: "Incorrect password", tone: "danger" },
+  unsupported_encryption: { icon: "Lock", title: "This file is encrypted", tone: "muted" },
+  encrypted_office: { icon: "Lock", title: "This file is password protected", detail: "Remove the password in Office to preview it here", tone: "muted" },
+  legacy_format: { icon: "FileX", title: "Legacy Office format", detail: "Save it as .docx, .xlsx, or .pptx to preview it here", tone: "muted" },
+  unsupported_format: { icon: "FileX", title: "Unsupported file", tone: "muted" },
+  too_large: { icon: "FileX", title: "Too large to preview", tone: "muted" },
+  outside_workspace: { icon: "FileX", title: "Outside the workspace", detail: "Only files inside the workspace can be opened", tone: "muted" },
+  not_found: { icon: "FileX", title: "File not found", detail: "It may have been moved or deleted", tone: "muted" },
+  workspace_not_found: { icon: "FolderX", title: "Workspace not found", detail: "The workspace may have been closed or removed", tone: "muted" },
+  damaged: { icon: "FileX", title: "The file looks damaged", tone: "danger" },
+  out_of_range: { icon: "TriangleAlert", title: "Nothing to show here", tone: "muted" },
+  timeout: { icon: "TriangleAlert", title: "The host took too long to respond", tone: "danger" },
+  invalid_request: { icon: "TriangleAlert", title: "Unable to open document", tone: "danger" },
+  stopped: { icon: "PowerOff", title: "The document viewer stopped", detail: "Reload the plugin or restart Paseo", tone: "danger" },
+};
+
+// Daemon messages that only restate the title get a next step instead.
+const RESTATED: Readonly<Record<string, string>> = {
+  "PDF is damaged or invalid": "It may be incomplete or still being written. Try again later, or open the original in another app.",
 };
 
 export function describeError(error: unknown): ErrorState {
   const code = errorCode(error);
   const detail = errorText(error) || "Unknown error";
-  if (!code) return { icon: "TriangleAlert", title: "Unable to open document", detail };
+  if (!code) return { icon: "TriangleAlert", title: "Unable to open document", detail, tone: "danger" };
   const state = ERROR_STATES[code];
-  return { icon: state.icon, title: state.title, detail: state.detail ?? detail };
+  return { icon: state.icon, title: state.title, detail: state.detail ?? RESTATED[detail] ?? detail, tone: state.tone };
+}
+
+// The original can still be downloaded unless the file itself cannot be reached.
+export function originalReachable(error: unknown): boolean {
+  const code = errorCode(error);
+  return code !== "not_found" && code !== "outside_workspace" && code !== "workspace_not_found";
 }

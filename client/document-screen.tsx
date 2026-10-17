@@ -8,7 +8,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { docOpenRpc, type DocOpenOutput } from "../shared/rpc";
 import { BlocksViewer } from "./blocks-viewer";
-import { baseName } from "./format";
+import { baseName, originalReachable } from "./format";
 import { PageViewer } from "./page-viewer";
 import { passwordPrompt } from "./password";
 import { PasswordPrompt } from "./password-prompt";
@@ -76,7 +76,7 @@ export function DocumentScreen({ host, theme, layout, params }: PluginScreenProp
       <View style={styles.screen}>
         {opened.error ? (
           <ErrorState theme={theme} styles={styles} error={opened.error} onRetry={() => void opened.refetch()}>
-            {download}
+            {originalReachable(opened.error) ? download : null}
           </ErrorState>
         ) : (
           <LoadingState theme={theme} styles={styles} />
