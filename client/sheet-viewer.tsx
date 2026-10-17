@@ -177,7 +177,8 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
           </Text>
           <ScrollView style={{ flex: 1, maxHeight: 120 }} contentContainerStyle={{ paddingVertical: 4 }}>
             <Text style={styles.text} selectable>
-              <Highlight text={selectedValue} query={navigation?.query} color={theme.colors.surface2} />
+              <Highlight text={selectedValue} query={navigation?.query} theme={theme} active={navigation?.target.type === "cell" && navigation.target.sheet === grid.sheet &&
+                navigation.target.row === selected.row && navigation.target.column === selected.column ? navigation.start : undefined} />
             </Text>
           </ScrollView>
           <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel="Close cell" onPress={() => setSelected(null)} />
@@ -215,6 +216,7 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
                   row={data.rowOffset + row}
                   columnOffset={data.columnOffset}
                   columnCount={columnCount}
+                  selectedColumn={selected?.row === data.rowOffset + row ? selected.column : -1}
                   cells={cells}
                   onSelect={onSelect}
                 />
@@ -241,7 +243,8 @@ function gridStyles(theme: PluginTheme, styles: Styles) {
   const header: TextStyle = { ...styles.label, lineHeight: ROW_HEIGHT - 1 };
   const rowNumber: TextStyle = { ...header, width: ROW_NUMBER_WIDTH, backgroundColor: theme.colors.surface1 };
   const value: TextStyle = { ...styles.text, lineHeight: ROW_HEIGHT - 1 };
-  return { cell, header, rowNumber, value };
+  const selected: TextStyle = { backgroundColor: theme.colors.accent, color: theme.colors.accentForeground };
+  return { cell, header, rowNumber, value, selected };
 }
 
 type GridStyles = ReturnType<typeof gridStyles>;
@@ -252,6 +255,7 @@ const SheetRow = memo(function SheetRow({
   row,
   columnOffset,
   columnCount,
+  selectedColumn,
   cells,
   onSelect,
 }: {
@@ -259,6 +263,7 @@ const SheetRow = memo(function SheetRow({
   row: number;
   columnOffset: number;
   columnCount: number;
+  selectedColumn: number;
   cells: GridStyles;
   onSelect(cell: CellRef): void;
 }) {
@@ -272,7 +277,8 @@ const SheetRow = memo(function SheetRow({
         return (
           <Text
             key={column}
-            style={[cells.cell, cells.value]}
+            style={[cells.cell, cells.value, columnOffset + column === selectedColumn ? cells.selected : null]}
+            accessibilityLabel={columnOffset + column === selectedColumn ? `Selected cell ${columnName(selectedColumn)}${row + 1}` : undefined}
             numberOfLines={1}
             ellipsizeMode="tail"
             onPress={value ? () => onSelect({ row, column: columnOffset + column }) : undefined}

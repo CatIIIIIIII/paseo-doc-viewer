@@ -1,5 +1,5 @@
 import type { SearchNavigation } from "../shared/search";
-import { Highlight } from "./highlight";
+import { activeInPart, Highlight } from "./highlight";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { FlatList } from "@getpaseo/plugin/client/react-native";
@@ -59,9 +59,10 @@ export function BlocksViewer({ workspaceId, path, revision, theme, styles, navig
           onEndReached={() => {
             if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
           }}
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <View style={{ width }}>
-              <Block block={item} width={width} theme={theme} styles={styles} query={navigation?.query} />
+              <Block block={item} width={width} theme={theme} styles={styles} query={navigation?.query}
+                active={navigation?.target.type === "block" && navigation.target.index === start + index ? navigation.start : undefined} />
             </View>
           )}
           ListFooterComponent={
@@ -81,7 +82,7 @@ export function BlocksViewer({ workspaceId, path, revision, theme, styles, navig
   );
 }
 
-function Block({ block, width, theme, styles, query }: { block: DocBlock; width: number; theme: PluginTheme; styles: Styles; query?: string }) {
+function Block({ block, width, theme, styles, query, active }: { block: DocBlock; width: number; theme: PluginTheme; styles: Styles; query?: string; active?: number }) {
   switch (block.type) {
     case "heading":
       return (
@@ -90,13 +91,13 @@ function Block({ block, width, theme, styles, query }: { block: DocBlock; width:
           style={{ color: theme.colors.foreground, fontSize: HEADING_SIZE[block.level - 1], fontWeight: "500", marginTop: 8 }}
           selectable
         >
-          <Highlight text={block.text} query={query} color={theme.colors.surface2} />
+          <Highlight text={block.text} query={query} theme={theme} active={active} />
         </Text>
       );
     case "paragraph":
       return (
         <Text style={styles.content} selectable>
-          <Highlight text={block.text} query={query} color={theme.colors.surface2} />
+          <Highlight text={block.text} query={query} theme={theme} active={active} />
         </Text>
       );
     case "list":
@@ -108,7 +109,7 @@ function Block({ block, width, theme, styles, query }: { block: DocBlock; width:
                 {block.ordered ? `${position + 1}.` : "•"}
               </Text>
               <Text style={[styles.content, { flex: 1 }]} selectable>
-                <Highlight text={item} query={query} color={theme.colors.surface2} />
+                <Highlight text={item} query={query} theme={theme} active={activeInPart(block.items, position, active)} />
               </Text>
             </View>
           ))}
@@ -134,7 +135,8 @@ function Block({ block, width, theme, styles, query }: { block: DocBlock; width:
                     }}
                   >
                     <Text style={styles.text} selectable>
-                      <Highlight text={cell} query={query} color={theme.colors.surface2} />
+                      <Highlight text={cell} query={query} theme={theme}
+                        active={activeInPart(block.rows[rowIndex]!, cellIndex, activeInPart(block.rows.map((cells) => cells.join("\t")), rowIndex, active))} />
                     </Text>
                   </View>
                 ))}

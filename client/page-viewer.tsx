@@ -1,11 +1,11 @@
 import type { SearchNavigation } from "../shared/search";
-import { Highlight } from "./highlight";
+import { activeInPart, Highlight } from "./highlight";
 import type { ViewerPosition } from "../shared/viewer-state";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, type ImageStyle, Platform, ScrollView, Text, View } from "react-native";
 import { docPageRpc, docTextRpc, mediaChunkRpc, type DocPageOutput, type DocTextOutput } from "../shared/rpc";
 import { type ImageAnimation, animationFormat, loadAnimation } from "./animation";
@@ -65,9 +65,11 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   const [index, setIndex] = useState(initial?.index ?? 0);
   const [zoom, setZoom] = useState(initial?.zoom ?? 1);
   const [showText, setShowText] = useState(initial?.text ?? false);
-  const textMode = kind === "pdf" && showText;
+  // A PDF search result opens the page text without changing the remembered mode.
+  const [searchText, setSearchText] = useState(false);
+  const textMode = kind === "pdf" && (showText || searchText);
   useEffect(() => {
-    if (navigation?.target.type === "page") { setIndex(navigation.target.index); if (kind === "pdf") setShowText(true); }
+    if (navigation?.target.type === "page") { setIndex(navigation.target.index); if (kind === "pdf") setSearchText(true); }
   }, [navigation, kind]);
   const { contentWidth, contentHeight, requestWidth, onLayout } = useFitWidth(styles.gutter * 2, kind === "pptx" ? 1 : zoom);
 
@@ -184,15 +186,15 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
             {(textMode ? pageText.isFetching : page.isFetching) ? <ActivityIndicator size="small" color={theme.colors.foregroundMuted} /> : null}
           </View>
           <ToolbarButton theme={theme} styles={styles} icon="RotateCcw" accessibilityLabel="Reset reading position"
-            onPress={() => { setIndex(0); setZoom(1); setShowText(false); }} />
+            onPress={() => { setIndex(0); setZoom(1); setShowText(false); setSearchText(false); }} />
           {kind === "pdf" ? (
             <ToolbarButton
               theme={theme}
               styles={styles}
               icon="FileText"
-              accessibilityLabel={showText ? "Show page image" : "Show page text"}
-              selected={showText}
-              onPress={() => setShowText(!showText)}
+              accessibilityLabel={textMode ? "Show page image" : "Show page text"}
+              selected={textMode}
+              onPress={() => { setShowText(!textMode); setSearchText(false); }}
             />
           ) : null}
           <View
@@ -253,7 +255,9 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
             ) : !shownText ? (
               <LoadingState theme={theme} styles={styles} />
             ) : (
-              <PageText page={shownText} width={contentWidth} styles={styles} query={navigation?.query} color={theme.colors.surface2} />
+              <PageText page={shownText} width={contentWidth} styles={styles} theme={theme} query={navigation?.query}
+                active={navigation?.target.type === "page" && navigation.target.index === active ? navigation : undefined}
+                onReveal={(y) => outerProps.ref.current?.scrollTo({ y: Math.max(0, y - styles.gutter * 2), animated: true })} />
             )
           ) : page.error && !page.data ? (
             <ErrorState theme={theme} styles={styles} error={page.error} onRetry={() => void page.refetch()} />
@@ -262,7 +266,8 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
           ) : (
             <ScrollView {...panProps} horizontal showsHorizontalScrollIndicator={zoom > 1}>
               <View {...bodyProps}>
-                <PageBody page={page.data} animationUri={motion.data} contentWidth={contentWidth} contentHeight={contentHeight} zoom={zoom} theme={theme} styles={styles} noun={noun} query={navigation?.query} />
+                <PageBody page={page.data} animationUri={motion.data} contentWidth={contentWidth} contentHeight={contentHeight} zoom={zoom} theme={theme} styles={styles} noun={noun} query={navigation?.query}
+                  active={navigation?.target.type === "page" && navigation.target.index === active ? navigation.start : undefined} />
               </View>
             </ScrollView>
           )}
@@ -272,15 +277,37 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   );
 }
 
-function PageText({ page, width, styles, query, color }: { page: DocTextOutput; width: number; styles: Styles; query?: string; color: string }) {
+// The text is split at the line holding the selected match, so its offset can be measured
+// and scrolled into view; nested Text spans report no layout of their own.
+function PageText({ page, width, styles, theme, query, active, onReveal }: {
+  page: DocTextOutput; width: number; styles: Styles; theme: PluginTheme; query?: string; active?: SearchNavigation; onReveal(y: number): void;
+}) {
   const note = pageTextNote(page);
+  const start = active && active.start < page.text.length ? active.start : undefined;
+  const lineStart = start === undefined ? page.text.length : page.text.lastIndexOf("\n", start) + 1;
+  const offsets = useRef({ root: 0, body: 0 });
+  const revealed = useRef(-1);
+  const reveal = (y: number) => {
+    if (!active || revealed.current === active.serial) return;
+    revealed.current = active.serial;
+    onReveal(offsets.current.root + offsets.current.body + y);
+  };
   return (
-    <View style={{ gap: 12, maxWidth: width }}>
+    <View style={{ gap: 12, maxWidth: width }} onLayout={(event) => { offsets.current.root = event.nativeEvent.layout.y; }}>
       {note ? <Text style={styles.muted}>{note}</Text> : null}
       {page.text.trim() === "" ? null : (
-        <Text style={styles.content} selectable>
-          <Highlight text={page.text} query={query} color={color} />
-        </Text>
+        <View onLayout={(event) => { offsets.current.body = event.nativeEvent.layout.y; }}>
+          {lineStart > 0 ? (
+            <Text style={styles.content} selectable>
+              <Highlight text={page.text.slice(0, lineStart)} query={query} theme={theme} />
+            </Text>
+          ) : null}
+          {start !== undefined ? (
+            <Text key={active!.serial} style={styles.content} selectable onLayout={(event) => reveal(event.nativeEvent.layout.y)}>
+              <Highlight text={page.text.slice(lineStart)} query={query} theme={theme} active={start - lineStart} />
+            </Text>
+          ) : null}
+        </View>
       )}
     </View>
   );
@@ -296,6 +323,7 @@ const PageBody = memo(function PageBody({
   styles,
   noun,
   query,
+  active,
 }: {
   page: DocPageOutput;
   animationUri?: string;
@@ -306,6 +334,7 @@ const PageBody = memo(function PageBody({
   styles: Styles;
   noun: string;
   query?: string;
+  active?: number;
 }) {
   const zoomed = (width: number) => Math.round(width * zoom);
   if (page.kind === "pdf") {
@@ -333,7 +362,7 @@ const PageBody = memo(function PageBody({
             style={[styles.content, textStyle, position === 0 ? { fontWeight: "500" } : null]}
             selectable
           >
-            <Highlight text={text} query={query} color={theme.colors.surface2} />
+            <Highlight text={text} query={query} theme={theme} active={activeInPart(page.texts, position, active)} />
           </Text>
         ))}
         {page.images.map((image, position) => (

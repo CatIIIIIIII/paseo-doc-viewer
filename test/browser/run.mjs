@@ -11,6 +11,10 @@ const pdf = await PDFDocument.create();
 const font = await pdf.embedFont(StandardFonts.Helvetica);
 for (let index = 0; index < 3; index++) pdf.addPage().drawText(`Searchable statement page ${index + 1}`, { font, x: 40, y: 700 });
 await writeFile(`${directory}/searchable.pdf`, await pdf.save());
+const long = await PDFDocument.create();
+const longPage = long.addPage([600, 1400]);
+for (let line = 0; line < 80; line++) longPage.drawText(line === 76 ? "The needle is on this line" : `Filler line ${line + 1}`, { font: await long.embedFont(StandardFonts.Helvetica), x: 40, y: 1380 - line * 17, size: 11 });
+await writeFile(`${directory}/long.pdf`, await long.save());
 const base = { bundle: true, jsx: "automatic", logLevel: "silent" };
 await build({ ...base, entryPoints: ["test/browser/app.tsx"], outfile: `${directory}/app.js`, platform: "browser", alias: {
   "react-native": resolve("test/browser/native-shim.tsx"),
@@ -79,6 +83,17 @@ try {
   await expect(page.getByRole("button", { name: "Next match", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Next match", exact: true }).click();
   await expect(page.getByText("B2", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "long.pdf", exact: true }).click();
+  await page.getByRole("button", { name: "Find in document", exact: true }).click();
+  await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("needle");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page.getByRole("button", { name: /^Page 1: / }).click();
+  await expect(page.getByLabel("Current match: needle")).toBeInViewport();
+  await page.screenshot({ path: `${directory}/pdf-match.png`, fullPage: true });
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: "Close viewer", exact: true }).click();
+  await page.getByRole("button", { name: "Reopen viewer", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Show page text", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "many.csv", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("needle");

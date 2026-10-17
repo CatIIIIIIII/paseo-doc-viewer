@@ -12,6 +12,7 @@ const state = mkdtempSync(join(tmpdir(), "viewer-browser-state-"));
 const store = new ViewerStateStore(state);
 for (const file of ["statement.pdf", "invoices.xlsx", "contract.docx", "deck.pptx", "audible.webm"]) copyFileSync(join(process.cwd(), "test/fixtures", file), join(root, file));
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/searchable.pdf"), join(root, "statement.pdf"));
+copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/long.pdf"), join(root, "long.pdf"));
 writeFileSync(join(root, "broken.pdf"), "original unsupported file");
 writeFileSync(join(root, ".env"), "SECRET=1");
 writeFileSync(join(root, "many.csv"), Array.from({ length: 120 }, (_, row) => `row ${row},needle`).join("\n"));

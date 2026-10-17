@@ -16,13 +16,25 @@ export const View = forwardRef<any, any>(function View({ children, style, onLayo
   return <div ref={(value) => { node.current = value; if (value) { (value as any).measure = (callback: any) => callback(0, 0, 850, 540, 0, 0); (value as any).measureInWindow = (callback: any) => callback(0, 0, 850, 540); } if (typeof ref === "function") ref(value); else if (ref) ref.current = value; }}
     style={{ display: "flex", flexDirection: "column", minHeight: 0, ...css(style) }} aria-label={accessibilityLabel} role={accessibilityRole}>{children}</div>;
 });
-export const Text = ({ children, style, accessibilityLabel, onPress, accessibilityRole }: any) => <span style={css(style)} aria-label={accessibilityLabel} onClick={onPress} role={accessibilityRole}>{children}</span>;
+export const Text = ({ children, style, accessibilityLabel, onPress, accessibilityRole, onLayout }: any) => {
+  const node = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const element = node.current;
+    if (!onLayout || !element?.parentElement) return;
+    const y = element.getBoundingClientRect().top - element.parentElement.getBoundingClientRect().top;
+    onLayout({ nativeEvent: { layout: { x: 0, y, width: element.offsetWidth, height: element.offsetHeight } } });
+  });
+  // React Native keeps line breaks in text.
+  return <span ref={node} style={{ whiteSpace: "pre-wrap", ...css(style) }} aria-label={accessibilityLabel} onClick={onPress} role={accessibilityRole}>{children}</span>;
+};
 // React Native Web renders Pressable as a focusable div with role=button, not a <button>.
 export const Pressable = ({ children, style, accessibilityLabel, accessibilityState, disabled, onPress }: any) => <div role="button" tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel} aria-pressed={accessibilityState?.selected} aria-disabled={disabled || undefined}
   onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }} style={{ cursor: "pointer", ...css(style) }}>{children}</div>;
 export const ScrollView = forwardRef<any, any>(function ScrollView({ children, style, contentContainerStyle, onLayout }: any, ref) {
   useEffect(() => { onLayout?.({ nativeEvent: { layout: { width: 850, height: 540, x: 0, y: 0 } } }); }, [onLayout]);
-  return <div ref={ref} style={{ overflow: "auto", ...css(style) }}><div style={css(contentContainerStyle)}>{children}</div></div>;
+  // React Native's scrollTo takes { x, y }; the DOM method takes { left, top }.
+  return <div ref={(value) => { if (value) (value as any).scrollTo = ({ x, y }: { x?: number; y?: number }) => { if (y !== undefined) value.scrollTop = y; if (x !== undefined) value.scrollLeft = x; }; if (typeof ref === "function") ref(value); else if (ref) ref.current = value; }}
+    style={{ overflow: "auto", ...css(style) }}><div style={css(contentContainerStyle)}>{children}</div></div>;
 });
 export const TextInput = ({ value, onChangeText, onSubmitEditing, accessibilityLabel, style, placeholder, maxLength, autoFocus }: any) => <input autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onSubmitEditing?.(); }} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />;
 export const Image = ({ source, style, accessibilityLabel }: any) => <img src={source.uri} style={css(style)} alt={accessibilityLabel} />;

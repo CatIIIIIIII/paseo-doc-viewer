@@ -59,7 +59,7 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
   const choose = (index: number) => {
     if (!matches[index]) return;
     setSelected(index);
-    onNavigate({ target: matches[index].target, query: query.trim(), serial: ++navigation.current });
+    onNavigate({ target: matches[index].target, query: query.trim(), start: matches[index].start, serial: ++navigation.current });
   };
   return (
     <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, padding: styles.gutter, gap: 8 }}>
@@ -72,7 +72,7 @@ export function FindPanel({ workspaceId, path, revision, password, theme, styles
         <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel="Close find" onPress={onClose} />
       </View>
       {started ? <View style={[styles.toolbarGroup, { flexWrap: "wrap" }]}>
-        <Text style={styles.label}>{busy ? `Searching… ${matches.length} so far` : `${matches.length}${next ? "+" : ""} matches${next || error ? " so far" : ""}`}</Text>
+        <Text style={styles.label}>{busy ? `Searching… ${matches.length} so far` : `${matches.length}${next ? "+" : ""} ${matches.length === 1 && !next ? "match" : "matches"}${next || error ? " so far" : ""}`}</Text>
         <ToolbarButton theme={theme} styles={styles} icon="ChevronUp" accessibilityLabel="Previous match" disabled={selected <= 0} onPress={() => choose(selected - 1)} />
         <ToolbarButton theme={theme} styles={styles} icon="ChevronDown" accessibilityLabel="Next match" disabled={selected + 1 >= matches.length} onPress={() => choose(selected + 1)} />
       </View> : null}

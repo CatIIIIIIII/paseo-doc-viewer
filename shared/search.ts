@@ -13,7 +13,7 @@ export const searchMatch = z.object({ target: searchTarget, snippet: z.string(),
 export type SearchTarget = z.infer<typeof searchTarget>;
 export type SearchCursor = z.infer<typeof searchCursor>;
 export type SearchMatch = z.infer<typeof searchMatch>;
-export type SearchNavigation = { target: SearchTarget; query: string; serial: number };
+export type SearchNavigation = { target: SearchTarget; query: string; start: number; serial: number };
 
 export function literalPattern(query: string): RegExp {
   return new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
