@@ -30,6 +30,8 @@ import { animationQueryKey, pageQueryKey, textQueryKey } from "./queries";
 import { ErrorState, LoadingState, type Styles, ToolbarButton } from "./ui";
 import { useFitWidth } from "./use-fit-width";
 import { usePinchZoom } from "./use-pinch-zoom";
+import { NATIVE_MEDIA_REQUEST_BYTES, MEDIA_REQUEST_BYTES } from "./media";
+import { TransferState } from "./transfer-state";
 
 type EncodedImage = Extract<DocPageOutput, { kind: "pdf" }>["image"];
 
@@ -110,10 +112,17 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   });
 
   const animationMimeType = animation ? animationFormat(Platform.OS, animation.mimeType) : null;
+  const [animationRequested, setAnimationRequested] = useState(true);
+  const [animationProgress, setAnimationProgress] = useState({ loaded: 0, size: animation?.size ?? 0 });
+  useEffect(() => { setAnimationRequested(true); setAnimationProgress({ loaded: 0, size: animation?.size ?? 0 }); }, [revision]);
   const motion = useQuery({
     queryKey: animationQueryKey(workspaceId, path, revision),
-    queryFn: () => loadAnimation((range) => fetchChunk({ workspaceId, path, ...range, mimeType: animationMimeType ?? undefined }), revision),
-    enabled: animationMimeType !== null,
+    queryFn: ({ signal }) => loadAnimation((range) => fetchChunk({ workspaceId, path, ...range, mimeType: animationMimeType ?? undefined }), revision, {
+      signal,
+      chunkBytes: Platform.OS === "web" ? MEDIA_REQUEST_BYTES : NATIVE_MEDIA_REQUEST_BYTES,
+      onProgress: (progress) => { if (!signal.aborted) setAnimationProgress(progress); },
+    }),
+    enabled: animationMimeType !== null && animationRequested,
     staleTime: Infinity,
     retry: false,
   });
@@ -271,6 +280,19 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
           </View>
         </View>
       ) : null}
+      {animationMimeType && motion.isFetching ? <TransferState compact theme={theme} styles={styles} title="Loading animation"
+        loaded={animationProgress.loaded} size={animationProgress.size}
+        onCancel={() => {
+          setAnimationRequested(false);
+          void queryClient.cancelQueries({ queryKey: animationQueryKey(workspaceId, path, revision) });
+        }} /> : null}
+      {animationMimeType && !motion.isFetching && !motion.data && (!animationRequested || motion.error) ? <View style={{ padding: styles.gutter, gap: 4 }}>
+        {motion.error ? <Text style={styles.danger} accessibilityRole="alert">Could not load the animation. The first frame is still available.</Text> : null}
+        <ToolbarButton theme={theme} styles={styles} label="Load animation" onPress={() => {
+          if (animationRequested) void motion.refetch();
+          else setAnimationRequested(true);
+        }} />
+      </View> : null}
       <View {...frameProps}>
         <ScrollView {...outerProps} style={{ flex: 1 }} contentContainerStyle={{ padding: styles.gutter, paddingBottom: styles.gutter + styles.bottomInset, flexGrow: 1 }} onLayout={onLayout}>
           {count === 0 ? (

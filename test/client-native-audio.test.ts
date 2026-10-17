@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeBase64, loadMedia, NATIVE_AUDIO_MAX_BYTES, playAudioFully } from "../client/media";
+import { decodeBase64, encodeBase64ForPlayback, loadMedia, NATIVE_AUDIO_MAX_BYTES, playAudioFully } from "../client/media";
 import type { MediaChunkOutput } from "../shared/rpc";
 
 function audioServer(bytes: Uint8Array, options: { chunk?: number } = {}) {
@@ -57,5 +57,52 @@ describe("native audio playback", () => {
   it("reuses loadMedia's guarantees unchanged", async () => {
     const media = await loadMedia(audioServer(new Uint8Array(0)).fetchChunk);
     expect(media.size).toBe(0);
+  });
+
+  it("rejects an oversized replacement from its first chunk before requesting more or playing", async () => {
+    let calls = 0;
+    let played = false;
+    const source = audioServer(new Uint8Array(4)).fetchChunk;
+    await expect(playAudioFully(async (range) => {
+      calls++;
+      return { ...await source(range), size: NATIVE_AUDIO_MAX_BYTES + 1, nextOffset: 4 };
+    }, async () => { played = true; })).rejects.toThrow(/too large/);
+    expect(calls).toBe(1);
+    expect(played).toBe(false);
+  });
+
+  it("refuses a file replaced between opening and the first transfer", async () => {
+    let played = false;
+    await expect(playAudioFully(audioServer(new Uint8Array(4)).fetchChunk, async () => { played = true; }, {
+      expectedRevision: "older-revision",
+    })).rejects.toThrow(/changed while loading/);
+    expect(played).toBe(false);
+  });
+
+  it("does not start playback when the viewer cancels after downloading", async () => {
+    const signal = { aborted: false };
+    let played = false;
+    await expect(playAudioFully(audioServer(new Uint8Array(4)).fetchChunk, async () => { played = true; }, {
+      signal,
+      onPreparing: () => { signal.aborted = true; },
+    })).rejects.toThrow(/cancelled/);
+    expect(played).toBe(false);
+  });
+
+  it("encodes uneven chunks exactly while allowing navigation to run during preparation", async () => {
+    const bytes = Uint8Array.from({ length: 600_005 }, (_, index) => index % 251);
+    let navigationRan = false;
+    const navigation = setTimeout(() => { navigationRan = true; }, 0);
+    const encoded = await encodeBase64ForPlayback([bytes.subarray(0, 101), bytes.subarray(101, 233_333), bytes.subarray(233_333)]);
+    clearTimeout(navigation);
+    expect(encoded).toBe(Buffer.from(bytes).toString("base64"));
+    expect(navigationRan).toBe(true);
+  });
+
+  it("can cancel during encoding rather than finishing the whole file", async () => {
+    const signal = { aborted: false };
+    const cancel = setTimeout(() => { signal.aborted = true; }, 0);
+    await expect(encodeBase64ForPlayback([new Uint8Array(600_000)], signal)).rejects.toThrow(/cancelled/);
+    clearTimeout(cancel);
   });
 });

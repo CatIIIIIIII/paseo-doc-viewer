@@ -8,7 +8,7 @@ import { searchGenerations } from "../../server/search";
 import { readFileSync } from "node:fs";
 import { DOCUMENT_RPCS } from "../../shared/rpc";
 const root = mkdtempSync(join(tmpdir(), "viewer-browser-files-"));
-for (const file of ["statement.pdf", "invoices.xlsx", "contract.docx", "deck.pptx", "audible.webm"]) copyFileSync(join(process.cwd(), "test/fixtures", file), join(root, file));
+for (const file of ["statement.pdf", "invoices.xlsx", "contract.docx", "deck.pptx", "clip.mp4", "audible.webm", "animated.webp"]) copyFileSync(join(process.cwd(), "test/fixtures", file), join(root, file));
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/searchable.pdf"), join(root, "statement.pdf"));
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/long.pdf"), join(root, "long.pdf"));
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/report.pdf"), join(root, "report.pdf"));

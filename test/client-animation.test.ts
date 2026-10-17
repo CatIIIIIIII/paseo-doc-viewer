@@ -51,4 +51,15 @@ describe("animated image source", () => {
   it("fails when the served file is a different revision than the open document", async () => {
     await expect(loadAnimation(server(new Uint8Array(10), { revision: "r2" }), "r1")).rejects.toThrow(/changed/);
   });
+
+  it("cancels between chunks without building an animation URI", async () => {
+    const signal = { aborted: false };
+    let calls = 0;
+    const source = server(new Uint8Array(100));
+    await expect(loadAnimation(async (range) => {
+      calls++;
+      return source(range);
+    }, "r1", { signal, onProgress: () => { signal.aborted = true; } })).rejects.toThrow(/cancelled/);
+    expect(calls).toBe(1);
+  });
 });

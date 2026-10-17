@@ -52,7 +52,7 @@ export const TextInput = ({ value, onChangeText, onSubmitEditing, accessibilityL
   ? <textarea autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />
   : <input autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onSubmitEditing?.(); }} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />;
 export const Image = ({ source, style, accessibilityLabel }: any) => <img src={source.uri} style={css(style)} alt={accessibilityLabel} />;
-export const ActivityIndicator = () => <span aria-label="Loading">…</span>;
+export const ActivityIndicator = ({ accessibilityLabel = "Loading" }: any) => <span aria-label={accessibilityLabel}>…</span>;
 export const FlatList = ({ data, renderItem, keyExtractor, ListFooterComponent, contentContainerStyle }: any) => <div style={{ overflow: "auto", ...css(contentContainerStyle) }}>{data.map((item: any, index: number) => <div key={keyExtractor?.(item, index) ?? index}>{renderItem({ item, index })}</div>)}{ListFooterComponent}</div>;
 // Same box as the host icon at size 14, so toolbar widths match the app.
 export const Icon = ({ name, size = 14 }: any) => <span aria-hidden="true" style={{ display: "inline-block", width: size, textAlign: "center" }}>{({ Search: "⌕", Download: "↓", ChevronRight: "›", ChevronLeft: "‹", ChevronUp: "↑", ChevronDown: "↓", X: "×", RotateCcw: "↶" } as any)[name] ?? "•"}</span>;

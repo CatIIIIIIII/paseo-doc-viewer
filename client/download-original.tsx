@@ -1,9 +1,9 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useEffect, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import { fileInfoRpc, fileChunkRpc } from "../shared/rpc";
-import { decodeBase64, MEDIA_REQUEST_BYTES } from "./media";
+import { decodeBase64, MEDIA_REQUEST_BYTES, yieldToUI } from "./media";
 import { humanSize } from "./format";
 import { canDownloadOriginal, createMediaUrl, DownloadLink, revokeMediaUrl } from "./web";
 import { ToolbarButton, type Styles } from "./ui";
@@ -24,6 +24,8 @@ export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspa
     if (url.current) { revokeMediaUrl(url.current); url.current = null; }
     setPrepared(null); setStatus("loading"); setError(""); setProgress("");
     try {
+      await yieldToUI();
+      if (token.current !== attempt) return;
       const file = await info({ workspaceId, path });
       if (token.current !== attempt) return;
       if (file.size > 128 * 1024 * 1024) throw new Error("Original download is limited to 128 MiB");
@@ -37,6 +39,8 @@ export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspa
         if (value.revision !== file.revision || value.size !== file.size || value.offset !== offset || end > file.size ||
           (value.nextOffset === null ? end !== file.size : bytes.length === 0 || value.nextOffset !== end)) throw new Error("The file changed or the transfer was incomplete. Prepare again.");
         parts.push(bytes); setProgress(`${humanSize(end)} / ${humanSize(file.size)}`); offset = value.nextOffset;
+        await yieldToUI();
+        if (token.current !== attempt) return;
       }
       url.current = createMediaUrl(parts, file.mimeType);
       if (!url.current) throw new Error("Saving is unavailable in this client");
@@ -51,6 +55,7 @@ export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspa
       {prepared ? <DownloadLink uri={prepared.url} name={prepared.name} color={theme.colors.foreground} /> :
         <ToolbarButton theme={theme} styles={styles} icon="Download" label="Download original" disabled={status === "loading"} onPress={() => void prepare()} />}
       {status === "loading" ? <>
+        <ActivityIndicator size="small" color={theme.colors.foregroundMuted} accessibilityLabel="Preparing original file" />
         <Text style={styles.label}>{progress || "Preparing…"}</Text>
         <ToolbarButton theme={theme} styles={styles} label="Cancel" onPress={() => { token.current++; setStatus("idle"); }} />
       </> : null}

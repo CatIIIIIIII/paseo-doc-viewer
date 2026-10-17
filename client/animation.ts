@@ -1,5 +1,6 @@
 import type { DocOpenOutput, MediaChunkOutput } from "../shared/rpc";
-import { encodeBase64, loadMedia } from "./media";
+import { ANIMATION_MAX_BYTES } from "../shared/limits";
+import { encodeBase64ForPlayback, loadMedia, type MediaLoadOptions } from "./media";
 
 export type ImageAnimation = NonNullable<Extract<DocOpenOutput, { kind: "image-raster" | "image-decoded" }>["animation"]>;
 
@@ -21,8 +22,8 @@ export function animationFormat(os: string, mimeType: AnimationMimeType): Animat
 export async function loadAnimation(
   fetchChunk: (request: { offset: number; length: number }) => Promise<MediaChunkOutput>,
   revision: string,
+  options: MediaLoadOptions = {},
 ): Promise<string> {
-  const media = await loadMedia(fetchChunk);
-  if (media.revision !== revision) throw new Error("The image changed while loading");
-  return `data:${media.mimeType};base64,${encodeBase64(media.parts)}`;
+  const media = await loadMedia(fetchChunk, { ...options, expectedRevision: revision, maxBytes: ANIMATION_MAX_BYTES });
+  return `data:${media.mimeType};base64,${await encodeBase64ForPlayback(media.parts, options.signal)}`;
 }

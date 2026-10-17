@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { mediaChunkRpc } from "../shared/rpc";
 import { humanSize } from "./format";
-import { loadMedia, MAX_PLAYABLE_BYTES, NATIVE_AUDIO_MAX_BYTES, playAudioFully, type HostPlayAudio } from "./media";
+import { loadMedia, MAX_PLAYABLE_BYTES, NATIVE_AUDIO_MAX_BYTES, playAudioFully, yieldToUI, type HostPlayAudio } from "./media";
 import { getPlayAudio } from "./host-client";
-import { ErrorState, LoadingState, MessageState, type Styles } from "./ui";
+import { ErrorState, MessageState, type Styles } from "./ui";
+import { TransferState } from "./transfer-state";
 import { canPlayMedia, createMediaUrl, revokeMediaUrl, MediaElement } from "./web";
 
 export interface MediaViewerProps {
@@ -84,22 +85,26 @@ function WebMedia({ workspaceId, path, revision, size, theme, styles, facts, kin
   const fetchChunk = useRpc(mediaChunkRpc);
   const [requested, setRequested] = useState(size <= AUTOLOAD_BYTES);
   const [attempt, setAttempt] = useState(0);
-  const [playback, setPlayback] = useState<Playback>({ status: "idle" });
+  const [playback, setPlayback] = useState<Playback>({ status: size <= AUTOLOAD_BYTES ? "loading" : "idle", loaded: 0 });
+  const transfer = useRef<{ aborted: boolean } | null>(null);
 
   useEffect(() => {
     if (!requested) return;
     const signal = { aborted: false };
+    transfer.current = signal;
     let url: string | null = null;
     setPlayback({ status: "loading", loaded: 0 });
     loadMedia((range) => fetchChunk({ workspaceId, path, ...range }), {
       signal,
+      expectedRevision: revision,
       onProgress: ({ loaded }) => {
         if (!signal.aborted) setPlayback({ status: "loading", loaded });
       },
     }).then(
-      (media) => {
+      async (media) => {
         if (signal.aborted) return;
-        if (media.revision !== revision) throw new Error("The media changed while loading. Try again.");
+        await yieldToUI();
+        if (signal.aborted) return;
         url = createMediaUrl(media.parts, media.mimeType);
         setPlayback(url ? { status: "ready", url } : { status: "error", error: new Error("Media playback is unavailable") });
       },
@@ -136,7 +141,8 @@ function WebMedia({ workspaceId, path, revision, size, theme, styles, facts, kin
   if (playback.status === "loading") {
     return (
       <View style={styles.screen}>
-        <LoadingState theme={theme} styles={styles} label={`Loading... ${humanSize(playback.loaded)} of ${humanSize(size)}`} />
+        <TransferState theme={theme} styles={styles} title={`Loading ${kind}`} loaded={playback.loaded} size={size}
+          onCancel={() => { if (transfer.current) transfer.current.aborted = true; setRequested(false); setPlayback({ status: "idle" }); }} />
       </View>
     );
   }
@@ -157,29 +163,35 @@ function WebMedia({ workspaceId, path, revision, size, theme, styles, facts, kin
 type NativePlayback =
   | { status: "idle" }
   | { status: "loading"; loaded: number }
+  | { status: "preparing" }
   | { status: "playing" }
   | { status: "error"; error: unknown };
 
 // The host plays the file and resolves when it ends; there is no pause or stop on this primitive.
-function NativeAudio({ workspaceId, path, size, theme, styles, facts, playAudio }: MediaViewerProps & { facts: string; playAudio: HostPlayAudio }) {
+function NativeAudio({ workspaceId, path, revision, size, theme, styles, facts, playAudio }: MediaViewerProps & { facts: string; playAudio: HostPlayAudio }) {
   const fetchChunk = useRpc(mediaChunkRpc);
   const [playback, setPlayback] = useState<NativePlayback>({ status: "idle" });
-  const session = useRef(0);
+  const transfer = useRef<{ aborted: boolean } | null>(null);
 
-  useEffect(() => () => { session.current++; }, []);
+  useEffect(() => () => { if (transfer.current) transfer.current.aborted = true; }, []);
 
   const start = () => {
-    const token = ++session.current;
+    if (transfer.current) transfer.current.aborted = true;
+    const signal = { aborted: false };
+    transfer.current = signal;
     setPlayback({ status: "loading", loaded: 0 });
     void playAudioFully((range) => fetchChunk({ workspaceId, path, ...range }), playAudio, {
-      onProgress: ({ loaded }) => setPlayback((current) => (current.status === "loading" ? { status: "loading", loaded } : current)),
-      onPlaying: () => setPlayback((current) => (current.status === "loading" ? { status: "playing" } : current)),
+      signal,
+      expectedRevision: revision,
+      onProgress: ({ loaded }) => { if (!signal.aborted) setPlayback({ status: "loading", loaded }); },
+      onPreparing: () => { if (!signal.aborted) setPlayback({ status: "preparing" }); },
+      onPlaying: () => { if (!signal.aborted) setPlayback({ status: "playing" }); },
     }).then(
       () => {
-        if (session.current === token) setPlayback({ status: "idle" });
+        if (!signal.aborted) setPlayback({ status: "idle" });
       },
       (error: unknown) => {
-        if (session.current === token) setPlayback({ status: "error", error });
+        if (!signal.aborted) setPlayback({ status: "error", error });
       },
     );
   };
@@ -198,10 +210,12 @@ function NativeAudio({ workspaceId, path, size, theme, styles, facts, playAudio 
       </View>
     );
   }
-  if (playback.status === "loading") {
+  if (playback.status === "loading" || playback.status === "preparing") {
     return (
       <View style={styles.screen}>
-        <LoadingState theme={theme} styles={styles} label={`Loading... ${humanSize(playback.loaded)} of ${humanSize(size)}`} />
+        <TransferState theme={theme} styles={styles} title={playback.status === "preparing" ? "Preparing playback" : "Loading audio"}
+          loaded={playback.status === "preparing" ? size : playback.loaded} size={size}
+          onCancel={() => { if (transfer.current) transfer.current.aborted = true; setPlayback({ status: "idle" }); }} />
       </View>
     );
   }

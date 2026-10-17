@@ -198,6 +198,32 @@ try {
     element.pause(); return result;
   });
   expect(video.time).toBeGreaterThan(0); expect(video.muted).toBe(false); expect(video.tracks).toBe(1);
+  // A slow media transfer shows feedback immediately and can be cancelled before its response arrives.
+  const slowMedia = async (route) => {
+    if (route.request().postDataJSON().method === "media.chunk") await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.continue().catch(() => {});
+  };
+  await page.route("**/rpc", slowMedia);
+  await page.getByRole("button", { name: "animated.webp", exact: true }).click();
+  await expect(page.getByRole("progressbar", { name: "Loading animation", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel loading", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Load animation", exact: true })).toBeVisible();
+  await page.waitForTimeout(650);
+  await expect(page.getByRole("button", { name: "Load animation", exact: true })).toBeVisible();
+  await expect(page.getByRole("img").first()).toBeVisible();
+  await page.getByRole("button", { name: "clip.mp4", exact: true }).click();
+  await expect(page.getByRole("progressbar", { name: "Loading video", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel loading", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Load video/ })).toBeVisible();
+  await page.waitForTimeout(650);
+  await expect(page.locator("video")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Load video/ }).click();
+  await expect(page.getByRole("progressbar", { name: "Loading video", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeVisible();
+  await page.waitForTimeout(650);
+  await expect(page.locator("video")).toHaveCount(0);
+  await page.unroute("**/rpc", slowMedia);
   // Adversarial lifecycle checks: a late request must not populate a new query
   // or create a Save link after the user cancelled preparation.
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
@@ -222,6 +248,7 @@ try {
   };
   await page.route("**/rpc", delayChunk);
   await page.getByRole("button", { name: "Download original", exact: true }).click();
+  await expect(page.getByLabel("Preparing original file", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.waitForTimeout(400);
   await expect(page.getByRole("link", { name: "Save original file", exact: true })).toHaveCount(0);
@@ -439,6 +466,6 @@ try {
   expect(await phone.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await phone.screenshot({ path: `${directory}/phone-toolbar.png` });
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit.");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit.");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

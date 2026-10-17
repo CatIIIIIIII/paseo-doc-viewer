@@ -1,6 +1,7 @@
 import type { MediaChunkOutput } from "../shared/rpc";
 
 export const MEDIA_REQUEST_BYTES = 2 * 1024 * 1024;
+export const NATIVE_MEDIA_REQUEST_BYTES = 256 * 1024;
 export const MAX_PLAYABLE_BYTES = 256 * 1024 * 1024;
 // On phones the host's playAudio takes the whole file as one base64 string, so keep it smaller.
 export const NATIVE_AUDIO_MAX_BYTES = 32 * 1024 * 1024;
@@ -79,25 +80,40 @@ export interface AssembledMedia {
   size: number;
 }
 
+export interface MediaLoadOptions {
+  signal?: { aborted: boolean };
+  expectedRevision?: string;
+  maxBytes?: number;
+  chunkBytes?: number;
+  onProgress?: (progress: MediaProgress) => void;
+}
+
+export const yieldToUI = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+function checkCancelled(signal?: { aborted: boolean }): void {
+  if (signal?.aborted) throw new Error("Media loading was cancelled");
+}
+
 export async function loadMedia(
   fetchChunk: (request: { offset: number; length: number }) => Promise<MediaChunkOutput>,
-  options: { signal?: { aborted: boolean }; onProgress?: (progress: MediaProgress) => void } = {},
+  options: MediaLoadOptions = {},
 ): Promise<AssembledMedia> {
   const parts: Uint8Array[] = [];
   let offset: number | null = 0;
   let loaded = 0;
   let first: MediaChunkOutput | null = null;
   while (offset !== null) {
-    if (options.signal?.aborted) throw new Error("Media loading was cancelled");
-    const chunk: MediaChunkOutput = await fetchChunk({ offset, length: MEDIA_REQUEST_BYTES });
-    if (options.signal?.aborted) throw new Error("Media loading was cancelled");
+    checkCancelled(options.signal);
+    const chunk: MediaChunkOutput = await fetchChunk({ offset, length: options.chunkBytes ?? MEDIA_REQUEST_BYTES });
+    checkCancelled(options.signal);
     first ??= chunk;
     if (chunk.size !== first.size || chunk.mimeType !== first.mimeType) throw new Error("The media metadata changed while loading. Try again.");
     if (chunk.revision !== first.revision) throw new Error("The media changed while loading. Try again.");
+    if (options.expectedRevision !== undefined && chunk.revision !== options.expectedRevision) throw new Error("The media changed while loading. Try again.");
     if (chunk.offset !== offset) throw new Error(`Media chunk offset mismatch: expected ${offset}, got ${chunk.offset}`);
-    if (chunk.size > MAX_PLAYABLE_BYTES) throw new Error(`Media too large to play in the app (${chunk.size} bytes)`);
+    if (chunk.size > (options.maxBytes ?? MAX_PLAYABLE_BYTES)) throw new Error(`Media too large to play in this client (${chunk.size} bytes)`);
     const bytes = decodeBase64(chunk.data);
-    if (bytes.length > MEDIA_REQUEST_BYTES || offset + bytes.length > chunk.size) throw new Error("Media chunk exceeds its declared range");
+    if (bytes.length > (options.chunkBytes ?? MEDIA_REQUEST_BYTES) || offset + bytes.length > chunk.size) throw new Error("Media chunk exceeds its declared range");
     if (chunk.nextOffset !== null && (bytes.length === 0 || chunk.nextOffset !== offset + bytes.length)) {
       throw new Error(`Media chunk at ${offset} returned ${bytes.length} bytes but points to ${chunk.nextOffset}`);
     }
@@ -108,21 +124,54 @@ export async function loadMedia(
     loaded += bytes.length;
     options.onProgress?.({ loaded, size: chunk.size });
     offset = chunk.nextOffset;
+    // Give progress, cancellation and navigation a turn between chunks, even on a fast local host.
+    await yieldToUI();
   }
+  checkCancelled(options.signal);
   if (!first) throw new Error("Media returned no chunks");
   return { mimeType: first.mimeType, revision: first.revision, parts, size: loaded };
 }
 
 export type HostPlayAudio = (source: { base64: string; mimeType: string }) => Promise<void>;
 
+// Encode aligned blocks so a large native file never monopolizes the UI thread.
+export async function encodeBase64ForPlayback(parts: readonly Uint8Array[], signal?: { aborted: boolean }): Promise<string> {
+  const block = new Uint8Array(192 * 1024);
+  const encoded: string[] = [];
+  let filled = 0;
+  for (const part of parts) {
+    let offset = 0;
+    while (offset < part.length) {
+      checkCancelled(signal);
+      const length = Math.min(block.length - filled, part.length - offset);
+      block.set(part.subarray(offset, offset + length), filled);
+      offset += length;
+      filled += length;
+      if (filled === block.length) {
+        encoded.push(encodeBase64([block]));
+        filled = 0;
+        await yieldToUI();
+      }
+    }
+  }
+  checkCancelled(signal);
+  if (filled) encoded.push(encodeBase64([block.subarray(0, filled)]));
+  return encoded.join("");
+}
+
 // Loads the whole file with the usual guarantees, then hands it to the host's player.
 export async function playAudioFully(
   fetchChunk: (request: { offset: number; length: number }) => Promise<MediaChunkOutput>,
   playAudio: HostPlayAudio,
-  options: { signal?: { aborted: boolean }; onProgress?: (progress: MediaProgress) => void; onPlaying?: () => void } = {},
+  options: MediaLoadOptions & { onPreparing?: () => void; onPlaying?: () => void } = {},
 ): Promise<AssembledMedia> {
-  const media = await loadMedia(fetchChunk, options);
+  const media = await loadMedia(fetchChunk, { maxBytes: NATIVE_AUDIO_MAX_BYTES, chunkBytes: NATIVE_MEDIA_REQUEST_BYTES, ...options });
+  checkCancelled(options.signal);
+  options.onPreparing?.();
+  await yieldToUI();
+  const base64 = await encodeBase64ForPlayback(media.parts, options.signal);
+  checkCancelled(options.signal);
   options.onPlaying?.();
-  await playAudio({ base64: encodeBase64(media.parts), mimeType: media.mimeType });
+  await playAudio({ base64, mimeType: media.mimeType });
   return media;
 }
