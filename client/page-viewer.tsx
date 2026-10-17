@@ -7,7 +7,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, type ImageStyle, type LayoutChangeEvent, Platform, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Image, type ImageStyle, type LayoutChangeEvent, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { docPageRpc, docTextRpc, mediaChunkRpc, type DocPageOutput, type DocTextOutput } from "../shared/rpc";
 import { type ImageAnimation, animationFormat, loadAnimation } from "./animation";
 import {
@@ -51,6 +51,7 @@ export interface PageViewerProps {
   theme: PluginTheme;
   styles: Styles;
   onActivePage?: (index: number) => void;
+  onOpenPageMap?: () => void;
 }
 
 const NOUN = { pdf: "Page", pptx: "Slide", image: "Image" } as const;
@@ -62,7 +63,7 @@ function dataUri(image: EncodedImage): string {
   return `data:${image.mimeType};base64,${image.data}`;
 }
 
-export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles, initialPosition, onPositionChange, navigation, searchMatches, pageMap, onActivePage }: PageViewerProps) {
+export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles, initialPosition, onPositionChange, navigation, searchMatches, pageMap, onActivePage, onOpenPageMap }: PageViewerProps) {
   const fetchPage = useRpc(docPageRpc);
   const fetchText = useRpc(docTextRpc);
   const fetchChunk = useRpc(mediaChunkRpc);
@@ -174,55 +175,15 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
       {count > 0 ? (
         <View style={styles.toolbar}>
           {paged ? (
-            <>
-              <ToolbarButton
-                theme={theme}
-                styles={styles}
-                icon="ChevronLeft"
-                accessibilityLabel={`Previous ${noun.toLowerCase()}`}
-                disabled={active === 0}
-                onPress={() => setIndex(active - 1)}
-              />
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: 4, alignItems: "center" }}>
-                {stripItems(active, count).map((item) =>
-                  item.type === "gap" ? (
-                    <Text key={`gap-${item.after}`} style={styles.label}>
-                      ...
-                    </Text>
-                  ) : (
-                    <ToolbarButton
-                      key={item.index}
-                      theme={theme}
-                      styles={styles}
-                      label={String(item.index + 1)}
-                      accessibilityLabel={`${noun} ${item.index + 1}`}
-                      variant="toggle"
-                      selected={item.index === active}
-                      onPress={() => setIndex(item.index)}
-                    />
-                  ),
-                )}
-              </ScrollView>
-              <Text style={styles.label}>
-                {active + 1} / {count}
-              </Text>
-              <ToolbarButton
-                theme={theme}
-                styles={styles}
-                icon="ChevronRight"
-                accessibilityLabel={`Next ${noun.toLowerCase()}`}
-                disabled={active >= count - 1}
-                onPress={() => setIndex(active + 1)}
-              />
-            </>
-          ) : (
-            <View style={styles.toolbarSpacer} />
-          )}
+            <PageStrip active={active} count={count} noun={noun} theme={theme} styles={styles} onChange={setIndex} onOpenMap={onOpenPageMap} />
+          ) : null}
+          <View style={styles.toolbarSpacer} />
           <View style={{ width: 16, alignItems: "center" }}>
             {(textMode ? pageText.isFetching : page.isFetching) ? <ActivityIndicator size="small" color={theme.colors.foregroundMuted} /> : null}
           </View>
-          <ToolbarButton theme={theme} styles={styles} icon="RotateCcw" accessibilityLabel="Reset reading position"
-            onPress={() => { setIndex(0); setZoom(1); setShowText(false); setSearchText(false); }} />
+          {/* Phones drop Reset to keep 44 pt targets on one row; Fit and the page map cover it. */}
+          {styles.compact ? null : <ToolbarButton theme={theme} styles={styles} icon="RotateCcw" accessibilityLabel="Reset reading position"
+            onPress={() => { setIndex(0); setZoom(1); setShowText(false); setSearchText(false); }} />}
           {kind === "pdf" ? (
             <ToolbarButton
               theme={theme}
@@ -326,6 +287,63 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
         </ScrollView>
       </View>
     </View>
+  );
+}
+
+// Phones show `< n / N >`, with n / N opening the page map. Wider layouts keep the page chips
+// between previous and next, and scroll the current chip into view.
+function PageStrip({ active, count, noun, theme, styles, onChange, onOpenMap }: {
+  active: number; count: number; noun: string; theme: PluginTheme; styles: Styles; onChange(index: number): void; onOpenMap?: () => void;
+}) {
+  const strip = useRef<ScrollView>(null);
+  const offsets = useRef(new Map<number, number>());
+  const reveal = (x: number | undefined) => { if (x !== undefined) strip.current?.scrollTo({ x: Math.max(0, x - 48), animated: true }); };
+  useEffect(() => { reveal(offsets.current.get(active)); }, [active]);
+  const label = `${active + 1} / ${count}`;
+  const lower = noun.toLowerCase();
+  const previous = <ToolbarButton theme={theme} styles={styles} icon="ChevronLeft" accessibilityLabel={`Previous ${lower}`} disabled={active === 0} onPress={() => onChange(active - 1)} />;
+  const next = <ToolbarButton theme={theme} styles={styles} icon="ChevronRight" accessibilityLabel={`Next ${lower}`} disabled={active >= count - 1} onPress={() => onChange(active + 1)} />;
+  if (styles.compact) {
+    return (
+      <View style={[styles.toolbarGroup, { gap: 4 }]}>
+        {previous}
+        {onOpenMap ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={`${noun} ${active + 1} of ${count}, open page map`} onPress={onOpenMap} hitSlop={styles.hitSlop}
+            style={{ minWidth: 44, height: styles.controlSize, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 }}>
+            <Text style={[styles.label, { color: theme.colors.foreground }]}>{label}</Text>
+          </Pressable>
+        ) : (
+          <View style={{ minWidth: 44, alignItems: "center" }}><Text style={[styles.label, { color: theme.colors.foreground }]}>{label}</Text></View>
+        )}
+        {next}
+      </View>
+    );
+  }
+  return (
+    <>
+      <View style={[styles.toolbarGroup, { flexShrink: 1, minWidth: 0, gap: 4 }]}>
+        {previous}
+        <ScrollView ref={strip} horizontal showsHorizontalScrollIndicator={false} style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 4, alignItems: "center" }}>
+          {stripItems(active, count).map((item) =>
+            item.type === "gap" ? (
+              <Text key={`gap-${item.after}`} style={styles.label}>
+                ...
+              </Text>
+            ) : (
+              <View key={item.index} onLayout={(event: LayoutChangeEvent) => {
+                offsets.current.set(item.index, event.nativeEvent.layout.x);
+                if (item.index === active) reveal(event.nativeEvent.layout.x);
+              }}>
+                <ToolbarButton theme={theme} styles={styles} label={String(item.index + 1)} accessibilityLabel={`${noun} ${item.index + 1}`}
+                  variant="toggle" selected={item.index === active} onPress={() => onChange(item.index)} />
+              </View>
+            ),
+          )}
+        </ScrollView>
+        {next}
+      </View>
+      <Text style={styles.label}>{label}</Text>
+    </>
   );
 }
 

@@ -298,6 +298,11 @@ try {
   await page.getByRole("button", { name: "Open page 42", exact: true }).click();
   await expect(page.getByText("42 / 60", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: "Page 42", exact: true })).toBeVisible();
+  // Desktop strip: previous and next hug the chips, and the current chip is shown.
+  const lastChip = await page.getByRole("button", { name: "Page 60", exact: true }).boundingBox();
+  const nextBox = await page.getByRole("button", { name: "Next page", exact: true }).boundingBox();
+  expect(nextBox.x - (lastChip.x + lastChip.width)).toBeLessThanOrEqual(8);
+  await expect(page.getByRole("button", { name: "Page 42", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Page map", exact: true }).click();
   await page.getByRole("button", { name: "Pin page 42", exact: true }).click();
   await page.getByRole("textbox", { name: "Pin label", exact: true }).fill("Chart");
@@ -451,13 +456,18 @@ try {
   await phone.setViewportSize({ width: 390, height: 844 });
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "report.pdf", exact: true }).click();
-  await phone.getByRole("button", { name: "Reset reading position", exact: true }).click();
+  // Phones show `< n / N >` without chips; n / N opens the page map, and Reset is left to Fit and the map.
+  await expect(phone.getByRole("button", { name: /^Page \d+$/ })).toHaveCount(0);
+  await expect(phone.getByRole("button", { name: "Reset reading position", exact: true })).toHaveCount(0);
+  await phone.getByRole("button", { name: /^Page \d+ of \d+, open page map$/ }).click();
+  await phone.getByLabel("Page thumbnails", { exact: true }).evaluate((element) => { element.parentElement.parentElement.scrollTop = 0; });
+  await phone.getByRole("button", { name: "Open page 1", exact: true }).click();
   await expect(phone.getByText(/^1 \/ \d+$/)).toBeVisible();
   await phone.getByRole("button", { name: "Add note to page 1", exact: true }).click();
   await phone.getByRole("textbox", { name: "Note text", exact: true }).fill("Fits on a phone");
   await phone.getByRole("button", { name: "Add note", exact: true }).click();
   await expect(phone.getByRole("button", { name: "Review notes (1)", exact: true })).toBeVisible();
-  for (const name of ["Find in document", "Page map", "Add note to page 1", "Review notes (1)", "Mark reviewed", "Previous page", "Next page", "Reset reading position", "Show page text", "Zoom out", "Zoom in"]) {
+  for (const name of ["Find in document", "Page map", "Add note to page 1", "Review notes (1)", "Mark reviewed", "Previous page", "Page 1 of 59, open page map", "Next page", "Show page text", "Zoom out", "Zoom in"]) {
     const box = await phone.getByRole("button", { name, exact: true }).boundingBox();
     expect(box, name).not.toBeNull();
     expect(box.x, name).toBeGreaterThanOrEqual(0);

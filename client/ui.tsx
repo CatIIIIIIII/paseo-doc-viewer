@@ -8,7 +8,10 @@ export function makeStyles(theme: PluginTheme, compact: boolean, bottomInset = 0
   const c = theme.colors;
   const gutter = compact ? 12 : 16;
   return {
+    compact,
     gutter,
+    controlSize: 28,
+    hitSlop: undefined as number | undefined,
     bottomInset,
     screen: { flex: 1, backgroundColor: c.surface0 },
     toolbar: {
