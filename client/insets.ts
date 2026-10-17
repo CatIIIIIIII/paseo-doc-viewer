@@ -10,6 +10,14 @@ export function navBarHeightFrom(constants: unknown): number | null {
   return typeof bottom === "number" && Number.isFinite(bottom) && bottom > 0 ? bottom : null;
 }
 
+export type SafeAreaHook = () => { bottom: number };
+
+// Paseo 0.11.2 does not export useSafeAreaInsets; a host that does gives live insets.
+export function safeAreaHookFrom(sdk: unknown): SafeAreaHook | null {
+  const hook = (sdk as { useSafeAreaInsets?: unknown } | null | undefined)?.useSafeAreaInsets;
+  return typeof hook === "function" ? (hook as SafeAreaHook) : null;
+}
+
 // frameBottom must be in screen coordinates (measure pageY + height). measureInWindow
 // on Android reports y relative to the area below the status bar, so it falls short.
 export function bottomInsetFor({

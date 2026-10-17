@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANDROID_NAV_BAR_DP, bottomInsetFor, keyboardInsetFor, navBarHeightFrom } from "../client/insets";
+import { ANDROID_NAV_BAR_DP, bottomInsetFor, keyboardInsetFor, navBarHeightFrom, safeAreaHookFrom } from "../client/insets";
 
 describe("bottom inset", () => {
   it("pads an Android view that reaches the bottom of the screen by the navigation bar height", () => {
@@ -46,6 +46,16 @@ describe("bottom inset", () => {
     expect(navBarHeightFrom({})).toBeNull();
     expect(navBarHeightFrom(undefined)).toBeNull();
     expect(navBarHeightFrom(null)).toBeNull();
+  });
+});
+
+describe("host safe-area insets", () => {
+  it("uses the SDK's useSafeAreaInsets only when the host exports it as a function", () => {
+    const useSafeAreaInsets = () => ({ top: 0, right: 0, bottom: 24, left: 0 });
+    expect(safeAreaHookFrom({ useSafeAreaInsets })).toBe(useSafeAreaInsets);
+    expect(safeAreaHookFrom({ useSafeAreaInsets: { bottom: 24 } })).toBeNull();
+    expect(safeAreaHookFrom({ Icon: () => null })).toBeNull();
+    expect(safeAreaHookFrom(undefined)).toBeNull();
   });
 });
 
