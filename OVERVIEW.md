@@ -31,7 +31,7 @@ An open document checks for changes every few seconds and shows the new version 
 
 ## Reviewing
 
-- Mark reviewed records the version of the file you were looking at. Documents then shows a check for reviewed files, shows Changed since review when the file changes, and offers a Needs review filter. Opening or scrolling never marks a file. Review marks are shared by every client of the daemon and do not compare content: a rewrite that changes only the file's times also counts as a change. Press Reviewed to clear a mark.
+- Mark reviewed records the version of the file you were looking at. The document toolbar and Documents then show a Reviewed pill, or Changed since review when the file changes, and Documents offers a Needs review filter. Opening or scrolling never marks a file. Review marks are shared by every client of the daemon and do not compare content: a rewrite that changes only the file's times also counts as a change. Press Mark reviewed again to clear a mark.
 - On a PDF, Add note writes a note about the page you are viewing, optionally with that page's image. Notes from every file in the workspace collect in the Review notes screen, where you can edit or remove them, preview the exact message, copy it, or send it to an agent you pick in the workspace. Notes on a file that changed since are marked as an older revision.
 - Sending goes only to an agent with no turn in progress and no pending permission, so a busy agent is never interrupted. A refused or failed send keeps the draft. To offer recipients, the screen reads the workspace's agent list (titles and status) through your daemon.
 
