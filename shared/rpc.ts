@@ -1,3 +1,5 @@
+import { searchCursor, searchMatch } from "./search";
+import { viewerPosition } from "./viewer-state";
 import { defineRpc } from "@getpaseo/plugin";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { z } from "zod";
@@ -35,7 +37,7 @@ export const docOpenRpc = defineRpc({
       sheetsTruncated: z.boolean().optional(),
     }),
     z.object({ kind: z.literal("pptx"), revision, slideCount: z.number().int().nonnegative() }),
-    z.object({ kind: z.literal("video"), revision, mimeType: z.string(), size: z.number().int().nonnegative() }),
+    z.object({ kind: z.enum(["video", "audio"]), revision, mimeType: z.string(), size: z.number().int().nonnegative() }),
     z.object({
       kind: z.enum(["image-raster", "image-decoded"]),
       revision,
@@ -149,7 +151,7 @@ export const mediaChunkRpc = defineRpc({
     mimeType: animationMimeType.optional(),
   }),
   output: z.object({
-    kind: z.enum(["video", "image-raster", "image-decoded"]),
+    kind: z.enum(["video", "audio", "image-raster", "image-decoded"]),
     revision,
     mimeType: z.string(),
     offset: z.number().int().nonnegative(),
@@ -181,7 +183,32 @@ export const docsRecentRpc = defineRpc({
   }),
 });
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc] as const;
+export const fileInfoRpc = defineRpc({
+  name: "file.info", input: z.object(documentRef),
+  output: z.object({ revision, size: z.number().int().nonnegative(), name: z.string(), mimeType: z.string() }),
+});
+export const fileChunkRpc = defineRpc({
+  name: "file.chunk", input: z.object({ ...documentRef, revision, offset: z.number().int().nonnegative(), length: z.number().int().positive() }),
+  output: z.object({ revision, offset: z.number().int().nonnegative(), size: z.number().int().nonnegative(), data: z.string(), nextOffset: z.number().int().nonnegative().nullable() }),
+});
+
+export const docSearchRpc = defineRpc({
+  name: "doc.search",
+  input: z.object({ ...documentRef, password, query: z.string().trim().min(1).max(200), cursor: searchCursor.nullable().optional() }),
+  output: z.object({ revision, matches: z.array(searchMatch).max(50), next: searchCursor.nullable(), notes: z.array(z.string()), scanned: z.number().int().nonnegative() }),
+});
+export type DocSearchOutput = RpcOutput<typeof docSearchRpc>;
+
+export const viewerStateReadRpc = defineRpc({
+  name: "viewer-state.read", input: z.object(documentRef),
+  output: z.object({ saved: z.object({ revision, position: viewerPosition }).nullable() }),
+});
+export const viewerStateWriteRpc = defineRpc({
+  name: "viewer-state.write", input: z.object({ ...documentRef, revision, position: viewerPosition.nullable() }),
+  output: z.object({ saved: z.boolean() }),
+});
+
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docTextRpc, docRowsRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;

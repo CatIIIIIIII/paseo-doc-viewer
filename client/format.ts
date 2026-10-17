@@ -50,6 +50,7 @@ export const KIND_ICON: { readonly [K in DocumentKind]: string } = {
   csv: "FileSpreadsheet",
   pptx: "Presentation",
   video: "FileVideoCamera",
+  audio: "FileAudio",
   "image-raster": "FileImage",
   "image-decoded": "FileImage",
 };
@@ -61,6 +62,7 @@ export const KIND_LABEL: { readonly [K in DocumentKind]: string } = {
   csv: "CSV table",
   pptx: "Presentation",
   video: "Video",
+  audio: "Audio",
   "image-raster": "Image",
   "image-decoded": "Image",
 };
@@ -72,6 +74,7 @@ export const GROUP_LABEL: { readonly [G in DocumentGroup]: string } = {
   powerpoint: "PowerPoint",
   image: "Images",
   video: "Video",
+  audio: "Audio",
 };
 
 export const GROUP_FILES: { readonly [G in DocumentGroup]: string } = {
@@ -81,6 +84,7 @@ export const GROUP_FILES: { readonly [G in DocumentGroup]: string } = {
   powerpoint: "PowerPoint files",
   image: "images",
   video: "Video files",
+  audio: "audio files",
 };
 
 export interface ErrorState {

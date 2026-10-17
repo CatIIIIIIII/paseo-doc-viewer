@@ -270,8 +270,9 @@ export async function rowWindow(
   rowOffset: number,
   columnOffset: number,
   maxColumns = XLSX_MAX_COLUMNS,
+  maxRows = XLSX_MAX_ROWS,
 ): Promise<RowWindow> {
-  const rowEnd = rowOffset + XLSX_MAX_ROWS;
+  const rowEnd = rowOffset + maxRows;
   const present = new Map<number, Map<number, string>>();
   let lastRow = -1;
   let maxColumn = -1;

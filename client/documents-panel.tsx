@@ -78,7 +78,7 @@ function DocumentsList({
           styles={styles}
           icon="FileStack"
           title="No documents yet"
-          detail="PDF, Word, Excel, CSV, PowerPoint, image, and video files in this workspace appear here"
+          detail="PDF, Word, Excel, CSV, PowerPoint, image, video, and audio files in this workspace appear here"
         />
       </View>
     );

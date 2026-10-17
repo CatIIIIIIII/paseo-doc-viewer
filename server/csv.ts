@@ -189,9 +189,10 @@ export async function csvWindow(
   rowOffset: number,
   columnOffset: number,
   maxColumns = XLSX_MAX_COLUMNS,
+  maxRows = XLSX_MAX_ROWS,
 ): Promise<RowWindow> {
   const { rowCount, columnCount } = index;
-  const rowEnd = Math.min(rowCount, rowOffset + XLSX_MAX_ROWS);
+  const rowEnd = Math.min(rowCount, rowOffset + maxRows);
   const columnEnd = Math.min(columnCount, columnOffset + maxColumns);
   const rows: string[][] = [];
   let bytes = 0;

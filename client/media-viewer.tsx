@@ -5,10 +5,11 @@ import { Text, View } from "react-native";
 import { mediaChunkRpc } from "../shared/rpc";
 import { humanSize } from "./format";
 import { loadMedia, MAX_PLAYABLE_BYTES } from "./media";
-import { ErrorState, LoadingState, MessageState, type Styles, ToolbarButton } from "./ui";
-import { canPlayVideo, createMediaUrl, revokeMediaUrl, VideoElement } from "./web";
+import { ErrorState, LoadingState, MessageState, type Styles } from "./ui";
+import { canPlayMedia, createMediaUrl, revokeMediaUrl, MediaElement } from "./web";
 
-export interface VideoViewerProps {
+export interface MediaViewerProps {
+  kind?: "video" | "audio";
   workspaceId: string;
   path: string;
   revision: string;
@@ -26,17 +27,18 @@ type Playback =
   | { status: "ready"; url: string }
   | { status: "error"; error: unknown };
 
-export function VideoViewer(props: VideoViewerProps) {
+export function MediaViewer(props: MediaViewerProps) {
   const { mimeType, size, theme, styles } = props;
+  const noun = props.kind === "audio" ? "Audio" : "Video";
   const facts = `${mimeType}, ${humanSize(size)}`;
-  if (!canPlayVideo) {
+  if (!canPlayMedia) {
     return (
       <View style={styles.screen}>
         <MessageState
           theme={theme}
           styles={styles}
-          icon="FileVideoCamera"
-          title="Video playback is not available in the mobile app yet"
+          icon={props.kind === "audio" ? "FileAudio" : "FileVideoCamera"}
+          title={`${noun} playback is not available in the mobile app yet`}
           detail={`${facts}. Open this workspace in Paseo on desktop or the web to play it.`}
         />
       </View>
@@ -48,17 +50,17 @@ export function VideoViewer(props: VideoViewerProps) {
         <MessageState
           theme={theme}
           styles={styles}
-          icon="FileVideoCamera"
+          icon={props.kind === "audio" ? "FileAudio" : "FileVideoCamera"}
           title="Too large to play in the app"
           detail={`${facts}. The limit is ${humanSize(MAX_PLAYABLE_BYTES)}.`}
         />
       </View>
     );
   }
-  return <WebVideo key={props.revision} {...props} facts={facts} />;
+  return <WebMedia key={props.revision} {...props} facts={facts} />;
 }
 
-function WebVideo({ workspaceId, path, revision, size, theme, styles, facts }: VideoViewerProps & { facts: string }) {
+function WebMedia({ workspaceId, path, revision, size, theme, styles, facts, kind = "video" }: MediaViewerProps & { facts: string }) {
   const fetchChunk = useRpc(mediaChunkRpc);
   const [requested, setRequested] = useState(size <= AUTOLOAD_BYTES);
   const [attempt, setAttempt] = useState(0);
@@ -77,13 +79,16 @@ function WebVideo({ workspaceId, path, revision, size, theme, styles, facts }: V
     }).then(
       (media) => {
         if (signal.aborted) return;
+        if (media.revision !== revision) throw new Error("The media changed while loading. Try again.");
         url = createMediaUrl(media.parts, media.mimeType);
-        setPlayback(url ? { status: "ready", url } : { status: "error", error: new Error("Video playback is unavailable") });
+        setPlayback(url ? { status: "ready", url } : { status: "error", error: new Error("Media playback is unavailable") });
       },
       (error: unknown) => {
         if (!signal.aborted) setPlayback({ status: "error", error });
       },
-    );
+    ).catch((error: unknown) => {
+      if (!signal.aborted) setPlayback({ status: "error", error });
+    });
     return () => {
       signal.aborted = true;
       if (url) revokeMediaUrl(url);
@@ -94,7 +99,8 @@ function WebVideo({ workspaceId, path, revision, size, theme, styles, facts }: V
     return (
       <View style={[styles.screen, { padding: styles.gutter, gap: 8 }]}>
         <View style={{ flex: 1, minHeight: 0 }}>
-          <VideoElement uri={playback.url} label={path} background={theme.colors.surface0} />
+          <MediaElement uri={playback.url} label={path} background={theme.colors.surface0} kind={kind}
+            onError={() => setPlayback({ status: "error", error: new Error("This device could not decode the media. Try MP3 or WAV audio, or MP4 video with H.264/AAC.") })} />
         </View>
         <Text style={styles.muted}>{facts}</Text>
       </View>
@@ -119,10 +125,10 @@ function WebVideo({ workspaceId, path, revision, size, theme, styles, facts }: V
       <MessageState
         theme={theme}
         styles={styles}
-        icon="FileVideoCamera"
-        title="Video"
+        icon={kind === "audio" ? "FileAudio" : "FileVideoCamera"}
+        title={kind === "audio" ? "Audio" : "Video"}
         detail={facts}
-        action={{ label: `Load video (${humanSize(size)})`, onPress: () => setRequested(true) }}
+        action={{ label: `Load ${kind} (${humanSize(size)})`, onPress: () => setRequested(true) }}
       />
     </View>
   );

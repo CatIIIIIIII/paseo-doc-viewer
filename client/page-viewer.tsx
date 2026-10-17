@@ -1,3 +1,6 @@
+import type { SearchNavigation } from "../shared/search";
+import { Highlight } from "./highlight";
+import type { ViewerPosition } from "../shared/viewer-state";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
@@ -29,6 +32,9 @@ import { usePinchZoom } from "./use-pinch-zoom";
 type EncodedImage = Extract<DocPageOutput, { kind: "pdf" }>["image"];
 
 export interface PageViewerProps {
+  navigation?: SearchNavigation | null;
+  initialPosition?: ViewerPosition | null;
+  onPositionChange?: (position: ViewerPosition) => void;
   workspaceId: string;
   path: string;
   revision: string;
@@ -49,20 +55,26 @@ function dataUri(image: EncodedImage): string {
   return `data:${image.mimeType};base64,${image.data}`;
 }
 
-export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles }: PageViewerProps) {
+export function PageViewer({ workspaceId, path, revision, kind, count, password, animation, theme, styles, initialPosition, onPositionChange, navigation }: PageViewerProps) {
   const fetchPage = useRpc(docPageRpc);
   const fetchText = useRpc(docTextRpc);
   const fetchChunk = useRpc(mediaChunkRpc);
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [index, setIndex] = useState(0);
-  const [zoom, setZoom] = useState(1);
-  const [showText, setShowText] = useState(false);
+  const initial = initialPosition?.type === "page" ? initialPosition : null;
+  const [index, setIndex] = useState(initial?.index ?? 0);
+  const [zoom, setZoom] = useState(initial?.zoom ?? 1);
+  const [showText, setShowText] = useState(initial?.text ?? false);
   const textMode = kind === "pdf" && showText;
+  useEffect(() => {
+    if (navigation?.target.type === "page") { setIndex(navigation.target.index); if (kind === "pdf") setShowText(true); }
+  }, [navigation, kind]);
   const { contentWidth, contentHeight, requestWidth, onLayout } = useFitWidth(styles.gutter * 2, kind === "pptx" ? 1 : zoom);
 
   const active = clampIndex(index, count);
   const requests = pageRequests(active, count);
+
+  useEffect(() => { onPositionChange?.({ type: "page", index: active, zoom, text: showText }); }, [active, zoom, showText, onPositionChange]);
 
   useEffect(() => {
     if (active !== index) setIndex(active);
@@ -171,6 +183,8 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
           <View style={{ width: 16, alignItems: "center" }}>
             {(textMode ? pageText.isFetching : page.isFetching) ? <ActivityIndicator size="small" color={theme.colors.foregroundMuted} /> : null}
           </View>
+          <ToolbarButton theme={theme} styles={styles} icon="RotateCcw" accessibilityLabel="Reset reading position"
+            onPress={() => { setIndex(0); setZoom(1); setShowText(false); }} />
           {kind === "pdf" ? (
             <ToolbarButton
               theme={theme}
@@ -239,7 +253,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
             ) : !shownText ? (
               <LoadingState theme={theme} styles={styles} />
             ) : (
-              <PageText page={shownText} width={contentWidth} styles={styles} />
+              <PageText page={shownText} width={contentWidth} styles={styles} query={navigation?.query} color={theme.colors.surface2} />
             )
           ) : page.error && !page.data ? (
             <ErrorState theme={theme} styles={styles} error={page.error} onRetry={() => void page.refetch()} />
@@ -248,7 +262,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
           ) : (
             <ScrollView {...panProps} horizontal showsHorizontalScrollIndicator={zoom > 1}>
               <View {...bodyProps}>
-                <PageBody page={page.data} animationUri={motion.data} contentWidth={contentWidth} contentHeight={contentHeight} zoom={zoom} theme={theme} styles={styles} noun={noun} />
+                <PageBody page={page.data} animationUri={motion.data} contentWidth={contentWidth} contentHeight={contentHeight} zoom={zoom} theme={theme} styles={styles} noun={noun} query={navigation?.query} />
               </View>
             </ScrollView>
           )}
@@ -258,14 +272,14 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   );
 }
 
-function PageText({ page, width, styles }: { page: DocTextOutput; width: number; styles: Styles }) {
+function PageText({ page, width, styles, query, color }: { page: DocTextOutput; width: number; styles: Styles; query?: string; color: string }) {
   const note = pageTextNote(page);
   return (
     <View style={{ gap: 12, maxWidth: width }}>
       {note ? <Text style={styles.muted}>{note}</Text> : null}
       {page.text.trim() === "" ? null : (
         <Text style={styles.content} selectable>
-          {page.text}
+          <Highlight text={page.text} query={query} color={color} />
         </Text>
       )}
     </View>
@@ -281,6 +295,7 @@ const PageBody = memo(function PageBody({
   theme,
   styles,
   noun,
+  query,
 }: {
   page: DocPageOutput;
   animationUri?: string;
@@ -290,6 +305,7 @@ const PageBody = memo(function PageBody({
   theme: PluginTheme;
   styles: Styles;
   noun: string;
+  query?: string;
 }) {
   const zoomed = (width: number) => Math.round(width * zoom);
   if (page.kind === "pdf") {
@@ -317,7 +333,7 @@ const PageBody = memo(function PageBody({
             style={[styles.content, textStyle, position === 0 ? { fontWeight: "500" } : null]}
             selectable
           >
-            {text}
+            <Highlight text={text} query={query} color={theme.colors.surface2} />
           </Text>
         ))}
         {page.images.map((image, position) => (

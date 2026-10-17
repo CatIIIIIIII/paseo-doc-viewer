@@ -1,3 +1,6 @@
+import type { SearchNavigation } from "../shared/search";
+import { Highlight } from "./highlight";
+import type { ViewerPosition } from "../shared/viewer-state";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { FlatList } from "@getpaseo/plugin/client/react-native";
@@ -12,6 +15,9 @@ import { ErrorState, LoadingState, MessageState, type Styles, ToolbarButton } fr
 type Sheet = Extract<DocOpenOutput, { sheets: unknown }>["sheets"][number];
 
 export interface SheetViewerProps {
+  navigation?: SearchNavigation | null;
+  initialPosition?: ViewerPosition | null;
+  onPositionChange?: (position: ViewerPosition) => void;
   workspaceId: string;
   path: string;
   revision: string;
@@ -24,18 +30,34 @@ const CELL_WIDTH = 140;
 const ROW_HEIGHT = 32;
 const ROW_NUMBER_WIDTH = 56;
 
-export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles }: SheetViewerProps) {
+export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles, initialPosition, onPositionChange, navigation }: SheetViewerProps) {
   const fetchRows = useRpc(docRowsRpc);
   const viewport = useWindowDimensions();
   const layout = sheetWindow(viewport, { width: CELL_WIDTH, height: ROW_HEIGHT });
-  const [stored, dispatch] = useReducer(gridReducer, INITIAL_GRID);
+  const [stored, dispatch] = useReducer(gridReducer, INITIAL_GRID, () => {
+    if (initialPosition?.type !== "grid") return INITIAL_GRID;
+    const named = sheets.findIndex((sheet) => sheet.name === initialPosition.sheetName);
+    const sheet = named >= 0 ? named : initialPosition.sheet;
+    return { ...INITIAL_GRID, sheet, rowOffset: initialPosition.rowOffset, columnOffset: initialPosition.columnOffset,
+      rowHistory: initialPosition.rowOffset > 0 ? [0] : [], columnHistory: initialPosition.columnOffset > 0 ? [0] : [] };
+  });
   const [selected, setSelected] = useState<CellRef | null>(null);
   const onSelect = useCallback((cell: CellRef) => setSelected(cell), []);
+  useEffect(() => {
+    if (navigation?.target.type !== "cell") return;
+    const target = navigation.target;
+    dispatch({ type: "reconcile", state: { ...INITIAL_GRID, sheet: target.sheet, rowOffset: target.row, columnOffset: target.column,
+      rowHistory: target.row > 0 ? [0] : [], columnHistory: target.column > 0 ? [0] : [] } });
+    setSelected({ row: target.row, column: target.column });
+  }, [navigation]);
   const grid = reconcileGrid(stored, sheets);
   useEffect(() => {
     if (grid !== stored) dispatch({ type: "reconcile", state: grid });
   }, [grid, stored]);
   const sheet = sheets[grid.sheet];
+  useEffect(() => {
+    if (sheet) onPositionChange?.({ type: "grid", sheet: grid.sheet, sheetName: sheet.name, rowOffset: grid.rowOffset, columnOffset: grid.columnOffset });
+  }, [grid.sheet, grid.rowOffset, grid.columnOffset, sheet?.name, onPositionChange]);
   const rows = useQuery({
     queryKey: rowsQueryKey(workspaceId, path, revision, grid, layout.columns),
     queryFn: () =>
@@ -92,6 +114,8 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
         </ScrollView>
       ) : null}
       <View style={[styles.toolbar, { flexWrap: "wrap" }]}>
+        <ToolbarButton theme={theme} styles={styles} icon="RotateCcw" accessibilityLabel="Reset reading position"
+          onPress={() => { setSelected(null); dispatch({ type: "reconcile", state: INITIAL_GRID }); }} />
         <View style={styles.toolbarGroup}>
           <ToolbarButton
             theme={theme}
@@ -153,7 +177,7 @@ export function SheetViewer({ workspaceId, path, revision, sheets, theme, styles
           </Text>
           <ScrollView style={{ flex: 1, maxHeight: 120 }} contentContainerStyle={{ paddingVertical: 4 }}>
             <Text style={styles.text} selectable>
-              {selectedValue}
+              <Highlight text={selectedValue} query={navigation?.query} color={theme.colors.surface2} />
             </Text>
           </ScrollView>
           <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel="Close cell" onPress={() => setSelected(null)} />

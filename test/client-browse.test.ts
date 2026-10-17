@@ -17,8 +17,8 @@ const ENTRIES = [
 ];
 
 describe("document groups", () => {
-  it("puts every kind in one of six groups, both image kinds in Images and CSV with Excel", () => {
-    expect(DOCUMENT_GROUPS).toEqual(["pdf", "word", "excel", "powerpoint", "image", "video"]);
+  it("puts every kind in one of seven groups, both image kinds in Images and CSV with Excel", () => {
+    expect(DOCUMENT_GROUPS).toEqual(["pdf", "word", "excel", "powerpoint", "image", "video", "audio"]);
     const groups = groupEntries(DOCUMENT_KINDS.map((kind, i) => entry(`f${i}`, kind, i)));
     expect(groups.map(({ group, entries }) => [group, entries.length])).toEqual([
       ["pdf", 1],
@@ -27,6 +27,7 @@ describe("document groups", () => {
       ["powerpoint", 1],
       ["image", 2],
       ["video", 1],
+      ["audio", 1],
     ]);
   });
 
@@ -39,8 +40,8 @@ describe("document groups", () => {
   });
 
   it("counts every group, including empty ones", () => {
-    expect(countGroups(ENTRIES)).toEqual({ pdf: 2, word: 1, excel: 1, powerpoint: 1, image: 2, video: 1 });
-    expect(countGroups([])).toEqual({ pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0 });
+    expect(countGroups(ENTRIES)).toEqual({ pdf: 2, word: 1, excel: 1, powerpoint: 1, image: 2, video: 1, audio: 0 });
+    expect(countGroups([])).toEqual({ pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 });
   });
 });
 
@@ -115,7 +116,7 @@ describe("documents panel rows", () => {
 
 describe("documents panel filter chips", () => {
   it("offers All plus only the types present, with counts", () => {
-    const counts = { pdf: 3, word: 0, excel: 2, powerpoint: 0, image: 0, video: 1 };
+    const counts = { pdf: 3, word: 0, excel: 2, powerpoint: 0, image: 0, video: 1, audio: 0 };
     expect(filterChips(counts, null)).toEqual([
       { group: null, count: 6 },
       { group: "pdf", count: 3 },
@@ -125,7 +126,7 @@ describe("documents panel filter chips", () => {
   });
 
   it("keeps the selected type even when a search leaves it empty", () => {
-    const counts = { pdf: 1, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0 };
+    const counts = { pdf: 1, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 };
     expect(filterChips(counts, "word")).toEqual([
       { group: null, count: 1 },
       { group: "pdf", count: 1 },

@@ -1,3 +1,5 @@
+import { literalPattern, type SearchCursor, type SearchMatch, type SearchTarget } from "../shared/search";
+import type { DocSearchOutput } from "../shared/rpc";
 import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
@@ -16,13 +18,13 @@ import type {
 import { estimateBytes, memo } from "./cache";
 import { isEncryptedOoxml } from "./cfb";
 import { csvWindow, indexCsv } from "./csv";
-import { blockPage, docxModelBytes, fitDocxImage, loadDocx, type DocxModel } from "./docx";
+import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, type DocxModel } from "./docx";
 import { heavy } from "./heavy";
 import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
-import { readChunk, sliceChunk, videoMimeType } from "./media";
+import { readChunk, sliceChunk, videoMimeType, audioMimeType } from "./media";
 import { resolveInside } from "./paths";
 import { pdfPageCount, readPdfPageText, renderPdfPage } from "./pdf";
-import { loadDeck, renderSlide, type Deck } from "./pptx";
+import { loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
 import { IMAGE_BUDGET_BYTES, decodeBudget, type Fit } from "./raster";
 import { recentDocuments } from "./recent";
 import { loadSharedStrings, loadWorkbook, rowWindow, type Workbook } from "./xlsx";
@@ -47,7 +49,7 @@ interface DocumentFile {
 
 type PageRequest = { index: number; maxWidth?: number };
 type TextRequest = { index: number };
-type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number };
+type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number; maxRows?: number };
 type BlocksRequest = { cursor: number };
 type ChunkRequest = { offset: number; length: number; mimeType?: AnimationMimeType };
 
@@ -68,6 +70,7 @@ const MAX_FILE_BYTES: { readonly [K in DocumentKind]: number } = {
   csv: 64 * MiB,
   pptx: 64 * MiB,
   video: Number.POSITIVE_INFINITY,
+  audio: Number.POSITIVE_INFINITY,
   "image-raster": 128 * MiB,
   "image-decoded": 128 * MiB,
 };
@@ -239,13 +242,14 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
         sheetsTruncated: model.sheetsTruncated,
       };
     },
-    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns }) => {
+    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns, maxRows }) => {
       const model = await workbook(file);
       inRange(sheet, model.sheets.length, "Sheet");
       const strings = await sharedStrings(file, model);
       const columns = Math.min(maxColumns ?? XLSX_MAX_COLUMNS, XLSX_MAX_COLUMNS);
-      const window = await heavyCached(file, `rows\0${sheet}\0${rowOffset}\0${columnOffset}\0${columns}`, () =>
-        rowWindow(model, strings, model.sheets[sheet], rowOffset, columnOffset, columns),
+      const rows = Math.min(maxRows ?? 200, 200);
+      const window = await heavyCached(file, `rows\0${sheet}\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}`, () =>
+        rowWindow(model, strings, model.sheets[sheet], rowOffset, columnOffset, columns, rows),
       );
       return { kind: "xlsx", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
     },
@@ -255,12 +259,13 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       const { rowCount, columnCount } = await csvIndex(file);
       return { kind: "csv", revision: file.revision, sheets: [{ name: basename(file.path), rowCount, columnCount, countsApproximate: false }] };
     },
-    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns }) => {
+    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns, maxRows }) => {
       inRange(sheet, 1, "Sheet");
       const index = await csvIndex(file);
       const columns = Math.min(maxColumns ?? XLSX_MAX_COLUMNS, XLSX_MAX_COLUMNS);
-      const window = await heavyCached(file, `rows\0${rowOffset}\0${columnOffset}\0${columns}`, () =>
-        csvWindow(file.path, index, rowOffset, columnOffset, columns),
+      const rows = Math.min(maxRows ?? 200, 200);
+      const window = await heavyCached(file, `rows\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}`, () =>
+        csvWindow(file.path, index, rowOffset, columnOffset, columns, rows),
       );
       return { kind: "csv", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
     },
@@ -282,6 +287,13 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       mimeType: videoMimeType(file.extension),
       offset,
       size: file.size,
+      ...(await readChunk(file.path, file.size, offset, length)),
+    }),
+  },
+  audio: {
+    open: async (file) => ({ kind: "audio", revision: file.revision, mimeType: audioMimeType(file.extension), size: file.size }),
+    chunk: async (file, { offset, length }) => ({
+      kind: "audio", revision: file.revision, mimeType: audioMimeType(file.extension), offset, size: file.size,
       ...(await readChunk(file.path, file.size, offset, length)),
     }),
   },
@@ -336,4 +348,79 @@ export async function readMediaChunk(ref: DocumentRef, request: ChunkRequest): P
 
 export async function listRecent(root: string, request: Omit<DocsRecentInput, "workspaceId">): Promise<DocsRecentOutput> {
   return recentDocuments(root, request);
+}
+
+// Each call examines at most one page, 32 Word blocks, or one bounded grid window.
+// The cursor resumes within a unit as well as between units, so dense matches are not lost.
+export async function searchDocument(ref: DocumentRef, query: string, cursor?: SearchCursor | null): Promise<DocSearchOutput> {
+  query = query.trim();
+  if (!query || query.length > 200) throw new Error("Enter a search term of 1–200 characters");
+  const file = await locate(ref);
+  if (cursor && (cursor.revision !== file.revision || cursor.query !== query)) throw new Error("The document or search changed. Search again.");
+  const state: SearchCursor = cursor ?? { revision: file.revision, query, unit: 0, sheet: 0, column: 0, item: 0, offset: 0 };
+  const items: { text: string; target: SearchTarget }[] = [];
+  const notes: string[] = [];
+  let next: SearchCursor | null = null;
+  const advance = (patch: Partial<SearchCursor>) => ({ ...state, item: 0, offset: 0, ...patch });
+  if (file.kind === "pdf") {
+    const page = await readPageText(ref, { index: state.unit });
+    items.push({ text: page.text, target: { type: "page", index: state.unit } });
+    if (state.unit + 1 < page.pageCount) next = advance({ unit: state.unit + 1 });
+    if (page.truncated) notes.push("Some page text exceeds the extraction limit and was not searched.");
+    notes.push("Search covers selectable text; scanned pages and outlined text require OCR.");
+  } else if (file.kind === "pptx") {
+    const model = await deck(file);
+    if (state.unit < model.slides.length) {
+      const texts = await heavy(() => readSlideTexts(model, state.unit));
+      items.push({ text: texts.join("\n"), target: { type: "page", index: state.unit } });
+      if (state.unit + 1 < model.slides.length) next = advance({ unit: state.unit + 1 });
+    }
+    notes.push("Search covers extracted slide text, subject to the viewer's text limits; pictures and notes are excluded.");
+  } else if (file.kind === "docx") {
+    let index = 0;
+    for await (const block of docxBlocks(await docx(file))) {
+      if (index++ < state.unit) continue;
+      if (items.length >= 32) { next = advance({ unit: index - 1 }); break; }
+      const text = "text" in block ? block.text : block.type === "list" ? block.items.join("\n")
+        : block.type === "table" ? block.rows.map((row) => row.join("\t")).join("\n") : "";
+      items.push({ text, target: { type: "block", index: index - 1 } });
+    }
+    notes.push("Search covers the reading view's bounded text; images and footnotes are excluded.");
+  } else if (file.kind === "xlsx" || file.kind === "csv") {
+    const opened = await openCached(file);
+    if (!("sheets" in opened)) throw new Error("No sheets available");
+    if (state.sheet < opened.sheets.length) {
+      const grid = await readRows(ref, { sheet: state.sheet, rowOffset: state.unit, columnOffset: state.column, maxColumns: 50, maxRows: 8 });
+      grid.rows.forEach((row, r) => row.forEach((text, c) => {
+        items.push({ text, target: { type: "cell", sheet: state.sheet, row: state.unit + r, column: state.column + c } });
+      }));
+      // Advance through every column window before proceeding to the next row window.
+      // Eight rows × 50 cells × 2,000 chars × 6 JSON bytes fit below the response
+      // budget, so every column window has the same row span (no skipped rows).
+      if (grid.nextColumnOffset !== null) next = advance({ column: grid.nextColumnOffset });
+      else if (grid.nextRowOffset !== null) next = advance({ unit: grid.nextRowOffset, column: 0 });
+      else if (state.sheet + 1 < opened.sheets.length) next = advance({ sheet: state.sheet + 1, unit: 0, column: 0 });
+      if (opened.sheetsTruncated) notes.push("Sheets beyond the viewer's 500-sheet limit are excluded.");
+    }
+    notes.push("Search covers displayed cell text (up to 2,000 characters per cell); chart text and comments are excluded.");
+  } else throw new Error("Find is available for PDF, Word, spreadsheets and PowerPoint");
+
+  const matches: SearchMatch[] = [];
+  const pattern = literalPattern(query);
+  for (let item = state.item; item < items.length; item++) {
+    const entry = items[item];
+    pattern.lastIndex = item === state.item ? state.offset : 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(entry.text))) {
+      matches.push({ target: entry.target, start: match.index, length: match[0].length,
+        snippet: entry.text.slice(Math.max(0, match.index - 45), match.index + match[0].length + 65) });
+      if (matches.length === 50) {
+        if ((await locate(ref)).revision !== file.revision) throw new Error("The document changed while searching. Search again.");
+        return { revision: file.revision, matches, next: { ...state, item, offset: pattern.lastIndex }, notes, scanned: 1 };
+      }
+    }
+  }
+  // Reject an interleaved rewrite instead of attaching stale matches to a new revision.
+  if ((await locate(ref)).revision !== file.revision) throw new Error("The document changed while searching. Search again.");
+  return { revision: file.revision, matches, next, notes, scanned: 1 };
 }

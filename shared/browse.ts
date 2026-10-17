@@ -1,6 +1,6 @@
 import type { DocumentKind } from "./kinds";
 
-export const DOCUMENT_GROUPS = ["pdf", "word", "excel", "powerpoint", "image", "video"] as const;
+export const DOCUMENT_GROUPS = ["pdf", "word", "excel", "powerpoint", "image", "video", "audio"] as const;
 export type DocumentGroup = (typeof DOCUMENT_GROUPS)[number];
 export type GroupCounts = Record<DocumentGroup, number>;
 
@@ -13,6 +13,7 @@ export const KIND_GROUP: { readonly [K in DocumentKind]: DocumentGroup } = {
   "image-raster": "image",
   "image-decoded": "image",
   video: "video",
+  audio: "audio",
 };
 
 export interface BrowseEntry {

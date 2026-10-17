@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2023",
+      "DOM"
+    ]
+  },
+  "include": [
+    "*.ts",
+    "*.tsx",
+    "../../server/vendor.d.ts"
+  ],
+  "exclude": []
+}

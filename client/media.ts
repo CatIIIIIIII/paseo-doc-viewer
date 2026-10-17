@@ -86,14 +86,17 @@ export async function loadMedia(
   let loaded = 0;
   let first: MediaChunkOutput | null = null;
   while (offset !== null) {
-    if (options.signal?.aborted) throw new Error("Video loading was cancelled");
+    if (options.signal?.aborted) throw new Error("Media loading was cancelled");
     const chunk: MediaChunkOutput = await fetchChunk({ offset, length: MEDIA_REQUEST_BYTES });
+    if (options.signal?.aborted) throw new Error("Media loading was cancelled");
     first ??= chunk;
-    if (chunk.revision !== first.revision) throw new Error("The video changed while loading. Try again.");
+    if (chunk.size !== first.size || chunk.mimeType !== first.mimeType) throw new Error("The media metadata changed while loading. Try again.");
+    if (chunk.revision !== first.revision) throw new Error("The media changed while loading. Try again.");
     if (chunk.offset !== offset) throw new Error(`Media chunk offset mismatch: expected ${offset}, got ${chunk.offset}`);
-    if (chunk.size > MAX_PLAYABLE_BYTES) throw new Error(`Video too large to play in the app (${chunk.size} bytes)`);
+    if (chunk.size > MAX_PLAYABLE_BYTES) throw new Error(`Media too large to play in the app (${chunk.size} bytes)`);
     const bytes = decodeBase64(chunk.data);
-    if (chunk.nextOffset !== null && chunk.nextOffset !== offset + bytes.length) {
+    if (bytes.length > MEDIA_REQUEST_BYTES || offset + bytes.length > chunk.size) throw new Error("Media chunk exceeds its declared range");
+    if (chunk.nextOffset !== null && (bytes.length === 0 || chunk.nextOffset !== offset + bytes.length)) {
       throw new Error(`Media chunk at ${offset} returned ${bytes.length} bytes but points to ${chunk.nextOffset}`);
     }
     if (chunk.nextOffset === null && offset + bytes.length !== chunk.size) {

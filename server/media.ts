@@ -42,3 +42,7 @@ export async function readChunk(
   const end = offset + read;
   return { data: buffer.subarray(0, read).toString("base64"), nextOffset: end < size ? end : null };
 }
+
+export function audioMimeType(extension: string): string {
+  return ({ mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", flac: "audio/flac" } as Record<string, string>)[extension] ?? "application/octet-stream";
+}

@@ -40,11 +40,11 @@ describe("R12: docs.recent searches and filters the whole scan, not just the new
   it("counts every type that matches the search across the scan, ignoring the type filter", async () => {
     const root = crowdedWorkspace();
     const all = await listRecent(root, { group: "pdf" });
-    expect(all.counts).toEqual({ pdf: 1, word: 1, excel: 0, powerpoint: 0, image: RECENT_MAX_ENTRIES + 10, video: 0 });
+    expect(all.counts).toEqual({ pdf: 1, word: 1, excel: 0, powerpoint: 0, image: RECENT_MAX_ENTRIES + 10, video: 0, audio: 0 });
     const searched = await listRecent(root, { query: "o", group: "pdf" });
-    expect(searched.counts).toEqual({ pdf: 1, word: 1, excel: 0, powerpoint: 0, image: RECENT_MAX_ENTRIES + 10, video: 0 });
+    expect(searched.counts).toEqual({ pdf: 1, word: 1, excel: 0, powerpoint: 0, image: RECENT_MAX_ENTRIES + 10, video: 0, audio: 0 });
     const narrow = await listRecent(root, { query: "notes" });
-    expect(narrow.counts).toEqual({ pdf: 0, word: 1, excel: 0, powerpoint: 0, image: 0, video: 0 });
+    expect(narrow.counts).toEqual({ pdf: 0, word: 1, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 });
   });
 
   it("returns nothing, not everything, when no document matches", async () => {

@@ -11,7 +11,7 @@ export default function contribute(client: PluginClientContext) {
       id: "open-recent-document",
       title: "Open recent document",
       icon: "FileText",
-      keywords: ["pdf", "docx", "xlsx", "csv", "tsv", "pptx", "viewer", "latest"],
+      keywords: ["pdf", "docx", "xlsx", "csv", "tsv", "pptx", "viewer", "latest", "mp3", "m4a", "wav", "flac", "audio", "video"],
       context: "workspace",
       onSelect: openMostRecent,
     }),

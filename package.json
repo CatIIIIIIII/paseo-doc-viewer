@@ -20,9 +20,10 @@
     "shared/"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p test/browser/tsconfig.json",
     "test": "vitest run --dir test",
-    "fixtures": "node test/fixtures/make.ts"
+    "fixtures": "node test/fixtures/make.ts",
+    "test:browser": "node test/browser/run.mjs"
   },
   "dependencies": {
     "@hyzyla/pdfium": "^3.0.0",
@@ -37,14 +38,17 @@
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.11.2",
+    "@playwright/test": "^1.62.1",
     "@tanstack/react-query": "^5.90.11",
     "@types/pngjs": "^6.0.5",
     "@types/react": "~19.2.0",
+    "@types/react-dom": "^19.1.9",
     "esbuild": "^0.28.2",
     "exceljs": "^4.4.0",
     "jszip": "^3.10.2",
     "pdf-lib": "^1.17.1",
     "react": "19.1.0",
+    "react-dom": "^19.1.0",
     "react-native": "0.81.5",
     "typescript": "^5.9.3",
     "vitest": "^5.0.5",

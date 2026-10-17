@@ -1,8 +1,10 @@
+import type { SearchNavigation } from "../shared/search";
+import { Highlight } from "./highlight";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { FlatList } from "@getpaseo/plugin/client/react-native";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { ActivityIndicator, Image, ScrollView, Text, View } from "react-native";
 import { docBlocksRpc, type DocBlock } from "../shared/rpc";
 import { fitSize, retryPage } from "./paging";
@@ -11,6 +13,7 @@ import { ErrorState, LoadingState, MessageState, type Styles, ToolbarButton } fr
 import { useFitWidth } from "./use-fit-width";
 
 export interface BlocksViewerProps {
+  navigation?: SearchNavigation | null;
   workspaceId: string;
   path: string;
   revision: string;
@@ -21,13 +24,16 @@ export interface BlocksViewerProps {
 const READING_WIDTH = 720;
 const HEADING_SIZE = [22, 20, 18, 16, 15, 14] as const;
 
-export function BlocksViewer({ workspaceId, path, revision, theme, styles }: BlocksViewerProps) {
+export function BlocksViewer({ workspaceId, path, revision, theme, styles, navigation }: BlocksViewerProps) {
   const fetchBlocks = useRpc(docBlocksRpc);
+  const [start, setStart] = useState(0);
+  useEffect(() => setStart(0), [revision]);
+  useEffect(() => { if (navigation?.target.type === "block") setStart(navigation.target.index); }, [navigation]);
   const { contentWidth, onLayout } = useFitWidth(styles.gutter * 2);
   const query = useInfiniteQuery({
-    queryKey: blocksQueryKey(workspaceId, path, revision),
+    queryKey: [...blocksQueryKey(workspaceId, path, revision), start],
     queryFn: ({ pageParam }) => fetchBlocks({ workspaceId, path, cursor: pageParam }),
-    initialPageParam: 0,
+    initialPageParam: start,
     retry: retryPage,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: Infinity,
@@ -37,6 +43,7 @@ export function BlocksViewer({ workspaceId, path, revision, theme, styles }: Blo
 
   return (
     <View style={styles.screen} onLayout={onLayout}>
+      {start > 0 ? <View style={styles.toolbar}><Text style={styles.label}>Reading from search match</Text><ToolbarButton theme={theme} styles={styles} label="Show from beginning" onPress={() => setStart(0)} /></View> : null}
       {query.error && !query.data ? (
         <ErrorState theme={theme} styles={styles} error={query.error} onRetry={() => void query.refetch()} />
       ) : !query.data || width === 0 ? (
@@ -54,7 +61,7 @@ export function BlocksViewer({ workspaceId, path, revision, theme, styles }: Blo
           }}
           renderItem={({ item }) => (
             <View style={{ width }}>
-              <Block block={item} width={width} theme={theme} styles={styles} />
+              <Block block={item} width={width} theme={theme} styles={styles} query={navigation?.query} />
             </View>
           )}
           ListFooterComponent={
@@ -74,7 +81,7 @@ export function BlocksViewer({ workspaceId, path, revision, theme, styles }: Blo
   );
 }
 
-function Block({ block, width, theme, styles }: { block: DocBlock; width: number; theme: PluginTheme; styles: Styles }) {
+function Block({ block, width, theme, styles, query }: { block: DocBlock; width: number; theme: PluginTheme; styles: Styles; query?: string }) {
   switch (block.type) {
     case "heading":
       return (
@@ -83,13 +90,13 @@ function Block({ block, width, theme, styles }: { block: DocBlock; width: number
           style={{ color: theme.colors.foreground, fontSize: HEADING_SIZE[block.level - 1], fontWeight: "500", marginTop: 8 }}
           selectable
         >
-          {block.text}
+          <Highlight text={block.text} query={query} color={theme.colors.surface2} />
         </Text>
       );
     case "paragraph":
       return (
         <Text style={styles.content} selectable>
-          {block.text}
+          <Highlight text={block.text} query={query} color={theme.colors.surface2} />
         </Text>
       );
     case "list":
@@ -101,7 +108,7 @@ function Block({ block, width, theme, styles }: { block: DocBlock; width: number
                 {block.ordered ? `${position + 1}.` : "•"}
               </Text>
               <Text style={[styles.content, { flex: 1 }]} selectable>
-                {item}
+                <Highlight text={item} query={query} color={theme.colors.surface2} />
               </Text>
             </View>
           ))}
@@ -127,7 +134,7 @@ function Block({ block, width, theme, styles }: { block: DocBlock; width: number
                     }}
                   >
                     <Text style={styles.text} selectable>
-                      {cell}
+                      <Highlight text={cell} query={query} color={theme.colors.surface2} />
                     </Text>
                   </View>
                 ))}

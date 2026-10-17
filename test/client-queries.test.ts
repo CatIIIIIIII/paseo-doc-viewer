@@ -54,7 +54,7 @@ describe("client query keys and polling", () => {
     expect(options.queryKey).toEqual(["docs.recent", "ws", "q4 report", "pdf"]);
     expect(options.request).toEqual({ workspaceId: "ws", query: "q4 report", group: "pdf" });
     expect(recentQueryOptions("ws", {}).request).toEqual({ workspaceId: "ws" });
-    const previous = { entries: [], truncated: false, counts: { pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0 } };
+    const previous = { entries: [], truncated: false, counts: { pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 } };
     expect(options.placeholderData(previous)).toBe(previous);
   });
 });

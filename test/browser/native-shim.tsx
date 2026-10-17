@@ -1,0 +1,33 @@
+// Test-only DOM adapter. This exercises plugin components and RPCs, not Paseo's
+// own React Native Web integration; desktop/native still require host smoke tests.
+import React, { forwardRef, useEffect, useRef } from "react";
+const flatten = (value: any): any => Array.isArray(value) ? Object.assign({}, ...value.map(flatten)) : value ?? {};
+const css = (value: any) => { const result = { ...flatten(value) }; delete result.textAlignVertical; if (typeof result.lineHeight === "number") result.lineHeight = `${result.lineHeight}px`; return result; };
+export const Platform = { OS: "web", select: (value: any) => value.web ?? value.default };
+export const StyleSheet = { create: (value: any) => value, flatten };
+export const PixelRatio = { get: () => 1 };
+export const Dimensions = { get: () => ({ width: 900, height: 700 }) };
+export const TurboModuleRegistry = { get: () => null };
+export const Keyboard = { addListener: () => ({ remove() {} }) };
+export const useWindowDimensions = () => ({ width: 900, height: 700 });
+export const View = forwardRef<any, any>(function View({ children, style, onLayout, accessibilityLabel, accessibilityRole, ...props }, ref) {
+  const node = useRef<HTMLDivElement>(null);
+  useEffect(() => { onLayout?.({ nativeEvent: { layout: { width: 850, height: 540, x: 0, y: 0 } } }); }, [onLayout]);
+  return <div ref={(value) => { node.current = value; if (value) { (value as any).measure = (callback: any) => callback(0, 0, 850, 540, 0, 0); (value as any).measureInWindow = (callback: any) => callback(0, 0, 850, 540); } if (typeof ref === "function") ref(value); else if (ref) ref.current = value; }}
+    style={{ display: "flex", flexDirection: "column", minHeight: 0, ...css(style) }} aria-label={accessibilityLabel} role={accessibilityRole}>{children}</div>;
+});
+export const Text = ({ children, style, accessibilityLabel, onPress, accessibilityRole }: any) => <span style={css(style)} aria-label={accessibilityLabel} onClick={onPress} role={accessibilityRole}>{children}</span>;
+// React Native Web renders Pressable as a focusable div with role=button, not a <button>.
+export const Pressable = ({ children, style, accessibilityLabel, accessibilityState, disabled, onPress }: any) => <div role="button" tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel} aria-pressed={accessibilityState?.selected} aria-disabled={disabled || undefined}
+  onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }} style={{ cursor: "pointer", ...css(style) }}>{children}</div>;
+export const ScrollView = forwardRef<any, any>(function ScrollView({ children, style, contentContainerStyle, onLayout }: any, ref) {
+  useEffect(() => { onLayout?.({ nativeEvent: { layout: { width: 850, height: 540, x: 0, y: 0 } } }); }, [onLayout]);
+  return <div ref={ref} style={{ overflow: "auto", ...css(style) }}><div style={css(contentContainerStyle)}>{children}</div></div>;
+});
+export const TextInput = ({ value, onChangeText, onSubmitEditing, accessibilityLabel, style, placeholder, maxLength, autoFocus }: any) => <input autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onSubmitEditing?.(); }} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />;
+export const Image = ({ source, style, accessibilityLabel }: any) => <img src={source.uri} style={css(style)} alt={accessibilityLabel} />;
+export const ActivityIndicator = () => <span aria-label="Loading">…</span>;
+export const FlatList = ({ data, renderItem, keyExtractor, ListFooterComponent, contentContainerStyle }: any) => <div style={{ overflow: "auto", ...css(contentContainerStyle) }}>{data.map((item: any, index: number) => <div key={keyExtractor?.(item, index) ?? index}>{renderItem({ item, index })}</div>)}{ListFooterComponent}</div>;
+export const Icon = ({ name }: any) => <span aria-hidden="true">{({ Search: "⌕", Download: "↓", ChevronRight: "›", ChevronLeft: "‹", ChevronUp: "↑", ChevronDown: "↓", X: "×", RotateCcw: "↶" } as any)[name] ?? "•"}</span>;
+export const copyText = (value: string) => navigator.clipboard.writeText(value);
+export const useToast = () => ({ show() {}, error() {} });

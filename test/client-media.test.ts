@@ -66,6 +66,19 @@ describe("client media chunk assembly", () => {
     await expect(loadMedia(fetchChunk)).rejects.toThrow(/points to 5/);
   });
 
+  it("rejects non-advancing chunks instead of looping forever", async () => {
+    await expect(loadMedia(async () => ({ kind: "audio", revision: "r", mimeType: "audio/wav", offset: 0, size: 10, data: "", nextOffset: 0 }))).rejects.toThrow(/points to 0/);
+  });
+
+  it("rejects changed MIME or size metadata even if a revision is reused", async () => {
+    const source = server(new Uint8Array(100), { chunk: 40 });
+    let calls = 0;
+    await expect(loadMedia(async (range) => {
+      const chunk = await source.fetchChunk(range);
+      return ++calls === 2 ? { ...chunk, mimeType: "audio/wav" } : chunk;
+    })).rejects.toThrow(/metadata changed/);
+  });
+
   it("stops when cancelled", async () => {
     const signal = { aborted: false };
     const { fetchChunk } = server(new Uint8Array(100), { chunk: 10 });

@@ -125,3 +125,10 @@ export async function renderSlide(deck: Deck, slideIndex: number): Promise<Slide
   }
   return { texts, images, omittedImages, omittedReasons: [...reasons] };
 }
+
+// Search reads only text and never decodes slide images.
+export async function readSlideTexts(deck: Deck, index: number): Promise<string[]> {
+  const part = deck.slides[index];
+  const xml = part ? await readText(deck.index, part, "pptx") : null;
+  return xml === null ? [] : boundedTexts(xml);
+}

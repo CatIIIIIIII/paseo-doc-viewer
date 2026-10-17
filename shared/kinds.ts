@@ -1,4 +1,4 @@
-export const DOCUMENT_KINDS = ["pdf", "docx", "xlsx", "csv", "pptx", "video", "image-raster", "image-decoded"] as const;
+export const DOCUMENT_KINDS = ["pdf", "docx", "xlsx", "csv", "pptx", "video", "audio", "image-raster", "image-decoded"] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 
 export type PagedRpc = "doc.page" | "doc.text" | "doc.rows" | "doc.blocks" | "media.chunk";
@@ -29,6 +29,11 @@ export const KIND_REGISTRY: { readonly [K in DocumentKind]: KindSpec } = {
   video: {
     extensions: ["mp4", "m4v", "mov", "webm"],
     magic: [ascii(4, "ftyp"), { offset: 0, bytes: [0x1a, 0x45, 0xdf, 0xa3] }],
+    rpcs: ["media.chunk"],
+  },
+  audio: {
+    extensions: ["mp3", "m4a", "wav", "flac"],
+    magic: [ascii(0, "ID3"), ascii(4, "ftyp"), ascii(0, "RIFF"), ascii(0, "fLaC")],
     rpcs: ["media.chunk"],
   },
   "image-raster": {
@@ -75,6 +80,18 @@ export function looksLikeText(head: Uint8Array): boolean {
 export function detectKind(path: string, head: Uint8Array): DocumentKind | null {
   const kind = kindForPath(path);
   if (!kind) return null;
+  if (kind === "audio") {
+    const extension = extensionOf(path);
+    const has = (offset: number, text: string) => matchesMagic(ascii(offset, text), head);
+    const mp3Frame = head.length >= 4 && head[0] === 0xff && (head[1]! & 0xe0) === 0xe0 &&
+      (head[1]! & 0x18) !== 0x08 && (head[1]! & 6) !== 0 &&
+      (head[2]! & 0xf0) !== 0 && (head[2]! & 0xf0) !== 0xf0 && (head[2]! & 0x0c) !== 0x0c;
+    const valid = extension === "mp3" ? has(0, "ID3") || mp3Frame
+      : extension === "m4a" ? has(4, "ftyp")
+      : extension === "wav" ? has(0, "RIFF") && has(8, "WAVE")
+      : extension === "flac" && has(0, "fLaC");
+    return valid ? kind : null;
+  }
   const { magic } = KIND_REGISTRY[kind];
   const matches = magic === "text" ? looksLikeText(head) : magic.some((signature) => matchesMagic(signature, head));
   return matches ? kind : null;

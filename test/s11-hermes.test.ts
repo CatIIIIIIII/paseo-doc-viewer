@@ -47,6 +47,8 @@ function hermesProgram(bundle: string): string {
   return `
 var log = print;
 function noop() { return null; }
+var setTimeout = noop;
+var clearTimeout = noop;
 var chain = new Proxy(function () {}, {
   get: function (_, key) { return key === "then" ? undefined : function () { return chain; }; },
   apply: function () { return chain; }
@@ -73,7 +75,7 @@ function record(kind) { return function (c) { registered[kind].push(c); return n
 var subscription = { subscribe: function (observer) { observer.snapshot({ entries: [{ id: "ws" }] }); return noop; }, release: function () { return Promise.resolve(); } };
 var paseo = { workspaces: { list: function () { return Promise.resolve({ entries: [], subscription: subscription }); } } };
 function addHeaderButton(c) { registered.header.push(c); return { update: noop, remove: noop }; }
-var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addHeaderButton: addHeaderButton, openScreen: noop, openPanel: noop, paseo: paseo });
+var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addHeaderButton: addHeaderButton, openScreen: noop, openPanel: noop, paseo: paseo, rpc: function () { return Promise.resolve({ entries: [{ path: "a.pdf" }] }); } });
 var opened = [];
 var context = {
   args: "", context: "workspace", workspace: { id: "ws" },
