@@ -39,9 +39,15 @@ export function MediaElement({ uri, label, background, kind = "video", onError }
 }
 
 export const canDownloadOriginal = Platform.OS === "web" && typeof Blob !== "undefined" && typeof URL !== "undefined" && typeof URL.createObjectURL === "function";
-export function DownloadLink({ uri, name, color }: { uri: string; name: string; color: string }): ReactElement | null {
+// A plain link, so the browser saves the prepared file on a real user click; styled like the toolbar buttons.
+export function DownloadLink({ uri, name, style, children }: { uri: string; name: string; style: object; children: ReactNode }): ReactElement | null {
   if (!canDownloadOriginal) return null;
-  return createElement("a", { href: uri, download: name, style: { color, padding: 6, fontSize: 13 }, "aria-label": "Save original file" }, "Save original");
+  return createElement("a", {
+    href: uri,
+    download: name,
+    "aria-label": "Save original file",
+    style: { display: "flex", boxSizing: "border-box", textDecoration: "none", cursor: "pointer", ...style },
+  }, children);
 }
 
 interface ScopeElement {

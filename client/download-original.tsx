@@ -7,6 +7,7 @@ import { decodeBase64, MEDIA_REQUEST_BYTES, yieldToUI } from "./media";
 import { humanSize } from "./format";
 import { canDownloadOriginal, createMediaUrl, DownloadLink, revokeMediaUrl } from "./web";
 import { ToolbarButton, type Styles } from "./ui";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 
 export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspaceId: string; path: string; theme: PluginTheme; styles: Styles }) {
   const info = useRpc(fileInfoRpc);
@@ -52,7 +53,12 @@ export function DownloadOriginal({ workspaceId, path, theme, styles }: { workspa
   };
   return <View style={{ gap: 4 }}>
     <View style={[styles.toolbarGroup, { flexWrap: "wrap" }]}>
-      {prepared ? <DownloadLink uri={prepared.url} name={prepared.name} color={theme.colors.foreground} /> :
+      {prepared ? (
+        <DownloadLink uri={prepared.url} name={prepared.name} style={{ ...styles.button, paddingLeft: 8, paddingRight: 8 }}>
+          <Icon name="Download" size={14} color={theme.colors.foreground} />
+          <Text style={styles.buttonText}>{styles.compact ? "Save" : "Save original"}</Text>
+        </DownloadLink>
+      ) :
         <ToolbarButton theme={theme} styles={styles} icon="Download" label="Download original" disabled={status === "loading"} onPress={() => void prepare()} />}
       {status === "loading" ? <>
         <ActivityIndicator size="small" color={theme.colors.foregroundMuted} accessibilityLabel="Preparing original file" />
