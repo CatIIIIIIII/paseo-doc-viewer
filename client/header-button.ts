@@ -2,6 +2,7 @@ import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/pl
 import { DOCUMENTS_PANEL_ID } from "./recent";
 import { docsAnyRpc } from "../shared/rpc";
 
+// FileText reads as "documents" at header size; FileStack looked like a copy button on phones.
 // The SDK does not say which workspaces are on screen, so every known workspace is
 // probed with docs.any, which stops at the first document, a few at a time.
 // Failures back off up to the cap.
@@ -37,7 +38,7 @@ export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void 
       workspaceId,
       button: {
         title: "Show documents",
-        icon: "FileStack",
+        icon: "FileText",
         label: "Documents",
         behavior: { kind: "action", onPress: () => client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId }) },
       },

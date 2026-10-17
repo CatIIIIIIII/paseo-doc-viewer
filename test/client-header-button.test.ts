@@ -185,7 +185,7 @@ describe("Documents header button", () => {
     fake.observer()!.snapshot({ entries: [{ id: "ws-1" }] });
     await fake.settle();
     const button = fake.live.get("ws-1")!;
-    expect(button).toMatchObject({ title: "Show documents", icon: "FileStack", label: "Documents" });
+    expect(button).toMatchObject({ title: "Show documents", icon: "FileText", label: "Documents" });
     if (button.behavior.kind !== "action") throw new Error("expected an action button");
     await button.behavior.onPress();
     expect(fake.openPanel).toHaveBeenCalledWith(DOCUMENTS_PANEL_ID, { workspaceId: "ws-1" });

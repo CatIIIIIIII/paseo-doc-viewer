@@ -23,7 +23,7 @@ export default function contribute(client: PluginClientContext) {
     client.addCommandCenterItem({
       id: "show-documents",
       title: "Show documents",
-      icon: "FileStack",
+      icon: "FileText",
       keywords: ["recent", "viewer"],
       context: "workspace",
       onSelect: ({ openPanel }) => openPanel(DOCUMENTS_PANEL_ID),
@@ -31,7 +31,7 @@ export default function contribute(client: PluginClientContext) {
     client.addWorkspacePanel({
       id: DOCUMENTS_PANEL_ID,
       title: "Documents",
-      icon: "FileStack",
+      icon: "FileText",
       context: "workspace",
       locations: ["workspace", "explorer"],
       Component: createDocumentsPanel((input) => client.openScreen(input)),

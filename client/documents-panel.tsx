@@ -77,7 +77,7 @@ function DocumentsList({
         <MessageState
           theme={theme}
           styles={styles}
-          icon="FileStack"
+          icon="FileText"
           title="No documents yet"
           detail="PDF, Word, Excel, CSV, PowerPoint, image, video, and audio files in this workspace appear here"
         />

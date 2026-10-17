@@ -10,6 +10,7 @@
 - Documents search: when nothing the viewer opens matches but other files do (for example `notebooks/analysis.ipynb`), the panel names up to 3 of them and says their type is not supported, instead of "No files match". `docs.recent` returns them as `unsupported`, only when no document matched. Hidden files are never named.
 - Review message: each file states the modified time (to the second, UTC) and exact size in bytes of the version you reviewed, instead of an opaque revision token, so the agent can check it against the file. A note on a pinned page carries the pin label when the pin belongs to the same version. The most recently active idle agent is preselected as the recipient; busy agents, agents whose last turn failed and unloaded agents are never preselected.
 - A note being typed in the composer is kept in app memory when you leave the document or switch workspace, and the composer reopens with it on the same page. Cancel or Add note clears it.
+- The Documents button, panel and Show documents command use the FileText icon. On phones the button is icon-only, and FileStack looked like a copy button.
 
 ## 0.4.0 (2026-10-17)
 
