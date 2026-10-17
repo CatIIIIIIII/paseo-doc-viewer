@@ -1,5 +1,6 @@
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { describe, expect, it, vi } from "vitest";
-import { searchDocument } from "../server/documents";
+import { openDocument, renderPage, searchDocument } from "../server/documents";
 import type { SearchCursor, SearchMatch } from "../shared/search";
 import { workspace } from "./helpers";
 import { rawZip, worksheetXml, xlsxEntries } from "./zip-builder";
@@ -67,4 +68,25 @@ describe("search throughput", () => {
     const { matches } = await searchAll(root, "dense.csv", "needle");
     expect(matches).toHaveLength(400);
   });
+
+  it("lets a page render and timers run while a long PDF search is under way", async () => {
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    for (let page = 0; page < 1_500; page++) {
+      const sheet = pdf.addPage();
+      for (let line = 0; line < 8; line++) sheet.drawText(`Page ${page} line ${line} with ordinary words that fill the line to make extraction slower`, { font, size: 8, y: 20 + line * 18 });
+    }
+    const root = workspace({ "long.pdf": await pdf.save() });
+    const ref = { root, path: "long.pdf" };
+    await openDocument(ref);
+    const order: string[] = [];
+    const started = Date.now();
+    const search = searchDocument(ref, "absent", null, 60_000).then(() => order.push("search"));
+    const tick = new Promise<number>((resolve) => setTimeout(() => resolve(Date.now() - started), 0));
+    const render = renderPage(ref, { index: 0, maxWidth: 200 }).then(() => order.push("render"));
+    const waited = await tick;
+    await Promise.all([search, render]);
+    expect(waited).toBeLessThan(150);
+    expect(order).toEqual(["render", "search"]);
+  }, 30_000);
 });

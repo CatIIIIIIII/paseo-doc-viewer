@@ -2,6 +2,7 @@ import { literalPattern, type SearchCursor, type SearchMatch, type SearchTarget 
 
 export const SEARCH_BUDGET_MS = 3_500;
 export const SEARCH_MAX_MATCHES = 50;
+const YIELD_EVERY_MS = 40;
 const STREAM_IDLE_MS = 60_000;
 const MAX_PARKED_STREAMS = 8;
 
@@ -15,9 +16,17 @@ export class SearchScan {
   next: SearchCursor | null = null;
   scanned = 0;
   private readonly pattern: RegExp;
+  private yielded = Date.now();
 
   constructor(private readonly cursor: SearchCursor, private readonly deadline: number) {
     this.pattern = literalPattern(cursor.query);
+  }
+
+  // Cached content resolves without I/O, so a long scan would otherwise hold the event loop for the whole budget.
+  async breathe(): Promise<void> {
+    if (Date.now() - this.yielded < YIELD_EVERY_MS) return;
+    await new Promise((resume) => setImmediate(resume));
+    this.yielded = Date.now();
   }
 
   // Positions before the cursor must already be skipped by the caller.

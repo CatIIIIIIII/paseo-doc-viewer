@@ -372,6 +372,7 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
     const opened = await openCached(file);
     const pageCount = "pageCount" in opened ? opened.pageCount : 0;
     for (let page = state.unit; page < pageCount; page++) {
+      await scan.breathe();
       const { text, truncated } = await HANDLERS.pdf.text!(file, { index: page });
       if (truncated) notes.add("Some page text exceeds the extraction limit and was not searched.");
       if (!scan.visit(text, { type: "page", index: page }, position(0, page), position(0, page + 1))) break;
@@ -380,6 +381,7 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
     notes.add("Search covers extracted slide text, subject to the viewer's text limits; pictures and notes are excluded.");
     const model = await deck(file);
     for (let slide = state.unit; slide < model.slides.length; slide++) {
+      await scan.breathe();
       const texts = await heavy(() => readSlideTexts(model, slide));
       if (!scan.visit(texts.join("\n"), { type: "page", index: slide }, position(0, slide), position(0, slide + 1))) break;
     }
@@ -391,6 +393,7 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
       for await (const block of docxBlocks(model)) {
         const at = index++;
         if (at < state.unit) continue;
+        await scan.breathe();
         if (!scan.visit(blockText(block), { type: "block", index: at }, position(0, at), position(0, at + 1))) break;
       }
     });
@@ -421,6 +424,7 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
           const stream = takeStream(key, from.unit, () => sheetRows(model, strings, model.sheets[sheet], from.unit));
           try {
             for await (const { row, cells } of stream.from(from.unit)) {
+              await scan.breathe();
               if (cells && !visitRow(sheet, row, [...cells].sort((a, b) => a[0] - b[0]), from)) break;
             }
           } catch (error) {
