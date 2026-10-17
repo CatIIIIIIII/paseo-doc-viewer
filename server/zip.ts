@@ -152,7 +152,10 @@ export async function readZipIndex(path: string, fileSize: number, extension: st
       if (total > limits.maxTotalBytes) {
         throw new Error(ERROR_MESSAGES.archiveTooLarge(`its parts unpack to more than ${limits.maxTotalBytes / MiB} MiB`));
       }
-      if (!entries.has(name)) entries.set(name, { name, method, compressedSize, size, localOffset });
+      // Readers disagree on which copy of a duplicated name wins (JSZip keeps the last), so a
+      // checked part could differ from the one parsed. Part names must be unique in a package.
+      if (entries.has(name)) throw damaged(extension);
+      entries.set(name, { name, method, compressedSize, size, localOffset });
     }
     return { path, entries };
   } finally {
@@ -235,11 +238,13 @@ export interface ZipMarkup {
   xmlBytes: number;
 }
 
-export async function verifyEntries(index: ZipIndex, extension: string, maxMarkup: number): Promise<ZipMarkup> {
+// Counts tags in every part named like XML plus `markupParts`, the parts a reader parses as XML
+// under another name.
+export async function verifyEntries(index: ZipIndex, extension: string, maxMarkup: number, markupParts: ReadonlySet<string> = new Set()): Promise<ZipMarkup> {
   let markup = 0;
   let xmlBytes = 0;
   for (const entry of index.entries.values()) {
-    const xml = XML_PART.test(entry.name);
+    const xml = XML_PART.test(entry.name) || markupParts.has(entry.name);
     if (xml) xmlBytes += entry.size;
     if (entry.method !== DEFLATED && !xml) continue;
     for await (const chunk of streamEntry(index, entry.name, extension)) {

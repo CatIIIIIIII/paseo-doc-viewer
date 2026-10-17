@@ -78,7 +78,7 @@ const first = (xml: string, name: string, key = "w:val") => {
   return undefined;
 };
 
-async function relationships(index: ZipIndex, part: string): Promise<Map<string, { type: string; target: string }>> {
+export async function relationships(index: ZipIndex, part: string): Promise<Map<string, { type: string; target: string }>> {
   const xml = (await readText(index, posix.join(posix.dirname(part), "_rels", `${posix.basename(part)}.rels`), "docx")) ?? "";
   const found = new Map<string, { type: string; target: string }>();
   for (const { attributes } of elements(xml, "Relationship")) {
@@ -91,9 +91,13 @@ async function relationships(index: ZipIndex, part: string): Promise<Map<string,
   return found;
 }
 
-export async function readDocxLayout(index: ZipIndex): Promise<DocxLayout> {
+export async function mainDocumentPart(index: ZipIndex): Promise<string> {
   const main = [...(await relationships(index, "")).values()].find((rel) => rel.type.endsWith("/officeDocument"));
-  const part = main?.target ?? "word/document.xml";
+  return main?.target ?? "word/document.xml";
+}
+
+export async function readDocxLayout(index: ZipIndex): Promise<DocxLayout> {
+  const part = await mainDocumentPart(index);
   if (!index.entries.has(part)) throw new Error(ERROR_MESSAGES.invalidOffice("docx"));
   const rels = await relationships(index, part);
   const partOf = (suffix: string) => [...rels.values()].find((rel) => rel.type.endsWith(suffix))?.target;

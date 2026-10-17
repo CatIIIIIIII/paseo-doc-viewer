@@ -21,7 +21,7 @@ import type {
 import { estimateBytes, memo } from "./cache";
 import { isEncryptedOoxml } from "./cfb";
 import { csvRows, csvWindow, indexCsv } from "./csv";
-import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, type DocxModel, type SourceBlock } from "./docx";
+import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, verifyDocx, type DocxModel, type SourceBlock } from "./docx";
 import { heavy } from "./heavy";
 import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
 import { readChunk, sliceChunk, videoMimeType, audioMimeType } from "./media";
@@ -35,7 +35,7 @@ import { viewerStateStore } from "./viewer-state";
 import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, position, takeStream, type SearchPosition } from "./search";
 import { SharedFormulas } from "./formulas";
 import { issueDecoder, loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
-import { readZipIndex, verifyEntries, type ZipIndex, type ZipLimits } from "./zip";
+import { readZipIndex, type ZipIndex, type ZipLimits } from "./zip";
 import { ERROR_MESSAGES, errorText } from "../shared/errors";
 
 export interface DocumentRef {
@@ -170,7 +170,7 @@ const docx = (file: DocumentFile) =>
     "docx",
     async (): Promise<DocxModel> => {
       const index = await readZipIndex(file.path, file.size, "docx", OFFICE_LIMITS);
-      return loadDocx(index, await verifyEntries(index, "docx", DOCX_MAX_MARKUP));
+      return loadDocx(index, await verifyDocx(index, DOCX_MAX_MARKUP, OFFICE_LIMITS.maxPartBytes));
     },
     docxModelBytes,
   );
