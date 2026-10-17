@@ -7,7 +7,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, type ImageStyle, Platform, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Image, type ImageStyle, type LayoutChangeEvent, Platform, ScrollView, Text, View } from "react-native";
 import { docPageRpc, docTextRpc, mediaChunkRpc, type DocPageOutput, type DocTextOutput } from "../shared/rpc";
 import { type ImageAnimation, animationFormat, loadAnimation } from "./animation";
 import {
@@ -139,21 +139,17 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   };
   const { zoomTo, frameProps, outerProps, panProps, bodyProps } = usePinchZoom(zoom, setZoom, zoomable && page.data !== undefined, styles.gutter);
 
-  // Search matches on the page being shown; the selected one scrolls into view once per navigation.
+  // Search matches on the page being shown; the selected one scrolls into view once per navigation,
+  // measured from the rendered box itself so it works at any zoom.
   const highlights = kind === "pdf" ? pageHighlights(searchMatches ?? [], active, navigation ?? null) : undefined;
   const revealedNavigation = useRef(0);
-  useEffect(() => {
-    if (kind !== "pdf" || textMode || !navigation || navigation.target.type !== "page" || navigation.target.index !== active) return;
-    const boxes = navigation.boxes;
-    if (!boxes?.length || page.data?.kind !== "pdf" || page.data.index !== active) return;
-    if (revealedNavigation.current === navigation.serial) return;
-    revealedNavigation.current = navigation.serial;
-    const frame = fitSize(Math.round(contentWidth * zoom), page.data.image);
-    if (frame.width <= 0 || frame.height <= 0) return;
-    const y = styles.gutter + boxes[0]!.y * frame.height - contentHeight / 3;
-    outerProps.ref.current?.scrollTo({ y: Math.max(0, y), animated: true });
-    if (zoom > 1) panProps.ref.current?.scrollTo({ x: Math.max(0, boxes[0]!.x * frame.width - contentWidth / 3), animated: true });
-  }, [navigation, active, textMode, kind, page.data, contentWidth, contentHeight, zoom, styles.gutter, outerProps.ref, panProps.ref]);
+  const revealMatch = (rect: { x: number; y: number }) => {
+    const serial = navigation?.serial;
+    if (serial === undefined || revealedNavigation.current === serial) return;
+    revealedNavigation.current = serial;
+    outerProps.ref.current?.scrollTo({ y: Math.max(0, rect.y - styles.gutter), animated: true });
+    if (zoom > 1) panProps.ref.current?.scrollTo({ x: Math.max(0, rect.x - styles.gutter), animated: true });
+  };
 
   return (
     <View style={styles.screen}>
@@ -289,7 +285,8 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
               <View {...bodyProps}>
                 <PageBody page={page.data} animationUri={motion.data} contentWidth={contentWidth} contentHeight={contentHeight} zoom={zoom} theme={theme} styles={styles} noun={noun} query={navigation?.query}
                   active={navigation?.target.type === "page" && navigation.target.index === active ? navigation.start : undefined}
-                  highlights={page.data.kind === "pdf" && page.data.index === active ? highlights : undefined} />
+                  highlights={page.data.kind === "pdf" && page.data.index === active ? highlights : undefined}
+                  onRevealMatch={navigation?.boxes?.length ? revealMatch : undefined} />
               </View>
             </ScrollView>
           )}
@@ -347,6 +344,7 @@ const PageBody = memo(function PageBody({
   query,
   active,
   highlights,
+  onRevealMatch,
 }: {
   page: DocPageOutput;
   animationUri?: string;
@@ -359,19 +357,22 @@ const PageBody = memo(function PageBody({
   query?: string;
   active?: number;
   highlights?: PageHighlight[];
+  onRevealMatch?: (rect: { x: number; y: number }) => void;
 }) {
   const zoomed = (width: number) => Math.round(width * zoom);
   if (page.kind === "pdf") {
     const frame = fitSize(zoomed(contentWidth), page.image);
     if (frame.width === 0) return null;
     return (
-      <View style={[frame, { borderWidth: 1, borderColor: theme.colors.border }]}>
+      <View style={[frame, { position: "relative", borderWidth: 1, borderColor: theme.colors.border }]}>
         <Image source={{ uri: dataUri(page.image) }} style={frame} resizeMode="contain" accessibilityLabel={`${noun} ${page.index + 1}`} />
         {(highlights ?? []).map((highlight, index) =>
           highlight.boxes.map((box, line) => (
             <View
               key={`${index}-${line}`}
               pointerEvents="none"
+              accessibilityLabel={highlight.selected ? "Current match on page" : "Match on page"}
+              onLayout={highlight.selected && line === 0 ? (event: LayoutChangeEvent) => onRevealMatch?.({ x: event.nativeEvent.layout.x, y: event.nativeEvent.layout.y }) : undefined}
               style={{
                 position: "absolute",
                 left: box.x * frame.width,

@@ -12,7 +12,13 @@ export const Keyboard = { addListener: () => ({ remove() {} }) };
 export const useWindowDimensions = () => ({ width: 900, height: 700 });
 export const View = forwardRef<any, any>(function View({ children, style, onLayout, accessibilityLabel, accessibilityRole, ...props }, ref) {
   const node = useRef<HTMLDivElement>(null);
-  useEffect(() => { onLayout?.({ nativeEvent: { layout: { width: 850, height: 540, x: 0, y: 0 } } }); }, [onLayout]);
+  useEffect(() => {
+    const element = node.current;
+    if (!onLayout || !element) return;
+    const rect = element.getBoundingClientRect();
+    const parent = element.parentElement?.getBoundingClientRect();
+    onLayout({ nativeEvent: { layout: { x: rect.left - (parent?.left ?? 0), y: rect.top - (parent?.top ?? 0), width: rect.width, height: rect.height } } });
+  });
   return <div ref={(value) => { node.current = value; if (value) { (value as any).measure = (callback: any) => callback(0, 0, 850, 540, 0, 0); (value as any).measureInWindow = (callback: any) => callback(0, 0, 850, 540); } if (typeof ref === "function") ref(value); else if (ref) ref.current = value; }}
     style={{ display: "flex", flexDirection: "column", minHeight: 0, ...css(style) }} aria-label={accessibilityLabel} role={accessibilityRole}>{children}</div>;
 });

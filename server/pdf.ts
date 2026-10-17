@@ -200,7 +200,8 @@ function normalizeWithMap(raw: string): { text: string; rawIndex: number[] } {
 
 // The wrapper keeps the raw PDFium module private; these are the stable wasm exports the search uses.
 interface PdfiumTextModule {
-  _FPDFText_GetCharBox(textPage: number, index: number, left: number, right: number, bottom: number, top: number): number;
+  _FPDFText_CountRects(textPage: number, start: number, count: number): number;
+  _FPDFText_GetRect(textPage: number, index: number, left: number, top: number, right: number, bottom: number): number;
   wasmExports: { malloc(size: number): number; free(ptr: number): void };
   HEAPU8: Uint8Array;
 }
@@ -215,43 +216,28 @@ export interface PdfPageMatch {
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 
-// Merges a match's character boxes into one box per line, normalized to the page (origin top-left).
+// PDFium merges the match's characters into one rectangle per line (FPDFText_CountRects),
+// measured in PDF user space with the origin at the bottom left. Boxes are normalized
+// to the page with a top-left origin for the client.
 function matchBoxes(module: PdfiumTextModule, textPage: number, start: number, count: number, width: number, height: number): SearchBox[] {
   if (width <= 0 || height <= 0) return [];
+  const rectCount = module._FPDFText_CountRects(textPage, start, count);
+  if (rectCount <= 0) return [];
   const ptr = module.wasmExports.malloc(32);
   try {
-    const lines: SearchBox[] = [];
-    let top = 0;
-    let bottom = 0;
-    let left = 0;
-    let right = 0;
-    const flush = () => {
-      lines.push({
+    const view = new Float64Array(module.HEAPU8.buffer, ptr, 4);
+    const boxes: SearchBox[] = [];
+    for (let index = 0; index < rectCount; index++) {
+      if (!module._FPDFText_GetRect(textPage, index, ptr, ptr + 8, ptr + 16, ptr + 24)) continue;
+      const [left, top, right, bottom] = [view[0]!, view[1]!, view[2]!, view[3]!];
+      boxes.push({
         x: clamp01(left / width),
         y: clamp01(1 - top / height),
         width: clamp01((right - left) / width),
         height: clamp01((top - bottom) / height),
       });
-    };
-    let open = false;
-    for (let index = start; index < start + count; index++) {
-      const view = new Float64Array(module.HEAPU8.buffer, ptr, 4);
-      if (!module._FPDFText_GetCharBox(textPage, index, ptr, ptr + 8, ptr + 16, ptr + 24)) continue;
-      const [charLeft, charRight, charBottom, charTop] = [view[0]!, view[1]!, view[2]!, view[3]!];
-      if (!open || Math.abs(charTop - top) > 1 || Math.abs(charBottom - bottom) > 1) {
-        if (open) flush();
-        open = true;
-        left = charLeft;
-        right = charRight;
-        bottom = charBottom;
-        top = charTop;
-      } else {
-        left = Math.min(left, charLeft);
-        right = Math.max(right, charRight);
-      }
     }
-    if (open) flush();
-    return lines;
+    return boxes;
   } finally {
     module.wasmExports.free(ptr);
   }

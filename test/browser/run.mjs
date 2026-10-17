@@ -64,8 +64,11 @@ try {
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByText("3 matches", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next match", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Show page image", exact: true })).toBeVisible();
-  await expect(page.getByText("statement", { exact: true })).toBeVisible();
+  // A PDF match with page boxes stays on the rendered page and highlights it there.
+  await expect(page.getByRole("button", { name: "Show page text", exact: true })).toBeVisible();
+  await expect(page.getByText("1 / 3", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Current match on page", { exact: true })).toHaveCount(1);
+  await expect(page.getByLabel("Match on page", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: `${directory}/pdf-find.png`, fullPage: true });
   await page.getByRole("button", { name: "Close find", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).focus();
@@ -88,7 +91,10 @@ try {
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("needle");
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await page.getByRole("button", { name: /^Page 1: / }).click();
-  await expect(page.getByLabel("Current match: needle")).toBeInViewport();
+  // Playwright scrolls the window to the match row before clicking; the viewer's own
+  // scroll is what should bring the highlight into the visible scrollport.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.getByLabel("Current match on page", { exact: true }).first()).toBeInViewport();
   await page.screenshot({ path: `${directory}/pdf-match.png`, fullPage: true });
   await page.waitForTimeout(1200);
   await page.getByRole("button", { name: "Close viewer", exact: true }).click();
