@@ -12,6 +12,13 @@ describe("record cards", () => {
     expect(hiddenEmpty).toBe(1);
   });
 
+  it("keeps a stored cell that displays nothing, such as a formula without a saved result", () => {
+    const formula = { type: "n" as const, raw: null, display: "", numberFormat: "General", formula: { kind: "normal" as const, text: "B9+C9", cached: false } };
+    const { fields, hiddenEmpty } = recordFields(["Region", "Total", "Note"], ["Online", "", ""], 0, [null, formula, null]);
+    expect(fields).toEqual([{ column: 0, label: "Region", value: "Online" }, { column: 1, label: "Total", value: "", note: "Formula without a saved result" }]);
+    expect(hiddenEmpty).toBe(1);
+  });
+
   it("uses column letters when the sheet has no header row and offsets them with the field window", () => {
     expect(recordFields(null, ["x", "y"], 50).fields).toEqual([
       { column: 50, label: "AY", value: "x" },

@@ -31,12 +31,12 @@ interface Common {
   styles: Styles;
 }
 
-function useRow(common: Common, row: number, columnOffset: number, maxRows: number, enabled = true) {
+function useRow(common: Common, row: number, columnOffset: number, maxRows: number, { enabled = true, detail = false } = {}) {
   const fetchRows = useRpc(docRowsRpc);
   const { workspaceId, path, revision, sheet } = common;
   return useQuery({
-    queryKey: [...rowsQueryKey(workspaceId, path, revision, { sheet: sheet.index, rowOffset: row, columnOffset }, XLSX_MAX_COLUMNS), maxRows] as const,
-    queryFn: () => fetchRows({ workspaceId, path, sheet: sheet.index, rowOffset: row, columnOffset, maxRows, maxColumns: XLSX_MAX_COLUMNS }),
+    queryKey: [...rowsQueryKey(workspaceId, path, revision, { sheet: sheet.index, rowOffset: row, columnOffset }, XLSX_MAX_COLUMNS), maxRows, detail] as const,
+    queryFn: () => fetchRows({ workspaceId, path, sheet: sheet.index, rowOffset: row, columnOffset, maxRows, maxColumns: XLSX_MAX_COLUMNS, detail }),
     enabled,
     retry: retryPage,
     staleTime: Infinity,
@@ -95,15 +95,15 @@ export function RecordCard({ header, initialRow, onChangeHeader, onShowInGrid, l
   const [fieldOffset, setFieldOffset] = useState(0);
   const [inspected, setInspected] = useState<number | null>(null);
   useEffect(() => setInspected(null), [row, fieldOffset]);
-  const headerRow = useRow(common, header ?? 0, fieldOffset, 1, header !== null);
-  const record = useRow(common, row, fieldOffset, 1);
+  const headerRow = useRow(common, header ?? 0, fieldOffset, 1, { enabled: header !== null });
+  const record = useRow(common, row, fieldOffset, 1, { detail: true });
   const data = record.data;
   const rowCount = data?.rowCount ?? sheet.rowCount;
   const approximate = data?.countsApproximate ?? sheet.countsApproximate ?? false;
   const columnCount = data?.columnCount ?? sheet.columnCount;
   const values = data?.rows[0];
   const shown = values ? Math.min(values.length, columnCount - fieldOffset) : 0;
-  const card = values && (header === null || headerRow.data) ? recordFields(header === null ? null : (headerRow.data?.rows[0] ?? []), values, fieldOffset) : null;
+  const card = values && (header === null || headerRow.data) ? recordFields(header === null ? null : (headerRow.data?.rows[0] ?? []), values, fieldOffset, data?.details?.[0]) : null;
   const field = card?.fields.find((candidate) => candidate.column === inspected);
   return (
     <View style={{ flex: 1 }}>
@@ -151,7 +151,8 @@ export function RecordCard({ header, initialRow, onChangeHeader, onShowInGrid, l
                 style={{ paddingHorizontal: 12, paddingVertical: 8, gap: 2, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: theme.colors.border,
                   backgroundColor: entry.column === inspected ? theme.colors.surface2 : undefined }}>
                 <Text style={styles.label}>{entry.label === columnName(entry.column) ? entry.label : `${entry.label} · ${columnName(entry.column)}`}</Text>
-                <Text style={styles.content} selectable>{entry.value}</Text>
+                {entry.value ? <Text style={styles.content} selectable>{entry.value}</Text> : null}
+                {entry.note ? <Text style={styles.muted}>{entry.note}</Text> : null}
               </Pressable>
             ))}
           </View>

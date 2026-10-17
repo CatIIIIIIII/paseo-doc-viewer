@@ -1,3 +1,4 @@
+import type { CellDetail } from "../shared/rpc";
 import { formatCount } from "./format";
 import { columnName } from "./paging";
 
@@ -5,19 +6,27 @@ export interface RecordField {
   column: number;
   label: string;
   value: string;
+  note?: string;
 }
 
-// Empty cells are left off the card; a wide, sparse row would otherwise be mostly blank labels.
-export function recordFields(header: readonly string[] | null, values: readonly string[], columnOffset: number): { fields: RecordField[]; hiddenEmpty: number } {
+// Cells that store nothing are left off the card; a wide, sparse row would otherwise be mostly blank labels.
+export function recordFields(
+  header: readonly string[] | null,
+  values: readonly string[],
+  columnOffset: number,
+  details?: readonly (CellDetail | null)[],
+): { fields: RecordField[]; hiddenEmpty: number } {
   const fields: RecordField[] = [];
   let hiddenEmpty = 0;
   values.forEach((value, index) => {
-    if (!value) {
+    const detail = details?.[index];
+    if (!value && !detail) {
       hiddenEmpty++;
       return;
     }
     const column = columnOffset + index;
-    fields.push({ column, label: header?.[index]?.trim() || columnName(column), value });
+    const missing = !value && detail?.formula && detail.raw === null;
+    fields.push({ column, label: header?.[index]?.trim() || columnName(column), value, ...(missing ? { note: "Formula without a saved result" } : {}) });
   });
   return { fields, hiddenEmpty };
 }
