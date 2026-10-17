@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Audio: MP3, M4A, WAV and FLAC play in the desktop and web apps with play, pause, seek and volume, listed under a new Audio heading. The mobile app shows the file type and size.
+- Reading positions: PDF and slide page, zoom and text mode, image zoom, and spreadsheet sheet index and row/column window are restored when a file is reopened, shared by every client of the daemon. They are stored on the daemon host under `$PASEO_DOC_VIEWER_STATE_DIR`, `$XDG_STATE_HOME/paseo-doc-viewer` or `~/.local/state/paseo-doc-viewer`, keyed by an HMAC of the path with a per-install secret (0600). New `viewer-state.read` and `viewer-state.write` RPCs.
+- Find in document for PDF, Word, Excel, CSV and PowerPoint text (`doc.search`). Each call scans for up to 3.5 s or 50 matches and returns a cursor; the panel keeps going on its own up to 500 results. CSV and xlsx sheets are streamed once per search, xlsx shared strings are matched once per query, the scan yields to other requests every 40 ms, and a newer search from the same panel stops the older one. The selected match is highlighted and scrolled into view; a PDF match shows the page text without changing the saved mode.
+- Download original (`file.info`, `file.chunk`): saves the original bytes, also when previewing fails, up to 128 MiB. Only supported file types outside hidden files and folders, and the opened file must still be the one the workspace path resolves to.
+- The Documents header button appears only in workspaces with documents. It checks with the new `docs.any` RPC every 2 minutes, two workspaces at a time, backing off to 10 minutes after errors.
+- Workspace lookups ask the daemon for the one workspace by id instead of paging through all of them.
+- Android: the bottom inset uses the SDK's `useSafeAreaInsets` when a host exports it, and is re-measured when the window size changes.
+
 ## 0.3.0 (2026-10-16)
 
 - Documents panel: files are grouped under collapsible PDF, Word, Excel, PowerPoint, Images and Video headings with counts, newest first within each group.
