@@ -71,8 +71,13 @@ export class SearchScan {
         return false;
       }
     }
+    return this.pass(after);
+  }
+
+  // The deadline also applies across units with nothing to visit, such as blank rows.
+  pass(after: SearchPosition): boolean {
     if (Date.now() < this.deadline) return true;
-    this.next = { ...cursor, ...after, offset: 0 };
+    this.next = { ...this.cursor, ...after, offset: 0 };
     return false;
   }
 
@@ -89,9 +94,7 @@ export class SearchScan {
         return false;
       }
     }
-    if (Date.now() < this.deadline) return true;
-    this.next = { ...cursor, ...after, offset: 0 };
-    return false;
+    return this.pass(after);
   }
 }
 

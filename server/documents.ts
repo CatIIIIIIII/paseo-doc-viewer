@@ -20,7 +20,7 @@ import type {
 } from "../shared/rpc";
 import { estimateBytes, memo } from "./cache";
 import { isEncryptedOoxml } from "./cfb";
-import { csvRows, csvWindow, indexCsv } from "./csv";
+import { csvCells, csvWindow, indexCsv } from "./csv";
 import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, verifyDocx, type DocxModel, type SourceBlock } from "./docx";
 import { heavy } from "./heavy";
 import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
@@ -463,8 +463,7 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
     if (file.kind === "csv") {
       const index = await csvIndex(file);
       if (state.sheet === 0) {
-        await heavy(() => csvRows(file.path, index, state.unit, 0, index.columnCount, Number.POSITIVE_INFINITY,
-          (row, cells) => visitRow(0, row, cells.entries(), state)));
+        await heavy(() => csvCells(file.path, index, state.unit, (row, cells) => visitRow(0, row, cells, state) && scan.pass(position(0, row + 1))));
       }
     } else {
       const model = await workbook(file);

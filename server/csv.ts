@@ -215,6 +215,34 @@ export async function csvRows(
   });
 }
 
+// Streams the non-empty cells of each row from `fromRow` in column order. Unlike csvRows it never
+// allocates a row-wide array, so a wide file with blank rows costs time in proportion to its bytes.
+export async function csvCells(
+  path: string,
+  index: CsvIndex,
+  fromRow: number,
+  visit: (row: number, cells: (readonly [number, string])[]) => boolean,
+): Promise<void> {
+  const checkpoint = Math.min(Math.floor(fromRow / CHECKPOINT_ROWS), index.checkpoints.length - 1);
+  let row = checkpoint * CHECKPOINT_ROWS;
+  let cells: (readonly [number, string])[] = [];
+  await scanCsv(path, index.checkpoints[checkpoint]!, index.delimiter, {
+    wants: () => row >= fromRow,
+    cell: (column, value, truncated) => {
+      if (value.length > 0) cells.push([column, decodeCell(value, truncated)]);
+    },
+    row: () => {
+      let more = true;
+      if (row >= fromRow) {
+        more = visit(row, cells);
+        cells = [];
+      }
+      row++;
+      return more;
+    },
+  });
+}
+
 export async function csvWindow(
   path: string,
   index: CsvIndex,
