@@ -39,22 +39,22 @@ describe("review message", () => {
     const message = formatReview(sampleDraft(), (path) => revisions.get(path));
     expect(message.text).toBe(
       [
-        "Review notes from the document viewer. Each file gives the modified time and size of the version I was viewing, then my notes by page (numbered from 1).",
+        "Review notes from the document viewer. Each file name is quoted as a JSON string and gives the modified time and size of the version I was viewing, then my notes by page (numbered from 1).",
         "",
-        "out/report.pdf (modified 2026-10-17 14:02:31 UTC, 52,000 bytes)",
+        "\"out/report.pdf\" (modified 2026-10-17 14:02:31 UTC, 52,000 bytes)",
         "- Page 1: Cover is fine, but add the date",
         "- Page 4: Legend overlaps the axis [image 1]",
         "- Page 7: Move this table",
         "  onto its own page",
         "",
-        "out/report.pdf, older version (modified 2026-10-17 13:02:31 UTC, 48,000 bytes); the file has changed since these notes",
+        "\"out/report.pdf\", older version (modified 2026-10-17 13:02:31 UTC, 48,000 bytes); the file has changed since these notes",
         "- Page 2: Title is too long",
         "",
-        "out/appendix.pdf",
+        "\"out/appendix.pdf\"",
         "- Page 1: Typo in the heading",
         "",
         "Attached images:",
-        "1. out/report.pdf page 4 (modified 2026-10-17 14:02:31 UTC, 52,000 bytes)",
+        "1. \"out/report.pdf\" page 4 (modified 2026-10-17 14:02:31 UTC, 52,000 bytes)",
       ].join("\n"),
     );
     expect(message.text).not.toContain(current);
