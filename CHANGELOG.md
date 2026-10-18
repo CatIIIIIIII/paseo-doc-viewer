@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- JSON Lines (.jsonl, .ndjson) open in the sheet grid and Records, listed under Spreadsheets and data. Columns are the union of key paths in the first 1,000 records, nested objects flattened to `a.b.c` up to 3 keys deep (at most 500 columns); arrays and deeper objects stay one cell. The file is streamed and indexed once, so a 50,000-line file opens in about 0.1 s. An invalid line shows its parse error in its row instead of failing the file, and Issues lists invalid lines and keys first seen after the sample, by line number. Integers beyond 2^53 keep every digit. Records labels fields by key path and shows the whole record as JSON. Find covers every column.
+- Parquet (.parquet) opens in the same grid through hyparquet (pure JavaScript). Opening reads only the footer; a page reads only the row groups and columns it shows. Struct columns are flattened like JSON Lines, and the inspector shows each column's declared type. Snappy, gzip, Brotli, Zstandard and LZ4 are supported, LZO is not. A page that would need more than 512 MiB of column chunks in memory is refused with a message.
+- Full cell values: the inspector's Show full value reads a cell's whole value on request (up to 256 KB), wrapped, selectable and with Copy, for spreadsheets, CSV, JSON Lines and Parquet. The grid still cuts cells at 2,000 characters and the inspector marks shortened values. New `doc.cell` RPC; `doc.rows` returns `columnNames` for JSON Lines and Parquet and marks shortened cells with `truncated`.
+
 ## 0.4.0 (2026-10-17)
 
 - PDF page map: a Pages button shows a grid of low-resolution page thumbnails (2 or 3 columns on phones). Thumbnails load visible pages first, at most two at a time per map, on one background render slot that never takes the last slot from page renders. Closing the map stops further requests; a tap opens the page. New `doc.thumbnail` RPC (PDF only, 48 to 320 px wide, under 256 KB).
