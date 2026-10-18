@@ -66,7 +66,7 @@ function App() {
       ? <div aria-label="Turn card frame" style={{ width: "100%" }}><TurnCard {...props} agentId="docs" timestamp={new Date(0)} item={{ type: "plugin", kind: "turn-docs", version: 1, data: turnDocs } as any} /></div>
       : screen === "review"
       ? <ReviewScreen {...props} params={{ workspaceId: "workspace" }} />
-      : browsing ? <Panel context="workspace" workspaceId="workspace" theme={theme as any} layout={{ compact: false } as any} {...({} as any)} />
+      : browsing ? <Panel context="workspace" workspaceId="workspace" theme={theme as any} layout={{ compact } as any} {...({} as any)} />
       : opened ? <DocumentScreen key={path} {...props} params={{ workspaceId: "workspace", path }} /> : null}</main>
   </QueryClientProvider>;
 }

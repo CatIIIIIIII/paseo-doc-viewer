@@ -5,6 +5,7 @@
 ### New
 
 - Turn cards have a Settings link (a gear on phones) that opens Settings, Document viewer, where the cards can be turned off.
+- First-run tips: a small card at the top of Documents shows four short tips, one at a time, with Next, Skip and Done. The daemon keeps the dismissal, so it holds for every client; the Tips link under the list shows them again.
 
 ### Changed
 

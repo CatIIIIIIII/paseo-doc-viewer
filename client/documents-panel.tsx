@@ -9,6 +9,7 @@ import { docsRecentRpc, docsVisitRpc } from "../shared/rpc";
 import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, KIND_LABEL, parentDir, relativeTime } from "./format";
 import { recentQueryOptions } from "./queries";
 import { type BrowseRow, browseRows, documentScreen, filterChips, listFooter, noMatchDetail, type RecentEntry, unsupportedDetail } from "./recent";
+import { TipsCard, TipsLink, useTips } from "./tips-card";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, type Styles } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
 import { documentsVisits } from "./visits";
@@ -84,6 +85,9 @@ function DocumentsList({
     [entries, recent.data, collapsed, group, needsReview, newOnly],
   );
   const now = recent.dataUpdatedAt || Date.now();
+  const tips = useTips();
+  const tipsCard = tips.step !== null ? <TipsCard theme={theme} styles={styles} step={tips.step} onNext={tips.next} onSkip={tips.skip} /> : null;
+  const tipsLink = tips.canReopen ? <TipsLink theme={theme} styles={styles} onPress={tips.reopen} /> : null;
 
   if (!recent.data) {
     return (
@@ -99,13 +103,16 @@ function DocumentsList({
   if (recent.data.entries.length === 0 && !filtering && !pending) {
     return (
       <View style={styles.screen}>
+        {tipsCard ? <View style={{ paddingTop: 8 }}>{tipsCard}</View> : null}
         <MessageState
           theme={theme}
           styles={styles}
           icon="FileText"
           title="No documents yet"
           detail="PDF, Word, Excel, CSV, JSON Lines, Parquet, PowerPoint, image, video, and audio files in this workspace appear here"
-        />
+        >
+          {tipsLink}
+        </MessageState>
       </View>
     );
   }
@@ -126,6 +133,7 @@ function DocumentsList({
   return (
     <View style={styles.screen}>
       <View style={{ gap: 8, paddingTop: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+        {tipsCard}
         <SearchBox theme={theme} styles={styles} compact={layout.compact} value={query} onChange={setQuery} />
         <ScrollView
           horizontal
@@ -192,8 +200,11 @@ function DocumentsList({
             )
           }
           ListFooterComponent={
-            recent.data.truncated ? (
-              <Text style={[styles.muted, { padding: 8 }]}>{listFooter(entries.length, filtering)}</Text>
+            recent.data.truncated || tipsLink ? (
+              <View style={{ padding: 8, gap: 8 }}>
+                {recent.data.truncated ? <Text style={styles.muted}>{listFooter(entries.length, filtering)}</Text> : null}
+                {tipsLink}
+              </View>
             ) : null
           }
         />

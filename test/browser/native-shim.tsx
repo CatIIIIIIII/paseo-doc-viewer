@@ -15,6 +15,7 @@ export const Dimensions = { get: () => ({ width: 900, height: 700 }) };
 export const TurboModuleRegistry = { get: () => null };
 export const Keyboard = { addListener: () => ({ remove() {} }) };
 export const useWindowDimensions = () => ({ width: 900, height: 700 });
+// Views do not shrink by default in React Native, unlike CSS flex items.
 export const View = forwardRef<any, any>(function View({ children, style, onLayout, accessibilityLabel, accessibilityRole, pointerEvents, ...props }, ref) {
   const node = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -25,7 +26,7 @@ export const View = forwardRef<any, any>(function View({ children, style, onLayo
     onLayout({ nativeEvent: { layout: { x: rect.left - (parent?.left ?? 0), y: rect.top - (parent?.top ?? 0), width: rect.width, height: rect.height } } });
   });
   return <div ref={(value) => { node.current = value; if (value) { (value as any).measure = (callback: any) => callback(0, 0, FRAME_WIDTH, 540, 0, 0); (value as any).measureInWindow = (callback: any) => callback(0, 0, FRAME_WIDTH, 540); } if (typeof ref === "function") ref(value); else if (ref) ref.current = value; }}
-    style={{ display: "flex", flexDirection: "column", minHeight: 0, boxSizing: "border-box", position: "relative", pointerEvents, ...css(style) }} aria-label={accessibilityLabel} role={accessibilityRole}>{children}</div>;
+    style={{ display: "flex", flexDirection: "column", minHeight: 0, flexShrink: 0, boxSizing: "border-box", position: "relative", pointerEvents, ...css(style) }} aria-label={accessibilityLabel} role={accessibilityRole}>{children}</div>;
 });
 export const Text = ({ children, style, accessibilityLabel, onPress, accessibilityRole, onLayout }: any) => {
   const node = useRef<HTMLSpanElement>(null);

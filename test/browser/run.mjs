@@ -372,6 +372,28 @@ try {
   await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
   expect(reviews).toHaveLength(1);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
+  // First-run tips sit at the top of Documents: Next steps through them, Skip hides them for good
+  // (the server keeps that), and the Tips link under the list brings them back.
+  await expect(page.getByLabel("Tip 1 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Open documents", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Show tips", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Next tip", exact: true }).click();
+  await expect(page.getByLabel("Tip 2 of 4", { exact: true })).toBeVisible();
+  await page.screenshot({ path: `${directory}/tips.png` });
+  await page.getByRole("button", { name: "Skip tips", exact: true }).click();
+  await expect(page.getByLabel(/^Tip \d of 4$/)).toHaveCount(0);
+  await page.goto(`http://127.0.0.1:${port}`);
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
+  await expect(page.getByLabel(/^Tip \d of 4$/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Show tips", exact: true }).click();
+  await expect(page.getByLabel("Tip 1 of 4", { exact: true })).toBeVisible();
+  for (let step = 1; step < 4; step++) await page.getByRole("button", { name: "Next tip", exact: true }).click();
+  await expect(page.getByLabel("Tip 4 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Skip tips", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Done with tips", exact: true }).click();
+  await expect(page.getByLabel(/^Tip \d of 4$/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Show tips", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Open long\.pdf, PDF, [^,]*$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Needs review/ })).toHaveCount(0);
@@ -524,6 +546,21 @@ try {
   await writeFile(`${root}/fresh.csv`, "a,b\n1,2\n3,4\n");
   await expect(phone.getByRole("button", { name: /^Open fresh\.csv, CSV table, .*, new$/ })).toBeVisible({ timeout: 15_000 });
   await expect(phone.getByRole("button", { name: "New, 1 document", exact: true })).toBeVisible();
+  // Tips fit a phone: reopened from under the list, one card above the search box, 44 pt targets, no overflow.
+  await phone.getByRole("button", { name: "Show tips", exact: true }).click();
+  const tipBox = await phone.getByLabel("Tip 1 of 4", { exact: true }).boundingBox();
+  expect(tipBox.x).toBeGreaterThanOrEqual(0);
+  expect(tipBox.x + tipBox.width).toBeLessThanOrEqual(390);
+  expect(tipBox.y).toBeLessThan((await phone.getByRole("textbox", { name: "Search documents", exact: true }).boundingBox()).y);
+  for (const name of ["Skip tips", "Next tip"]) {
+    const box = await phone.getByRole("button", { name, exact: true }).boundingBox();
+    expect(box.x + box.width, name).toBeLessThanOrEqual(390);
+    expect(box.height, name).toBeGreaterThanOrEqual(40);
+  }
+  expect(await phone.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
+  await phone.screenshot({ path: `${directory}/tips-phone.png` });
+  await phone.getByRole("button", { name: "Skip tips", exact: true }).click();
+  await expect(phone.getByLabel(/^Tip \d of 4$/)).toHaveCount(0);
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "report.pdf", exact: true }).click();
   // Download sits in the tools row: no row of its own above the toolbar.
@@ -637,6 +674,6 @@ try {
   await page.getByRole("button", { name: settingsLinkName, exact: true }).click();
   await expect(page.getByText("Turn these cards off in Settings, Document viewer.", { exact: true })).toBeVisible();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

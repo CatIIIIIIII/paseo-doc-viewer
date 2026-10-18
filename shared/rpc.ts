@@ -354,6 +354,10 @@ export const viewerStateOpenedRpc = defineRpc({
   output: z.object({ marked: z.boolean() }),
 });
 
+// First-run tips in Documents: one dismissal for every client of the daemon.
+export const tipsReadRpc = defineRpc({ name: "tips.read", input: z.object({}), output: z.object({ dismissed: z.boolean() }) });
+export const tipsDismissRpc = defineRpc({ name: "tips.dismiss", input: z.object({}), output: z.object({ dismissed: z.literal(true) }) });
+
 export const reviewPageImageRpc = defineRpc({
   name: "review.page-image",
   input: z.object({ ...documentRef, password, revision, index: z.number().int().nonnegative() }),
@@ -361,7 +365,7 @@ export const reviewPageImageRpc = defineRpc({
 });
 export type ReviewPageImageOutput = RpcOutput<typeof reviewPageImageRpc>;
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, viewerStateOpenedRpc, reviewPageImageRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, viewerStateOpenedRpc, tipsReadRpc, tipsDismissRpc, reviewPageImageRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;
