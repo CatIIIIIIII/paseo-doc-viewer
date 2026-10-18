@@ -43,20 +43,20 @@ async function stall(entries: RawEntry[], stored = false): Promise<number> {
 }
 
 describe("audit: docx streaming reader is quadratic on unclosed tags", () => {
-  it.fails("opens a package whose relationships never close without a long stall", async () => {
+  it("opens a package whose relationships never close without a long stall", async () => {
     const rels = `<Relationships>${repeat("<Relationship ", 256 * KiB)}`;
     // Streamed, so mammoth's own XML parser (quadratic too, see below) is not what is measured.
     expect(await stall(replaced(docxEntries("<w:p/>", [STREAMED]), "_rels/.rels", rels))).toBeLessThan(1000);
   }, 60_000);
 
-  it.fails("reads styles full of unclosed quoted start tags without a long stall", async () => {
+  it("reads styles full of unclosed quoted start tags without a long stall", async () => {
     const styles = `<w:styles>${repeat('<w:style a="', 256 * KiB)}`;
     const entries = docxEntries("<w:p><w:r><w:t>x</w:t></w:r></w:p>", [STREAMED, { name: "word/_rels/document.xml.rels", data: STYLES_REL }, { name: "word/styles.xml", data: styles }]);
     expect(await stall(entries)).toBeLessThan(1000);
   }, 60_000);
 
   // Stored, so the whole part arrives as one 256 KiB chunk (deflated chunks are smaller).
-  it.fails("streams a document of start tags that never end without a long stall", async () => {
+  it("streams a document of start tags that never end without a long stall", async () => {
     const document = `<w:document><w:body>${repeat("<w:p ", 96 * KiB)}`;
     expect(await stall(replaced(docxEntries("", [STREAMED]), "word/document.xml", document), true)).toBeLessThan(1000);
   }, 60_000);
