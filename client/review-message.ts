@@ -1,5 +1,5 @@
 import { revisionModifiedAt, revisionSize } from "../shared/revision";
-import { safeIndentedText } from "../shared/safe-text";
+import { quotedLine, safeIndentedText } from "../shared/safe-text";
 import { pageImageKey, type ReviewDraft, type ReviewNote } from "./review-draft";
 
 export type RevisionStatus = "current" | "older" | "unknown";
@@ -29,24 +29,6 @@ export function versionLabel(revision: string): string | null {
   const size = revisionSize(revision);
   if (modified === null || size === null) return null;
   return `modified ${modified}, ${size.toLocaleString("en-US")} bytes`;
-}
-
-// Characters that would break a line, reorder text (bidi controls) or hide in the message.
-const UNSAFE_INLINE = /[\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g;
-const escapeChar = (char: string) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
-
-// File names come from the workspace, which agents and cloned repos can write. A file name or pin label
-// is one quoted line: JSON escapes newlines, quotes and backslashes, and the rest of the unsafe
-// characters are escaped too, so the value cannot start a line, a heading or a note, and the agent can
-// still recover the exact name.
-export function quoted(value: string): string {
-  return JSON.stringify(value).replace(UNSAFE_INLINE, escapeChar);
-}
-
-// Note text keeps its line breaks (shared/safe-text.ts, the rule download names use), but every
-// continuation line is indented under its "- Page" line and other unsafe characters are dropped.
-export function noteBody(text: string): string {
-  return safeIndentedText(text, "  ");
 }
 
 export type PinLabel = (note: Pick<ReviewNote, "path" | "page" | "revision">) => string | undefined;
@@ -79,7 +61,7 @@ export function formatReview(draft: ReviewDraft, currentRevision: (path: string)
   const imageLines: string[] = [];
   const sections = groupNotes(draft.notes, currentRevision).map((group) => {
     const version = versionLabel(group.revision);
-    const heading = `${quoted(group.path)}${group.older ? ", older version" : ""}${version ? ` (${version})` : ""}`;
+    const heading = `${quotedLine(group.path)}${group.older ? ", older version" : ""}${version ? ` (${version})` : ""}`;
     const lines = group.notes.map((note) => {
       const key = pageImageKey(note);
       const image = draft.images[key];
@@ -89,13 +71,14 @@ export function formatReview(draft: ReviewDraft, currentRevision: (path: string)
           imageNumbers.set(key, images.length + 1);
           images.push({ data: image.data, mimeType: image.mimeType });
           const version = versionLabel(note.revision);
-          imageLines.push(`${images.length}. ${quoted(note.path)} page ${note.page + 1}${version ? ` (${version})` : ""}`);
+          imageLines.push(`${images.length}. ${quotedLine(note.path)} page ${note.page + 1}${version ? ` (${version})` : ""}`);
         }
         marker = ` [image ${imageNumbers.get(key)}]`;
       }
-      // A pin label is one quoted line, so a typed newline cannot start a line of its own in the message.
+      // File names (written by agents and cloned repos) and pin labels are quoted, so neither can start a
+      // line, a heading or a note; note text keeps its lines, each indented under its "- Page" line.
       const pin = pinLabel(note)?.replace(/\s+/g, " ").trim();
-      return `- Page ${note.page + 1}${pin ? ` (pinned as ${quoted(pin)})` : ""}: ${noteBody(note.text)}${marker}`;
+      return `- Page ${note.page + 1}${pin ? ` (pinned as ${quotedLine(pin)})` : ""}: ${safeIndentedText(note.text, "  ")}${marker}`;
     });
     return [group.older ? `${heading}; the file has changed since these notes` : heading, ...lines].join("\n");
   });

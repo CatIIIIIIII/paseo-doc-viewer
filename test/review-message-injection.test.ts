@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createReviewDrafts, pageImageKey } from "../client/review-draft";
-import { formatReview, noteBody, quoted } from "../client/review-message";
+import { formatReview } from "../client/review-message";
+import { quotedLine as quoted, safeIndentedText } from "../shared/safe-text";
 import { documentRevision } from "../shared/revision";
 
 // File names come from agents and cloned repos; pin labels and notes are typed. None of them may add
@@ -47,7 +48,7 @@ describe("review message: hostile names and labels cannot inject structure", () 
   it("note text keeps its lines but each one stays indented under its page", () => {
     const text = message("out/report.pdf", "", `First line${PAYLOAD}`);
     expectNoInjectedStructure(text);
-    expect(noteBody("a\r\nb\rc\u2028d")).toBe("a\n  b\n  c\n  d");
+    expect(safeIndentedText("a\r\nb\rc\u2028d", "  ")).toBe("a\n  b\n  c\n  d");
   });
 
   it("bidi controls and invisible characters in names are escaped, not passed through", () => {
