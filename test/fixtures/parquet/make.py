@@ -35,3 +35,12 @@ for codec in ["none", "gzip", "brotli", "zstd", "lz4"]:
 
 deep = pa.table({"a": [{"b": {"c": {"d": 1}}}]})
 pq.write_table(deep, os.path.join(here, "deep.parquet"))
+
+# wide-5000.parquet.gz: 5,000 int8 columns, one row, gzipped to keep the repo small (about 100 KB).
+import gzip
+wide = pa.table({f"c{i}": pa.array([i % 100], pa.int8()) for i in range(5000)})
+wide_path = os.path.join(here, "wide-5000.parquet")
+pq.write_table(wide, wide_path, compression="none", write_statistics=False)
+with open(wide_path, "rb") as source, gzip.open(wide_path + ".gz", "wb", compresslevel=9) as target:
+    target.write(source.read())
+os.remove(wide_path)

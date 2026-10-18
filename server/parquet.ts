@@ -52,6 +52,7 @@ async function withFile<T>(path: string, size: number, work: (file: AsyncBuffer)
     return await work({
       byteLength: size,
       slice: async (start, end = size) => {
+        if (start < 0 || end > size) throw new Error(ERROR_MESSAGES.invalidOffice("parquet"));
         const bytes = new Uint8Array(Math.max(0, end - start));
         let read = 0;
         while (read < bytes.length) {
@@ -161,15 +162,16 @@ export async function openParquet(path: string, size: number): Promise<ParquetMo
   return withFile(path, size, async (file) => {
     const tail = new DataView(await file.slice(Math.max(0, size - 8), size));
     const footer = size >= 12 ? tail.getUint32(0, true) : 0;
+    // The length is checked before anything is allocated for it: a forged value must not cost memory.
     if (footer > MAX_FOOTER_BYTES) throw new Error(ERROR_MESSAGES.archiveTooLarge(`the Parquet footer is ${Math.round(footer / (1024 * 1024))} MiB`));
-    let metadata: FileMetaData;
+    if (footer > size - 12) throw new Error(ERROR_MESSAGES.invalidOffice("parquet"));
     try {
-      metadata = await parquetMetadataAsync(file);
+      const metadata = await parquetMetadataAsync(file);
+      const { columns, truncated } = schemaColumns(metadata);
+      return { metadata, rowCount: Number(metadata.num_rows), columns, columnsTruncated: truncated };
     } catch (error) {
       throw new Error(ERROR_MESSAGES.invalidOffice("parquet"), { cause: error });
     }
-    const { columns, truncated } = schemaColumns(metadata);
-    return { metadata, rowCount: Number(metadata.num_rows), columns, columnsTruncated: truncated };
   });
 }
 
