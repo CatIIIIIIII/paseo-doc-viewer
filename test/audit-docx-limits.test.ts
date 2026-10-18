@@ -6,7 +6,7 @@ import { readZipIndex } from "../server/zip";
 import { pluginModule, runCapped } from "./capped-child";
 import { docxWithDuplicateMainPart, docxWithHiddenMainPart } from "./fixtures/hostile";
 import { workspace } from "./helpers";
-import { docxEntries } from "./zip-builder";
+import { docxEntries, rawZip } from "./zip-builder";
 
 // Audit (post 0.4.0): loadDocx only takes the mammoth path when verifyEntries counted at most
 // 20k tags and 2 MB of XML. The count missed parts mammoth still reads (a main part not named
@@ -43,6 +43,18 @@ describe("audit: docx conversion limits", () => {
   it("refuses a duplicate entry name that could hide the part mammoth reads", async () => {
     const zip = docxWithDuplicateMainPart(PARAGRAPHS, docxEntries("<w:p><w:r><w:t>tiny</w:t></w:r></w:p>"));
     await expect(modelKind(zip)).rejects.toThrow(/not a valid \.docx/);
+  });
+
+  // JSZip (inside mammoth) decodes unflagged names as UTF-8 and resolves "." segments, so these names
+  // would name a different part for mammoth than for the checks.
+  it.each(["wörd/document.bin", "word/./document.bin", "word/x/../document.bin"])("refuses an entry name JSZip reads differently: %s", async (name) => {
+    const entries = [...docxEntries("<w:p><w:r><w:t>tiny</w:t></w:r></w:p>"), { name, data: "x" }];
+    await expect(modelKind(rawZip(entries))).rejects.toThrow(/not a valid \.docx/);
+  });
+
+  it("accepts a UTF-8 flagged non-ASCII part name", async () => {
+    const entries = [...docxEntries("<w:p><w:r><w:t>tiny</w:t></w:r></w:p>"), { name: "word/media/ïmage.png", data: "x", flags: 0x800 }];
+    expect(await modelKind(rawZip(entries))).toBe("converted");
   });
 
   it("refuses a 40 MiB hidden main part without exhausting a 128 MB heap", async () => {

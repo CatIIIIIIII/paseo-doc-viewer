@@ -78,22 +78,44 @@ const first = (xml: string, name: string, key = "w:val") => {
   return undefined;
 };
 
-export async function relationships(index: ZipIndex, part: string): Promise<Map<string, { type: string; target: string }>> {
+const OFFICE_DOCUMENT = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
+
+interface Relationship {
+  id: string;
+  type: string;
+  // The Target attribute as written, and resolved against the source part's folder.
+  raw: string;
+  target: string;
+  external: boolean;
+}
+
+export async function relationshipList(index: ZipIndex, part: string): Promise<Relationship[]> {
   const xml = (await readText(index, posix.join(posix.dirname(part), "_rels", `${posix.basename(part)}.rels`), "docx")) ?? "";
-  const found = new Map<string, { type: string; target: string }>();
+  const found: Relationship[] = [];
   for (const { attributes } of elements(xml, "Relationship")) {
     const id = attribute(attributes, "Id");
-    const target = attribute(attributes, "Target");
-    if (!id || !target || attribute(attributes, "TargetMode") === "External") continue;
-    const resolved = target.startsWith("/") ? target.slice(1) : posix.normalize(posix.join(posix.dirname(part), target));
-    found.set(id, { type: attribute(attributes, "Type") ?? "", target: resolved });
+    const raw = attribute(attributes, "Target");
+    if (!id || !raw) continue;
+    const target = raw.startsWith("/") ? raw.slice(1) : posix.normalize(posix.join(posix.dirname(part), raw));
+    found.push({ id, type: attribute(attributes, "Type") ?? "", raw, target, external: attribute(attributes, "TargetMode") === "External" });
   }
   return found;
 }
 
+export async function relationships(index: ZipIndex, part: string): Promise<Map<string, { type: string; target: string }>> {
+  const found = new Map<string, { type: string; target: string }>();
+  for (const { id, type, target, external } of await relationshipList(index, part)) if (!external) found.set(id, { type, target });
+  return found;
+}
+
+// The part mammoth converts (docx-reader.js findPartPath): the first officeDocument target that
+// exists, joined without normalizing, whatever its TargetMode, else word/document.xml.
 export async function mainDocumentPart(index: ZipIndex): Promise<string> {
-  const main = [...(await relationships(index, "")).values()].find((rel) => rel.type.endsWith("/officeDocument"));
-  return main?.target ?? "word/document.xml";
+  for (const { type, raw } of await relationshipList(index, "")) {
+    const name = raw.startsWith("/") ? raw.slice(1) : raw;
+    if (type === OFFICE_DOCUMENT && index.entries.has(name)) return name;
+  }
+  return "word/document.xml";
 }
 
 export async function readDocxLayout(index: ZipIndex): Promise<DocxLayout> {

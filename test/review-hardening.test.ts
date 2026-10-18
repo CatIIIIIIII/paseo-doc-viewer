@@ -23,7 +23,7 @@ async function modelKind(zip: Buffer) {
 
 describe("review-hardening: docx main part", () => {
   // mammoth takes the first officeDocument target that exists; mainDocumentPart takes the first one listed.
-  it.fails("counts the part mammoth reads when the first officeDocument target is missing", async () => {
+  it("counts the part mammoth reads when the first officeDocument target is missing", async () => {
     const types = `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`;
     const rels = `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
       + `<Relationship Id="rId1" Type="${OFFICE_DOCUMENT}" Target="word/missing.xml"/>`

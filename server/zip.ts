@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { createReadStream } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
 import { createInflateRaw, inflateRawSync } from "node:zlib";
@@ -104,6 +105,31 @@ function zip64Fields(extra: Buffer, needs: { size: boolean; compressed: boolean;
   return {};
 }
 
+const UNICODE_PATH = 0x7075;
+
+// JSZip's utils.resolve: drops "." and empty segments and applies "..".
+function resolveLikeJszip(path: string): string {
+  const parts = path.split("/");
+  const result: string[] = [];
+  parts.forEach((part, index) => {
+    if (part === "." || (part === "" && index !== 0 && index !== parts.length - 1)) return;
+    if (part === "..") result.pop();
+    else result.push(part);
+  });
+  return result.join("/");
+}
+
+// mammoth reads .docx packages with JSZip, which decodes every name as UTF-8, prefers an Info-ZIP
+// Unicode Path field and resolves "." and ".." segments. A name it reads differently could hide
+// the part mammoth parses from the checks here, so for .docx such names are refused.
+function jszipReadsSameName(name: string, nameBytes: Buffer, flags: number, extra: Buffer): boolean {
+  for (let at = 0; at + 4 <= extra.length; at += 4 + extra.readUInt16LE(at + 2)) {
+    if (extra.readUInt16LE(at) === UNICODE_PATH) return false;
+  }
+  if (flags & 0x800 ? !isUtf8(nameBytes) : nameBytes.some((byte) => byte >= 0x80)) return false;
+  return resolveLikeJszip(name) === name;
+}
+
 export async function readZipIndex(path: string, fileSize: number, extension: string, limits: ZipLimits): Promise<ZipIndex> {
   const handle = await open(path, "r");
   try {
@@ -140,6 +166,9 @@ export async function readZipIndex(path: string, fileSize: number, extension: st
         size = wide.size ?? size;
         compressedSize = wide.compressed ?? compressedSize;
         localOffset = wide.offset ?? localOffset;
+      }
+      if (extension === "docx" && !jszipReadsSameName(name, nameBytes, flags, table.subarray(at + 46 + nameLength, at + 46 + nameLength + extraLength))) {
+        throw damaged(extension);
       }
       at += 46 + nameLength + extraLength + commentLength;
       if (flags & 0x1 || method === AES) throw new Error(ERROR_MESSAGES.encryptedOffice());

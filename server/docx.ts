@@ -4,7 +4,7 @@ import mammoth from "mammoth";
 import { DEFAULT_RENDER_WIDTH_PX, DOCX_MAX_BLOCKS, MAX_RESPONSE_BYTES, XLSX_MAX_CELL_CHARS } from "../shared/limits";
 import type { DocBlock } from "../shared/rpc";
 import { descendants, parseHtml, textOf, type Element } from "./html";
-import { mainDocumentPart, readDocxLayout, relationships, streamDocxBlocks, type DocxLayout } from "./docx-stream";
+import { mainDocumentPart, readDocxLayout, relationshipList, streamDocxBlocks, type DocxLayout } from "./docx-stream";
 import { embeddedImage } from "./images";
 import { IMAGE_BUDGET_BYTES, type DecodeBudget, type EncodedImage } from "./raster";
 import { readEntry, verifyEntries, type ZipIndex, type ZipMarkup } from "./zip";
@@ -105,7 +105,8 @@ function blocksOf(element: Element): SourceBlock[] {
 // whatever they are named, so their tags and sizes count against the limits too.
 export async function verifyDocx(index: ZipIndex, maxMarkup: number, maxPartBytes: number): Promise<ZipMarkup> {
   const main = await mainDocumentPart(index);
-  const related = [...(await relationships(index, main)).values()].filter((rel) => !BINARY_RELATIONSHIP.test(rel.type));
+  // mammoth follows a related part's relationship even when it is marked External.
+  const related = (await relationshipList(index, main)).filter((rel) => !BINARY_RELATIONSHIP.test(rel.type));
   const parts = new Set([main, ...related.map((rel) => rel.target)]);
   for (const name of parts) {
     const size = index.entries.get(name)?.size ?? 0;
