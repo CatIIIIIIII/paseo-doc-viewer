@@ -115,7 +115,7 @@ describe("R18: Parquet in the sheet grid", () => {
     // Row group 1 holds rows 100-199: pages outside it are still readable.
     expect(() => checkRead(model, new Set(["id"]), 0, 100)).not.toThrow();
     expect(() => checkRead(model, new Set(["output"]), 100, 200)).not.toThrow();
-    expect(() => checkRead(model, new Set(["id"]), 150, 160)).toThrow(/row group 2 holds/);
+    expect(() => checkRead(model, new Set(["id"]), 150, 160)).toThrow(/row group 2 of 3 needs about/);
     chunk.meta_data!.total_compressed_size = 10n;
     chunk.meta_data!.codec = "LZO";
     expect(() => checkRead(model, new Set(["id"]), 150, 160)).toThrow(/LZO/);

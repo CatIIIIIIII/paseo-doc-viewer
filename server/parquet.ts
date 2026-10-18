@@ -27,8 +27,13 @@ export interface ParquetModel {
 }
 
 const MAX_FOOTER_BYTES = 32 * 1024 * 1024;
-// Compressed plus uncompressed bytes of the column chunks one read may hold; page-indexed chunks count only once.
-export const PARQUET_MAX_READ_BYTES = 512 * 1024 * 1024;
+// Compressed plus uncompressed bytes of the column chunks one row group read may hold; page-indexed chunks
+// count compressed bytes only, because only the pages in range are read. Without a page index hyparquet
+// decodes whole column chunks. Measured on single-row-group snappy files of text-heavy rows (bench in the
+// 0.5.0 integration notes): at about 60 MiB per group one grid window peaks about 70 MiB above the process
+// baseline, two concurrent windows about 135 MiB and a full Find about 145 MiB, inside a 200 MiB target.
+// A plugin process that runs out of memory is not restarted, so a larger group is refused, not attempted.
+export const PARQUET_MAX_READ_BYTES = 64 * 1024 * 1024;
 const ROWS_BUDGET_BYTES = MAX_RESPONSE_BYTES - 64 * 1024;
 const SEARCH_BATCH_ROWS = 2_000;
 
@@ -174,27 +179,46 @@ export function parquetModelBytes(model: ParquetModel): number {
 
 const UNSUPPORTED_CODECS = new Set(["LZO"]);
 
-// Refuses a read that would hold more than PARQUET_MAX_READ_BYTES, or that needs a codec without a decoder.
-export function checkRead(model: ParquetModel, roots: ReadonlySet<string>, rowStart: number, rowEnd: number): void {
+export type ReadDecision =
+  | { ok: true }
+  | { ok: false; reason: "codec"; codec: string }
+  | { ok: false; reason: "memory"; group: number; bytes: number };
+
+// Decides from the footer alone whether reading rows [rowStart, rowEnd) of the given top-level columns fits
+// the memory budget and every codec has a decoder. Nothing is read or decoded.
+export function readDecision(metadata: FileMetaData, roots: ReadonlySet<string>, rowStart: number, rowEnd: number, budget = PARQUET_MAX_READ_BYTES): ReadDecision {
   let start = 0;
-  for (const [index, group] of model.metadata.row_groups.entries()) {
-    const rows = Number(group.num_rows);
-    const end = start + rows;
+  for (const [index, group] of metadata.row_groups.entries()) {
+    const end = start + Number(group.num_rows);
     if (end > rowStart && start < rowEnd) {
       let bytes = 0;
       for (const chunk of group.columns) {
         const meta = chunk.meta_data;
         if (!meta || !roots.has(meta.path_in_schema[0]!)) continue;
-        if (UNSUPPORTED_CODECS.has(meta.codec)) throw new Error(ERROR_MESSAGES.unsupportedImage(`Parquet ${meta.codec} compression`));
+        if (UNSUPPORTED_CODECS.has(meta.codec)) return { ok: false, reason: "codec", codec: meta.codec };
         bytes += chunk.offset_index_offset ? Number(meta.total_compressed_size) : Number(meta.total_compressed_size) + Number(meta.total_uncompressed_size);
       }
-      if (bytes > PARQUET_MAX_READ_BYTES) {
-        throw new Error(ERROR_MESSAGES.archiveTooLarge(`row group ${index + 1} holds ${Math.round(bytes / (1024 * 1024))} MiB in the columns shown (the limit is ${PARQUET_MAX_READ_BYTES / (1024 * 1024)} MiB); show fewer columns or write smaller row groups`));
-      }
+      if (bytes > budget) return { ok: false, reason: "memory", group: index, bytes };
     }
     start = end;
     if (start >= rowEnd) break;
   }
+  return { ok: true };
+}
+
+const mebibytes = (bytes: number) => Math.ceil(bytes / (1024 * 1024));
+
+// Refuses a read that would hold more than PARQUET_MAX_READ_BYTES, or that needs a codec without a decoder,
+// before any byte is read: a plugin process that runs out of memory is not restarted.
+export function checkRead(model: ParquetModel, roots: ReadonlySet<string>, rowStart: number, rowEnd: number): void {
+  const decision = readDecision(model.metadata, roots, rowStart, rowEnd);
+  if (decision.ok) return;
+  if (decision.reason === "codec") throw new Error(ERROR_MESSAGES.unsupportedImage(`Parquet ${decision.codec} compression`));
+  const groups = model.metadata.row_groups.length;
+  const where = groups === 1 ? "its only row group" : `row group ${decision.group + 1} of ${groups}`;
+  throw new Error(ERROR_MESSAGES.archiveTooLarge(
+    `reading ${where} needs about ${mebibytes(decision.bytes)} MiB of memory and the viewer reads at most ${mebibytes(PARQUET_MAX_READ_BYTES)} MiB at once. Write it with smaller row groups (for example pyarrow row_group_size=100_000)`,
+  ));
 }
 
 async function readRecords(path: string, size: number, model: ParquetModel, columns: readonly KeyPath[], rowStart: number, rowEnd: number): Promise<Record<string, unknown>[]> {
@@ -281,7 +305,42 @@ export async function parquetFullValue(path: string, size: number, model: Parque
   return fullValue(value);
 }
 
-// Visits rows from `fromRow` in batches, so a search holds one batch of decoded rows at a time.
+// Decodes the given top-level columns of rows [rowStart, rowEnd) as column arrays, without building row objects.
+async function readColumns(path: string, size: number, model: ParquetModel, roots: readonly string[], rowStart: number, rowEnd: number): Promise<Map<string, unknown[]>> {
+  checkRead(model, new Set(roots), rowStart, rowEnd);
+  const columns = new Map(roots.map((root) => [root, new Array<unknown>(rowEnd - rowStart)]));
+  await withFile(path, size, async (file) => {
+    try {
+      await parquetRead({
+        file,
+        metadata: model.metadata,
+        columns: [...roots],
+        rowStart,
+        rowEnd,
+        compressors,
+        useOffsetIndex: true,
+        utf8: false,
+        // Chunks may start before rowStart or end after rowEnd; only the rows in range are kept.
+        onChunk: ({ columnName: root, columnData, rowStart: chunkStart }) => {
+          const target = columns.get(root);
+          if (!target) return;
+          const from = Math.max(rowStart, chunkStart);
+          const to = Math.min(rowEnd, chunkStart + columnData.length);
+          for (let row = from; row < to; row++) target[row - rowStart] = columnData[row - chunkStart];
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/codec|compression/i.test(message)) throw new Error(ERROR_MESSAGES.unsupportedImage(`This Parquet compression (${message})`));
+      throw new Error(ERROR_MESSAGES.invalidOffice("parquet"), { cause: error });
+    }
+  });
+  return columns;
+}
+
+// Visits rows from `fromRow` one row group at a time. Each group is decoded once as column arrays (a group
+// larger than the read budget is refused by checkRead), and rows are assembled one at a time, so a search
+// never re-decodes a large row group for every batch of rows. `pause` runs every SEARCH_BATCH_ROWS rows.
 export async function parquetRecords(
   path: string,
   size: number,
@@ -290,10 +349,21 @@ export async function parquetRecords(
   visit: (row: number, record: Record<string, unknown>) => boolean,
   pause: () => Promise<void> = async () => {},
 ): Promise<void> {
-  const paths = model.columns.map((column) => column.path);
-  for (let start = fromRow; start < model.rowCount; start += SEARCH_BATCH_ROWS) {
-    await pause();
-    const records = await readRecords(path, size, model, paths, start, Math.min(model.rowCount, start + SEARCH_BATCH_ROWS));
-    for (const [offset, record] of records.entries()) if (!visit(start + offset, record)) return;
+  const roots = [...new Set(model.columns.map((column) => column.path[0]!))];
+  let groupStart = 0;
+  for (const group of model.metadata.row_groups) {
+    const groupEnd = groupStart + Number(group.num_rows);
+    if (groupEnd > fromRow) {
+      const start = Math.max(fromRow, groupStart);
+      await pause();
+      const columns = await readColumns(path, size, model, roots, start, groupEnd);
+      for (let row = start; row < groupEnd; row++) {
+        if (row > start && (row - start) % SEARCH_BATCH_ROWS === 0) await pause();
+        const record: Record<string, unknown> = {};
+        for (const [root, values] of columns) record[root] = values[row - start];
+        if (!visit(row, record)) return;
+      }
+    }
+    groupStart = groupEnd;
   }
 }
