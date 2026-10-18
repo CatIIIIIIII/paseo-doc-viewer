@@ -46,7 +46,8 @@ describe("search throughput", () => {
     const { matches, calls } = await searchAll(root, "budget.csv", "needle", 0);
     expect(calls).toBeGreaterThan(60);
     expect(matches.map((match) => match.target)).toEqual(rows.map((_, row) => ({ type: "cell", sheet: 0, row, column: 1 })));
-  });
+    // About 0.45 s alone; over 5 s while s1/s11 compile the bundle in parallel workers.
+  }, 30_000);
 
   it("parses a long xlsx sheet once across many budget-limited calls", async () => {
     const rows = Array.from({ length: 20_000 }, (_, row) =>
