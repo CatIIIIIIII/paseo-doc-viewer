@@ -16,6 +16,14 @@ copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/forecast.xl
 writeFileSync(join(root, "broken.pdf"), "original unsupported file");
 writeFileSync(join(root, ".env"), "SECRET=1");
 writeFileSync(join(root, "analysis.ipynb"), "{}");
+// Eval results as JSON Lines: nested objects, an array, a long model output and one unreadable line.
+const longOutput = `The answer is 4. ${"Step by step reasoning follows. ".repeat(200)}END-OF-ANSWER`;
+writeFileSync(join(root, "evals.jsonl"), [
+  JSON.stringify({ id: "case-1", input: "What is 2+2?", output: longOutput, meta: { model: "model-a", latency_ms: 120 }, tags: ["math"], passed: true }),
+  JSON.stringify({ id: "case-2", input: "Capital of France?", output: "Paris", meta: { model: "model-b", latency_ms: 340 }, tags: ["geo", "easy"], passed: false }),
+  '{"id": "case-3", "output": ',
+  JSON.stringify({ id: "case-4", input: "Spell cat", output: "c-a-t", meta: { model: "model-b", latency_ms: 90 }, tags: [], passed: true }),
+].join("\n") + "\n");
 writeFileSync(join(root, "many.csv"), Array.from({ length: 120 }, (_, row) => `row ${row},needle`).join("\n"));
 const bytes = Buffer.alloc(44 + 16000);
 bytes.write("RIFF", 0); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write("WAVEfmt ", 8);

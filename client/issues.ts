@@ -40,11 +40,23 @@ export function pausedText(reason: NonNullable<DocIssuesOutput["stopped"]>, next
 const FORMULA_PREVIEW_CHARS = 60;
 
 export function issueLabel(issue: SheetIssue, names: readonly string[]): string {
+  if (issue.line !== undefined) return `Line ${formatCount(issue.line)}: ${issue.display}`;
   const at = cellReference(sheetName(names, issue.sheet), issue.row, issue.column);
   const what = issue.kind === "error" ? issue.display : "no saved result";
   if (issue.formula === null) return `${at}: ${what}`;
   const formula = issue.formula.length > FORMULA_PREVIEW_CHARS ? `${issue.formula.slice(0, FORMULA_PREVIEW_CHARS - 1)}…` : issue.formula;
   return `${at}: ${what} · =${formula}`;
+}
+
+// JSON Lines issues: unreadable lines and keys first seen after the column sample.
+export function dataIssueSummary(issues: readonly SheetIssue[], omitted = 0): string {
+  const invalid = issues.filter((issue) => issue.kind === "invalid-json").length + omitted;
+  const unlisted = issues.filter((issue) => issue.kind === "unlisted-key").length;
+  if (invalid === 0 && unlisted === 0) return "Every line is valid JSON";
+  const parts = [];
+  if (invalid) parts.push(`${formatCount(invalid)} invalid ${invalid === 1 ? "line" : "lines"}`);
+  if (unlisted) parts.push(`${formatCount(unlisted)} ${unlisted === 1 ? "key" : "keys"} without a column`);
+  return parts.join(", ");
 }
 
 export function issueSummary(issues: readonly SheetIssue[]): string {

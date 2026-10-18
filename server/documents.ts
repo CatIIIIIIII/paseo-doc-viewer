@@ -1,9 +1,9 @@
 import type { SearchCursor, SearchMatch } from "../shared/search";
-import type { DocIssuesOutput, DocSearchOutput } from "../shared/rpc";
+import type { CellDetail, DocCellOutput, DocIssuesOutput, DocSearchOutput } from "../shared/rpc";
 import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_COLUMNS } from "../shared/limits";
+import { CELL_FULL_MAX_CHARS, DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS } from "../shared/limits";
 import type { ReviewStatus } from "../shared/browse";
 import { KIND_REGISTRY, detectKind, extensionOf, kindForPath, type DocumentKind, type PagedRpc } from "../shared/kinds";
 import type {
@@ -20,7 +20,10 @@ import type {
 } from "../shared/rpc";
 import { estimateBytes, memo } from "./cache";
 import { isEncryptedOoxml } from "./cfb";
-import { csvRows, csvWindow, indexCsv } from "./csv";
+import { csvFullCell, csvRows, csvWindow, indexCsv } from "./csv";
+import { recordCells, type FullValue } from "./data-table";
+import { indexJsonl, jsonlFullValue, jsonlRecords, jsonlWindow } from "./jsonl";
+import { openParquet, parquetFullValue, parquetModelBytes, parquetRecords, parquetWindow } from "./parquet";
 import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, type DocxModel, type SourceBlock } from "./docx";
 import { heavy } from "./heavy";
 import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
@@ -34,7 +37,7 @@ import { revisionOf } from "./revision";
 import { viewerStateStore } from "./viewer-state";
 import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, position, takeStream, type SearchPosition } from "./search";
 import { SharedFormulas } from "./formulas";
-import { issueDecoder, loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
+import { fullCellText, issueDecoder, loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
 import { readZipIndex, verifyEntries, type ZipIndex, type ZipLimits } from "./zip";
 import { ERROR_MESSAGES, errorText } from "../shared/errors";
 
@@ -59,6 +62,7 @@ type ThumbnailRequest = { index: number; width: number };
 type TextRequest = { index: number };
 type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number; maxRows?: number; detail?: boolean };
 type BlocksRequest = { cursor: number };
+type CellRequest = { sheet: number; row: number; column: number | null };
 type ChunkRequest = { offset: number; length: number; mimeType?: AnimationMimeType };
 
 interface KindHandler {
@@ -67,6 +71,7 @@ interface KindHandler {
   thumbnail?(file: DocumentFile, request: ThumbnailRequest): Promise<DocThumbnailOutput>;
   text?(file: DocumentFile, request: TextRequest): Promise<DocTextOutput>;
   rows?(file: DocumentFile, request: RowsRequest): Promise<DocRowsOutput>;
+  cell?(file: DocumentFile, request: CellRequest): Promise<FullValue & { line?: number }>;
   blocks?(file: DocumentFile, request: BlocksRequest): Promise<DocBlocksOutput>;
   chunk?(file: DocumentFile, request: ChunkRequest): Promise<MediaChunkOutput>;
 }
@@ -77,6 +82,8 @@ const MAX_FILE_BYTES: { readonly [K in DocumentKind]: number } = {
   docx: 64 * MiB,
   xlsx: 64 * MiB,
   csv: 64 * MiB,
+  jsonl: 512 * MiB,
+  parquet: 2048 * MiB,
   pptx: 64 * MiB,
   video: Number.POSITIVE_INFINITY,
   audio: Number.POSITIVE_INFINITY,
@@ -157,6 +164,10 @@ const sharedStrings = (file: DocumentFile, model: Workbook) =>
     strings.reduce((total, text) => total + 64 + text.length * 2, 0),
   );
 const csvIndex = (file: DocumentFile) => heavyCached(file, "csv-index", () => indexCsv(file.path, file.extension));
+const parquetModel = (file: DocumentFile) => heavyCached(file, "parquet", () => openParquet(file.path, file.size), parquetModelBytes);
+const jsonlIndex = (file: DocumentFile) =>
+  heavyCached(file, "jsonl-index", () => indexJsonl(file.path), (index) =>
+    index.checkpoints.length * 48 + index.issues.length * 160 + index.columns.reduce((total, path) => total + 64 + path.join(".").length * 2, 0));
 const deck = (file: DocumentFile) =>
   heavyCached(
     file,
@@ -174,6 +185,12 @@ const docx = (file: DocumentFile) =>
     },
     docxModelBytes,
   );
+
+// Workbook text is cut at XLSX_MAX_CELL_CHARS when it is read, so a value at that length may be longer in the file.
+function markCut(details: (CellDetail | null)[][]): (CellDetail | null)[][] {
+  return details.map((row) => row.map((detail) =>
+    detail && ((detail.raw?.length ?? 0) >= XLSX_MAX_CELL_CHARS || detail.display.length >= XLSX_MAX_CELL_CHARS) ? { ...detail, truncated: true } : detail));
+}
 
 function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamily): KindHandler {
   return {
@@ -265,7 +282,15 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       const window = await heavyCached(file, `rows\0${sheet}\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}\0${detail}`, () =>
         rowWindow(model, strings, model.sheets[sheet], rowOffset, columnOffset, columns, rows, detail),
       );
-      return { kind: "xlsx", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
+      return { kind: "xlsx", revision: file.revision, sheet, rowOffset, columnOffset, ...window, ...(window.details ? { details: markCut(window.details) } : {}) };
+    },
+    cell: async (file, { sheet, row, column }) => {
+      const model = await workbook(file);
+      inRange(sheet, model.sheets.length, "Sheet");
+      if (column === null) throw new Error(ERROR_MESSAGES.unavailable("doc.cell for a whole row", "xlsx"));
+      const strings = await sharedStrings(file, model);
+      const found = await heavy(() => fullCellText(model, strings, model.sheets[sheet]!, row, column, CELL_FULL_MAX_CHARS, Date.now() + 18_000));
+      return { format: "text", ...(found ?? { text: "", truncated: false, length: 0 }) };
     },
   },
   csv: {
@@ -282,6 +307,55 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
         csvWindow(file.path, index, rowOffset, columnOffset, columns, rows, detail),
       );
       return { kind: "csv", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
+    },
+    cell: async (file, { sheet, row, column }) => {
+      inRange(sheet, 1, "Sheet");
+      if (column === null) throw new Error(ERROR_MESSAGES.unavailable("doc.cell for a whole row", "csv"));
+      const index = await csvIndex(file);
+      if (row >= index.rowCount) throw new Error(ERROR_MESSAGES.outOfRange("Row", row, index.rowCount));
+      return { format: "text", ...(await heavy(() => csvFullCell(file.path, index, row, column))) };
+    },
+  },
+  jsonl: {
+    open: async (file) => {
+      const { rowCount, columns } = await jsonlIndex(file);
+      return { kind: "jsonl", revision: file.revision, sheets: [{ name: basename(file.path), rowCount, columnCount: columns.length, countsApproximate: false }] };
+    },
+    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns, maxRows, detail = false }) => {
+      inRange(sheet, 1, "Sheet");
+      const index = await jsonlIndex(file);
+      const columns = Math.min(maxColumns ?? XLSX_MAX_COLUMNS, XLSX_MAX_COLUMNS);
+      const rows = Math.min(maxRows ?? 200, 200);
+      const window = await heavyCached(file, `rows\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}\0${detail}`, () =>
+        jsonlWindow(file.path, index, rowOffset, columnOffset, columns, rows, detail),
+      );
+      return { kind: "jsonl", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
+    },
+    cell: async (file, { sheet, row, column }) => {
+      inRange(sheet, 1, "Sheet");
+      const index = await jsonlIndex(file);
+      return heavy(() => jsonlFullValue(file.path, index, row, column));
+    },
+  },
+  parquet: {
+    open: async (file) => {
+      const { rowCount, columns } = await parquetModel(file);
+      return { kind: "parquet", revision: file.revision, sheets: [{ name: basename(file.path), rowCount, columnCount: columns.length, countsApproximate: false }] };
+    },
+    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns, maxRows, detail = false }) => {
+      inRange(sheet, 1, "Sheet");
+      const model = await parquetModel(file);
+      const columns = Math.min(maxColumns ?? XLSX_MAX_COLUMNS, XLSX_MAX_COLUMNS);
+      const rows = Math.min(maxRows ?? 200, 200);
+      const window = await heavyCached(file, `rows\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}\0${detail}`, () =>
+        parquetWindow(file.path, file.size, model, rowOffset, columnOffset, columns, rows, detail),
+      );
+      return { kind: "parquet", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
+    },
+    cell: async (file, { sheet, row, column }) => {
+      inRange(sheet, 1, "Sheet");
+      const model = await parquetModel(file);
+      return heavy(() => parquetFullValue(file.path, file.size, model, row, column));
     },
   },
   pptx: {
@@ -369,6 +443,11 @@ export async function readPageText(ref: DocumentRef, request: TextRequest): Prom
 export async function readRows(ref: DocumentRef, request: RowsRequest): Promise<DocRowsOutput> {
   const file = await locate(ref);
   return operation(file, "doc.rows", "rows")(file, request);
+}
+
+export async function readCell(ref: DocumentRef, request: CellRequest): Promise<DocCellOutput> {
+  const file = await locate(ref);
+  return { revision: file.revision, ...(await operation(file, "doc.cell", "cell")(file, request)) };
 }
 
 export async function readBlocks(ref: DocumentRef, request: BlocksRequest): Promise<DocBlocksOutput> {
@@ -491,7 +570,37 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
         }
       });
     }
-  } else throw new Error("Find is available for PDF, Word, spreadsheets and PowerPoint");
+  } else if (file.kind === "jsonl") {
+    notes.add("Search covers displayed cell text (up to 2,000 characters per cell) in the listed columns.");
+    const index = await jsonlIndex(file);
+    const columns = index.columns;
+    if (state.sheet === 0) {
+      await heavy(() => jsonlRecords(file.path, index, state.unit, Number.POSITIVE_INFINITY, (row, record) => {
+        const { cells } = recordCells(record, columns, false);
+        for (let column = row === state.unit ? state.column : 0; column < cells.length; column++) {
+          const text = cells[column];
+          if (!text) continue;
+          if (!scan.visit(text, { type: "cell", sheet: 0, row, column }, position(0, row, column), position(0, row, column + 1))) return false;
+        }
+        return true;
+      }));
+    }
+  } else if (file.kind === "parquet") {
+    notes.add("Search covers displayed cell text (up to 2,000 characters per cell) in the listed columns.");
+    const model = await parquetModel(file);
+    const columns = model.columns.map((column) => column.path);
+    if (state.sheet === 0) {
+      await heavy(() => parquetRecords(file.path, file.size, model, state.unit, (row, value) => {
+        const { cells } = recordCells({ value }, columns, false);
+        for (let column = row === state.unit ? state.column : 0; column < cells.length; column++) {
+          const text = cells[column];
+          if (!text) continue;
+          if (!scan.visit(text, { type: "cell", sheet: 0, row, column }, position(0, row, column), position(0, row, column + 1))) return false;
+        }
+        return true;
+      }, () => scan.breathe()));
+    }
+  } else throw new Error("Find is available for PDF, Word, spreadsheets, data files and PowerPoint");
 
   // Reject an interleaved rewrite instead of attaching stale matches to a new revision.
   if ((await locate(ref)).revision !== file.revision) throw new Error("The document changed while searching. Search again.");
@@ -513,7 +622,18 @@ type IssueCursor = NonNullable<DocIssuesOutput["next"]>;
 // cursor are only tokenized, and a parked stream lets the next call continue without re-reading them.
 export async function scanIssues(ref: DocumentRef, cursor?: IssueCursor | null, limits = ISSUE_LIMITS): Promise<DocIssuesOutput> {
   const file = await locate(ref);
-  if (file.kind !== "xlsx") throw new Error("Checking for issues is available for Excel workbooks");
+  if (file.kind === "jsonl") {
+    const index = await jsonlIndex(file);
+    return {
+      revision: file.revision,
+      issues: index.issues.map(({ row, line, kind, message }) => ({ sheet: 0, row, column: 0, kind, display: message, formula: null, line })),
+      inspected: [{ sheet: 0, fromRow: 0, toRow: index.rowCount }],
+      next: null,
+      stopped: null,
+      ...(index.omittedIssues > 0 ? { omitted: index.omittedIssues } : {}),
+    };
+  }
+  if (file.kind !== "xlsx") throw new Error("Checking for issues is available for Excel workbooks and JSON Lines files");
   if (cursor && cursor.revision !== file.revision) throw new Error("The workbook changed. Check again.");
   const model = await workbook(file);
   const strings = await sharedStrings(file, model);

@@ -2,14 +2,17 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { docRowsRpc } from "../shared/rpc";
-import { cellReference, inspectorFields } from "./cell-detail";
+import { cellReference, hasFullValue, inspectorFields } from "./cell-detail";
+import { FullValuePanel } from "./full-value";
 import { describeError } from "./format";
 import { retryPage } from "./paging";
 import { cellQueryKey } from "./queries";
 import { ToolbarButton, type Styles } from "./ui";
+
+const SHORTENED_FIELDS = new Set(["Raw value", "JSON", "Line text"]);
 
 export interface CellTarget {
   sheet: number;
@@ -17,11 +20,13 @@ export interface CellTarget {
   column: number;
 }
 
-export function CellInspector({ workspaceId, path, revision, sheetName, target, shown, theme, styles, onClose, actions }: {
+export function CellInspector({ workspaceId, path, revision, sheetName, columnLabel, target, shown, theme, styles, onClose, actions }: {
   workspaceId: string;
   path: string;
   revision: string;
   sheetName: string;
+  // Files with named columns (JSON Lines, Parquet) refer to a cell by column name and row.
+  columnLabel?: string;
   target: CellTarget;
   shown: ReactNode;
   theme: PluginTheme;
@@ -37,15 +42,19 @@ export function CellInspector({ workspaceId, path, revision, sheetName, target, 
     staleTime: Infinity,
   });
   const data = detail.data;
-  const reference = cellReference(data?.kind === "csv" ? null : sheetName, target.row, target.column);
-  const fields = data ? inspectorFields(data.details?.[0]?.[0] ?? null) : [];
+  const [showFull, setShowFull] = useState(false);
+  useEffect(() => setShowFull(false), [revision, target.sheet, target.row, target.column]);
+  const reference = columnLabel !== undefined ? `${columnLabel}, row ${target.row + 1}` : cellReference(data?.kind === "csv" ? null : sheetName, target.row, target.column);
+  const stored = data?.details?.[0]?.[0] ?? null;
+  // With the full value open, the shortened copies above it would only repeat its start.
+  const fields = data ? inspectorFields(stored).filter((field) => !showFull || !SHORTENED_FIELDS.has(field.label)) : [];
   return (
     <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingHorizontal: styles.gutter, paddingVertical: 8, gap: 6 }}
       accessibilityLabel={`Cell ${reference}`}>
       <View style={[styles.toolbarGroup, { alignItems: "flex-start" }]}>
         <Text style={[styles.label, { paddingVertical: 6 }]} selectable>{reference}</Text>
         <ScrollView style={{ flex: 1, maxHeight: 72 }} contentContainerStyle={{ paddingVertical: 4 }}>
-          <Text style={styles.text} selectable>{shown}</Text>
+          <Text style={styles.text} selectable numberOfLines={showFull ? 1 : undefined}>{shown}</Text>
         </ScrollView>
         {actions}
         <ToolbarButton theme={theme} styles={styles} icon="X" accessibilityLabel="Close cell" onPress={onClose} />
@@ -70,6 +79,16 @@ export function CellInspector({ workspaceId, path, revision, sheetName, target, 
           ))}
         </ScrollView>
       )}
+      {data && hasFullValue(stored) ? (
+        showFull ? (
+          <FullValuePanel workspaceId={workspaceId} path={path} revision={revision} target={target} title="Full value" theme={theme} styles={styles}
+            onClose={() => setShowFull(false)} />
+        ) : (
+          <View style={styles.toolbarGroup}>
+            <ToolbarButton theme={theme} styles={styles} icon="WrapText" label="Show full value" onPress={() => setShowFull(true)} />
+          </View>
+        )
+      ) : null}
     </View>
   );
 }

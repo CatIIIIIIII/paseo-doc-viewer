@@ -550,7 +550,46 @@ try {
   await expect(phone.getByText("1.5x", { exact: true })).toBeVisible();
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await expect(phone.getByText("2x", { exact: true })).toBeVisible();
+  // JSON Lines eval results: named columns, full long value with copy, record JSON, invalid lines as issues, find.
+  await page.setViewportSize({ width: 1100, height: 1000 });
+  await page.goto(`http://127.0.0.1:${port}`);
+  await page.getByRole("button", { name: "evals.jsonl", exact: true }).click();
+  await expect(page.getByText("meta.model", { exact: true })).toBeVisible();
+  await expect(page.getByText("Rows 1-4 of 4", { exact: true })).toBeVisible();
+  await page.getByText(/^The answer is 4\. Step by step/).click();
+  const jsonCell = page.getByLabel("Cell output, row 1", { exact: true });
+  await expect(jsonCell.getByText("Shortened here. Show full value reads all of it.", { exact: true })).toBeVisible();
+  await jsonCell.getByRole("button", { name: "Show full value", exact: true }).click();
+  await expect(jsonCell.getByText(/END-OF-ANSWER$/)).toBeVisible();
+  await expect(jsonCell.getByText(/^Full value · 6,\d{3} characters$/)).toBeVisible();
+  await jsonCell.getByRole("button", { name: "Copy full value", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(/END-OF-ANSWER$/);
+  await page.screenshot({ path: `${directory}/jsonl-full-value.png`, fullPage: true });
+  await page.getByText(/^1 item: \["math"\]$/).click();
+  await expect(page.getByLabel("Cell tags, row 1", { exact: true }).getByText("List (JSON array)", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close cell", exact: true }).click();
+  await page.getByRole("button", { name: "Check for issues", exact: true }).click();
+  const lineIssues = page.getByLabel("Sheet issues", { exact: true });
+  await expect(lineIssues.getByText("1 invalid line", { exact: true })).toBeVisible();
+  await lineIssues.getByRole("button", { name: /^Line 3: / }).click();
+  await expect(page.getByLabel(/^Cell id, row 3$/).getByText(/^Not valid JSON: /)).toBeVisible();
+  await page.getByRole("button", { name: "Close issues", exact: true }).click();
+  await page.getByRole("button", { name: "Close cell", exact: true }).click();
+  await page.getByRole("button", { name: "Records", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Use row \d+ as header$/ })).toHaveCount(0);
+  // Records opens at the row the issue jump showed: the invalid line, with its error in the first field.
+  await expect(page.getByText("Record 3 of 4 (row 3)", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Record row 3", { exact: true }).getByText(/^Invalid JSON: /)).toBeVisible();
+  await page.getByRole("button", { name: "Previous record", exact: true }).click();
+  await expect(page.getByLabel("Record row 2", { exact: true }).getByText("meta.latency_ms", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Show record JSON", exact: true }).click();
+  await expect(page.getByText(/"latency_ms": 340/)).toBeVisible();
+  await page.screenshot({ path: `${directory}/jsonl-record.png`, fullPage: true });
+  await page.getByRole("button", { name: "Find in document", exact: true }).click();
+  await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("model-b");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.getByText("2 matches", { exact: true })).toBeVisible();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit.");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

@@ -17,13 +17,13 @@ const ENTRIES = [
 ];
 
 describe("document groups", () => {
-  it("puts every kind in one of seven groups, both image kinds in Images and CSV with Excel", () => {
+  it("puts every kind in one of seven groups, both image kinds in Images and CSV, JSON Lines and Parquet with Excel", () => {
     expect(DOCUMENT_GROUPS).toEqual(["pdf", "word", "excel", "powerpoint", "image", "video", "audio"]);
     const groups = groupEntries(DOCUMENT_KINDS.map((kind, i) => entry(`f${i}`, kind, i)));
     expect(groups.map(({ group, entries }) => [group, entries.length])).toEqual([
       ["pdf", 1],
       ["word", 1],
-      ["excel", 2],
+      ["excel", 4],
       ["powerpoint", 1],
       ["image", 2],
       ["video", 1],
@@ -138,7 +138,7 @@ describe("documents panel filter chips", () => {
 describe("documents panel empty and footer text", () => {
   it("says what found nothing", () => {
     expect(noMatchDetail({ query: " Q4 ", group: null }, false)).toBe('No files match "Q4"');
-    expect(noMatchDetail({ query: "q4", group: "excel" }, false)).toBe('No spreadsheets match "q4"');
+    expect(noMatchDetail({ query: "q4", group: "excel" }, false)).toBe('No spreadsheets and data files match "q4"');
     expect(noMatchDetail({ query: "", group: "image" }, false)).toBe("No images in this workspace");
     expect(noMatchDetail({ query: "", group: "video" }, false)).toBe("No Video files in this workspace");
     expect(noMatchDetail({ query: "", group: "pdf", needsReview: true }, false)).toBe("No PDF files changed since review");

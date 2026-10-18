@@ -11,7 +11,7 @@ import { FlatList } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ActivityIndicator, Platform, ScrollView, Text, useWindowDimensions, View, type TextStyle } from "react-native";
-import { docRowsRpc, type DocOpenOutput } from "../shared/rpc";
+import { docRowsRpc, type DocOpenOutput, type SheetKind } from "../shared/rpc";
 import { columnName, gridReducer, INITIAL_GRID, jumpGrid, rangeLabel, reconcileGrid, retryPage, sheetWindow } from "./paging";
 import { rowsQueryKey } from "./queries";
 import { ErrorState, LoadingState, MessageState, type Styles, ToolbarButton } from "./ui";
@@ -25,7 +25,7 @@ export interface SheetViewerProps {
   workspaceId: string;
   path: string;
   revision: string;
-  kind: "xlsx" | "csv";
+  kind: SheetKind;
   sheets: readonly Sheet[];
   theme: PluginTheme;
   styles: Styles;
@@ -109,6 +109,8 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
     </View>
   );
   const recordSheet = { index: grid.sheet, ...sheet };
+  // JSON Lines and Parquet name their columns, so records need no header row.
+  const named = kind === "jsonl" || kind === "parquet";
   const header = recordHeaders.get(workspaceId, path, grid.sheet);
   const common = { workspaceId, path, revision, sheet: recordSheet, theme, styles, leading: modeSwitch };
   const sheetTabs = sheets.length > 1 ? (
@@ -141,7 +143,10 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
     return (
       <View style={styles.screen}>
         {sheetTabs}
-        {header === undefined || choosingHeader ? (
+        {named ? (
+          <RecordCard key={grid.sheet} {...common} header={null} named initialRow={recordStart} onChangeHeader={() => {}}
+            onShowInGrid={(row) => jump({ sheet: grid.sheet, row, column: grid.columnOffset })} />
+        ) : header === undefined || choosingHeader ? (
           <HeaderChooser key={grid.sheet} {...common} onChoose={(chosen) => {
             recordHeaders.set(workspaceId, path, grid.sheet, chosen);
             rememberHeader();
@@ -167,7 +172,7 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
         {modeSwitch}
         <ToolbarButton theme={theme} styles={styles} icon="RotateCcw" accessibilityLabel="Reset reading position"
           onPress={() => { setSelected(null); dispatch({ type: "reconcile", state: INITIAL_GRID }); }} />
-        {kind === "xlsx" ? (
+        {kind === "xlsx" || kind === "jsonl" ? (
           <ToolbarButton theme={theme} styles={styles} icon="TriangleAlert" label="Issues" accessibilityLabel="Check for issues"
             variant="toggle" selected={checking} onPress={() => setChecking(!checking)} />
         ) : null}
@@ -226,7 +231,7 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
       </View>
       {checking ? (
         <IssuesPanel key={revision} workspaceId={workspaceId} path={path} revision={revision} sheetNames={sheets.map((candidate) => candidate.name)}
-          theme={theme} styles={styles} onJump={jump} onClose={() => setChecking(false)} />
+          data={named} theme={theme} styles={styles} onJump={jump} onClose={() => setChecking(false)} />
       ) : null}
       {selected ? (
         <CellInspector
@@ -234,6 +239,7 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
           path={path}
           revision={revision}
           sheetName={sheet.name}
+          columnLabel={data?.columnNames?.[selected.column - data.columnOffset]}
           target={{ sheet: grid.sheet, ...selected }}
           shown={selectedValue ? <Highlight text={selectedValue} query={navigation?.query} theme={theme} active={navigation?.target.type === "cell" && navigation.target.sheet === grid.sheet &&
             navigation.target.row === selected.row && navigation.target.column === selected.column ? navigation.start : undefined} /> : null}
@@ -255,7 +261,7 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
               <Text style={[cells.cell, cells.rowNumber]} />
               {Array.from({ length: columnCount }, (_, column) => (
                 <Text key={column} style={[cells.cell, cells.header]} numberOfLines={1}>
-                  {columnName(data.columnOffset + column)}
+                  {data.columnNames?.[column] ?? columnName(data.columnOffset + column)}
                 </Text>
               ))}
             </View>

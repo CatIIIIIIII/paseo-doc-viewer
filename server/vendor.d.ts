@@ -21,3 +21,8 @@ declare module "heic-decode/lib.js" {
   const createDecoder: (libheif: object) => HeicDecoder;
   export default createDecoder;
 }
+
+declare module "hyparquet-compressors/src/lz4.js" {
+  export function decompressLz4(input: Uint8Array, outputLength: number): Uint8Array;
+  export function decompressLz4Raw(input: Uint8Array, outputLength: number): Uint8Array;
+}

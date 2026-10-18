@@ -32,7 +32,7 @@ describe("R13: CSV and TSV open in the sheet grid", () => {
     expect(kindForPath("data/export.csv")).toBe("csv");
     expect(kindForPath("DATA.TSV")).toBe("csv");
     expect(KIND_GROUP.csv).toBe("excel");
-    expect(GROUP_LABEL.excel).toBe("Spreadsheets");
+    expect(GROUP_LABEL.excel).toBe("Spreadsheets and data");
     expect(KIND_ICON.csv).toBe("FileSpreadsheet");
   });
 

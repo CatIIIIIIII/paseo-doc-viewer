@@ -457,3 +457,37 @@ export async function rowWindow(
     nextColumnOffset: columnEnd < columnCount ? columnEnd : null,
   };
 }
+
+// One cell's stored text without the grid's 2,000-character cut, up to `maxChars`: the whole shared or
+// inline string, or a formula's text result. Other cells are short and come back as the grid shows them.
+export async function fullCellText(workbook: Workbook, strings: string[], sheet: SheetRef, row: number, column: number, maxChars: number, deadline: number): Promise<{ text: string; truncated: boolean; length?: number } | null> {
+  let token: string | undefined;
+  const capture: RowScan<string>["decode"] = (cell) => cell;
+  for await (const found of sheetRows(workbook, sheet, row, { columnStart: column, columnEnd: column + 1, deadline, decode: capture })) {
+    if (found.row < row) continue;
+    if (found.row === row) token = found.cells?.get(column);
+    break;
+  }
+  if (token === undefined) return null;
+  const whole = (text: string) => (text.length > maxChars ? { text: text.slice(0, maxChars), truncated: true, length: text.length } : { text, truncated: false, length: text.length });
+  const runs = (xml: string) => {
+    let text = "";
+    for (const run of xml.replace(PHONETIC, "").matchAll(TEXT_RUN)) text += run[1];
+    return decodeEntities(text);
+  };
+  const open = /^<c\b[^>]*>/.exec(token)?.[0] ?? token;
+  const type = attribute(open, "t");
+  const stored = /<v\b[^>]*>([^<]*)<\/v>/.exec(token)?.[1];
+  if (type === "inlineStr") return whole(runs(token));
+  if (type === "str" && stored !== undefined) return whole(decodeEntities(stored));
+  if (type === "s" && stored !== undefined && workbook.sharedStringsPart) {
+    const target = Number(decodeEntities(stored));
+    let at = 0;
+    for await (const [item] of scan(streamEntry(workbook.index, workbook.sharedStringsPart, "xlsx"), SHARED_STRING)) {
+      if (at++ === target) return whole(runs(item));
+      if (at % 4096 === 0 && Date.now() > deadline) throw new Error(ERROR_MESSAGES.slowWindow());
+    }
+    return null;
+  }
+  return whole(cellText(token, workbook, strings));
+}
