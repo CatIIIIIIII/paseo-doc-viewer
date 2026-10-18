@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- A malformed TIFF (a directory loop or an inflated value count) can no longer stop the viewer; it is refused as damaged.
+- A Word file can no longer hide its main document under another name or a second relationship to get past the size limits.
+- PDFs render in a separate worker thread: a PDF that crashes PDFium fails alone, the next PDF opens normally, and a slow page no longer freezes other documents.
+- Find in a wide CSV with blank rows, and Excel sheets with unclosed tags, no longer freeze the viewer.
+- Every request now finishes within 20 s, and work that ran out of time is stopped instead of running beside new work.
+- Find in a spreadsheet no longer skips matches after you open a result.
+- Workbooks whose dimension or cell references go past Excel's limits open instead of failing.
+- A PNG whose header claims an enormous width is refused before memory is reserved.
+- File names in a review message can no longer add lines of their own; newlines and direction controls are replaced, as in download names.
+- Saved positions, pins and review marks: daemons sharing the folder no longer overwrite each other, an oversized file is trimmed by last use instead of wiped, and a daemon with its own `PASEO_HOME` keeps separate state.
+- Review notes: the overview now says exactly when a send can still reach a turn that just started.
+
 ## 0.4.0 (2026-10-17)
 
 - PDF page map: a Pages button shows a grid of low-resolution page thumbnails (2 or 3 columns on phones). Thumbnails load visible pages first, at most two at a time per map, on one background render slot that never takes the last slot from page renders. Closing the map stops further requests; a tap opens the page. New `doc.thumbnail` RPC (PDF only, 48 to 320 px wide, under 256 KB).
