@@ -20,8 +20,9 @@ interface Held {
   path: string;
   revision: string;
   bytes: number;
-  generation: number;
-  opened: Promise<number>;
+  opened: Promise<{ pageCount: number; generation: number }>;
+  // The worker generation that holds the document, once the open succeeded.
+  settled?: number;
   users: number;
   evicted: boolean;
 }
@@ -43,19 +44,25 @@ function loadError(error: unknown, withPassword: boolean): unknown {
   return new Error(ERROR_MESSAGES.pdfDamaged());
 }
 
-async function load(file: PdfFile, handle: string, signal: AbortSignal | undefined): Promise<number> {
+async function load(file: PdfFile, handle: string, signal: AbortSignal | undefined): Promise<{ pageCount: number; generation: number }> {
   const bytes = await readFile(file.path);
   try {
-    return (await pdfium({ op: "open", key: handle, bytes, password: file.password }, { signal })).pageCount;
+    return await pdfium({ op: "open", key: handle, bytes, password: file.password }, { signal });
   } catch (error) {
     throw loadError(error, Boolean(file.password));
   }
 }
 
 function release(entry: Held): void {
-  if (!entry.evicted || entry.users > 0 || entry.generation !== pdfiumGeneration()) return;
-  entry.opened.then(() => pdfium({ op: "close", key: entry.handle }), () => {}).catch(() => {});
+  if (!entry.evicted || entry.users > 0) return;
+  entry.opened
+    .then(({ generation }) => (generation === pdfiumGeneration() ? pdfium({ op: "close", key: entry.handle }) : null), () => {})
+    .catch(() => {});
 }
+
+// A restarted or recycled worker no longer holds the documents it opened. Opens still pending
+// fail with their worker, which evicts the entry.
+const stale = (entry: Held) => entry.settled !== undefined && entry.settled !== pdfiumGeneration();
 
 function evict(key: string, entry: Held): void {
   if (held.get(key) !== entry) return;
@@ -78,8 +85,7 @@ function trim(keep: string): void {
 async function withDocument<T>(file: PdfFile, signal: AbortSignal | undefined, use: (handle: string, pageCount: number) => Promise<T>): Promise<T> {
   const key = `${file.path}\0${file.revision}\0${file.passwordKey}`;
   let entry = held.get(key);
-  // A restarted or recycled worker no longer holds the documents it opened.
-  if (entry && entry.generation !== pdfiumGeneration()) {
+  if (entry && stale(entry)) {
     held.delete(key);
     entry = undefined;
   }
@@ -96,19 +102,21 @@ async function withDocument<T>(file: PdfFile, signal: AbortSignal | undefined, u
       path: file.path,
       revision: file.revision,
       bytes: file.size,
-      generation: pdfiumGeneration(),
       opened: load(file, handle, signal),
       users: 0,
       evicted: false,
     };
-    created.opened.catch(() => evict(key, created));
+    created.opened.then(
+      ({ generation }) => (created.settled = generation),
+      () => evict(key, created),
+    );
     held.set(key, created);
     trim(key);
     entry = created;
   }
   entry.users++;
   try {
-    return await use(entry.handle, await entry.opened);
+    return await use(entry.handle, (await entry.opened).pageCount);
   } finally {
     entry.users--;
     release(entry);

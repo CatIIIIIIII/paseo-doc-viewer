@@ -39,7 +39,7 @@ describe("review-hardening: docx main part", () => {
 });
 
 describe("review-hardening: PDFium worker", () => {
-  it.fails("a timed-out job does not fail an unrelated job that was only queued behind it", async () => {
+  it("a timed-out job does not fail an unrelated job that was only queued behind it", async () => {
     const slow = new Uint8Array(nestedFormPdf(9));
     const ok = new Uint8Array(await textPdf(["hello"]));
     await pdfium({ op: "open", key: "rh-slow", bytes: slow });
@@ -47,6 +47,18 @@ describe("review-hardening: PDFium worker", () => {
     const queued = pdfium({ op: "open", key: "rh-ok", bytes: ok });
     await expect(render).rejects.toThrow();
     // The queued open never reached the worker; it could run on the replacement worker.
-    await expect(queued).resolves.toEqual({ pageCount: 1 });
+    await expect(queued).resolves.toMatchObject({ pageCount: 1 });
+  }, 60_000);
+
+  it("fails queued calls on documents the replaced worker held", async () => {
+    await pdfium({ op: "open", key: "rh-slow-2", bytes: new Uint8Array(nestedFormPdf(9)) });
+    await pdfium({ op: "open", key: "rh-held", bytes: new Uint8Array(await textPdf(["held"])) });
+    const render = pdfium({ op: "render", key: "rh-slow-2", index: 0, width: 800, height: 800 }, { timeoutMs: 200 });
+    const lost = pdfium({ op: "text", key: "rh-held", index: 0 });
+    const fresh = pdfium({ op: "open", key: "rh-fresh", bytes: new Uint8Array(await textPdf(["fresh"])) });
+    await expect(render).rejects.toThrow();
+    await expect(lost).rejects.toThrow(/busy/);
+    await expect(fresh).resolves.toMatchObject({ pageCount: 1 });
+    await expect(pdfium({ op: "text", key: "rh-fresh", index: 0 })).resolves.toEqual({ text: "fresh" });
   }, 60_000);
 });

@@ -43,6 +43,8 @@ let init: Promise<PdfiumWorkerInit> | undefined;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
 let nextId = 1;
 let generation = 0;
+// Documents sent to the current worker; they die with it.
+const opened = new Set<string>();
 const stats = { spawns: 0, opens: 0 };
 
 // @hyzyla/pdfium/inline decodes its embedded wasm inside init() and hands the bytes to initBase;
@@ -93,15 +95,20 @@ function settle(job: Job, outcome: { value: unknown } | { error: Error }): void 
   else job.resolve(outcome.value);
 }
 
-// Ends the current worker and fails everything in flight: the documents it held are gone.
+// Ends the current worker. The running job fails, and so do queued calls on documents the worker
+// held; other queued calls, such as opens that never reached it, run on the next worker.
 function restart(culprit?: { job: Job; error: Error }): void {
   const dead = worker;
   worker = undefined;
   generation++;
   void dead?.terminate();
-  const victims = [...(running ? [running] : []), ...queue.splice(0)];
+  const lost = (job: Job) => job.request.op !== "open" && opened.has(job.request.key);
+  const victims = [...(running ? [running] : []), ...queue.filter(lost)];
+  queue.splice(0, queue.length, ...queue.filter((job) => !lost(job)));
+  opened.clear();
   running = undefined;
   for (const job of victims) settle(job, { error: job === culprit?.job ? culprit.error : new Error(ERROR_MESSAGES.busy()) });
+  void pump();
 }
 
 function crashed(source: Worker, error: Error): void {
@@ -115,11 +122,11 @@ function respond(source: Worker, response: PdfiumResponse): void {
   if (source !== worker || !job || job.id !== response.id) return;
   if (!response.ok && response.failure.kind === "fatal") {
     console.error("[doc-viewer] PDFium aborted; starting a new worker:", response.failure.message);
-    restart({ job, error: new Error(ERROR_MESSAGES.pdfRenderFailed()) });
-    return void pump();
+    return restart({ job, error: new Error(ERROR_MESSAGES.pdfRenderFailed()) });
   }
   running = undefined;
-  if (response.ok) settle(job, { value: response.value });
+  // An open reports the worker generation that holds the document.
+  if (response.ok) settle(job, { value: job.request.op === "open" ? { ...(response.value as object), generation } : response.value });
   else if (response.failure.kind === "load") settle(job, { error: new PdfiumLoadError(response.failure.code, response.failure.certificate) });
   else if (response.failure.kind === "missing") settle(job, { error: new Error(ERROR_MESSAGES.busy()) });
   else {
@@ -137,6 +144,7 @@ function idle(): void {
     void worker.terminate();
     worker = undefined;
     generation++;
+    opened.clear();
   }, PDFIUM_IDLE_MS);
   // React Native's global typings shadow Node's, so setTimeout is typed as returning a number.
   (idleTimer as unknown as NodeJS.Timeout).unref();
@@ -159,27 +167,28 @@ async function pump(): Promise<void> {
   }
   if (running !== job) return;
   job.timer = setTimeout(() => restart({ job, error: new Error(ERROR_MESSAGES.tooSlow()) }), job.timeoutMs);
-  if (job.request.op === "open") stats.opens++;
+  if (job.request.op === "open") {
+    stats.opens++;
+    opened.add(job.request.key);
+  }
   const transfer = job.request.op === "open" ? [job.request.bytes.buffer as ArrayBuffer] : [];
   target.postMessage({ id: job.id, request: job.request }, transfer);
 }
 
 function abandon(job: Job): void {
-  if (job === running) {
-    restart({ job, error: new Error(ERROR_MESSAGES.tooSlow()) });
-    void pump();
-    return;
-  }
+  if (job === running) return restart({ job, error: new Error(ERROR_MESSAGES.tooSlow()) });
   const at = queue.indexOf(job);
   if (at >= 0) queue.splice(at, 1);
   settle(job, { error: new Error(ERROR_MESSAGES.tooSlow()) });
 }
 
+type HostResults = Omit<PdfiumResults, "open"> & { open: PdfiumResults["open"] & { generation: number } };
+
 export function pdfium<Op extends PdfiumRequest["op"]>(
   request: Extract<PdfiumRequest, { op: Op }>,
   { signal, timeoutMs = RPC_DEADLINE_MS }: PdfiumCallOptions = {},
-): Promise<PdfiumResults[Op]> {
-  return new Promise<PdfiumResults[Op]>((resolve, reject) => {
+): Promise<HostResults[Op]> {
+  return new Promise<HostResults[Op]>((resolve, reject) => {
     if (signal?.aborted) return reject(new Error(ERROR_MESSAGES.tooSlow()));
     // The bytes are transferred to the worker, so they must own their whole buffer.
     const plain: PdfiumRequest = request;
@@ -202,7 +211,7 @@ export function pdfium<Op extends PdfiumRequest["op"]>(
   });
 }
 
-// Documents opened in an earlier generation are gone with the worker that held them.
+// Each worker is a generation; documents opened in an earlier one are gone with it.
 export function pdfiumGeneration(): number {
   return generation;
 }
