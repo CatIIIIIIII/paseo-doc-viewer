@@ -58,7 +58,9 @@ const attribute = (tag: string, name: string) => {
 };
 const clip = (text: string) => (text.length > XLSX_MAX_CELL_CHARS ? text.slice(0, XLSX_MAX_CELL_CHARS) : text);
 
-async function* scan(chunks: AsyncIterable<Buffer>, token: RegExp): AsyncGenerator<RegExpExecArray> {
+async function* scan(chunks: AsyncIterable<Buffer>, shared: RegExp): AsyncGenerator<RegExpExecArray> {
+  // Scans pause between yields (a parked Find stream for minutes), so each needs its own lastIndex.
+  const token = new RegExp(shared.source, shared.flags);
   const decoder = new StringDecoder("utf8");
   let pending = "";
   for await (const chunk of chunks) {
