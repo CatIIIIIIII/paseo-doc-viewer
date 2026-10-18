@@ -27,9 +27,9 @@ export interface ReviewAgents {
 
 export type SendOutcome = { status: "sent" } | { status: "busy"; label: string } | { status: "missing" };
 
-// Only an agent with no turn in progress takes the review, so nothing is interrupted and no
-// pending permission is cleared by the send. A closed agent is one the daemon has not loaded
-// since it started; sending reopens it.
+// Only an agent with no turn in progress takes the review, so the send does not interrupt a turn
+// it can see or clear a pending permission. A closed agent is one the daemon has not loaded since
+// it started; sending reopens it.
 function isReady(agent: RecipientAgent): boolean {
   const settled = agent.status === "idle" || agent.status === "error" || agent.status === "closed";
   return settled && agent.pendingPermissions.length === 0 && !agent.providerUnavailable;
@@ -61,9 +61,10 @@ export function reviewRecipients(agents: readonly RecipientAgent[], workspaceId:
     .sort((a, b) => Number(b.ready) - Number(a.ready) || b.updatedAt.localeCompare(a.updatedAt));
 }
 
-// The daemon interrupts a running turn unless told otherwise. The agent's state is read again
-// right before sending; if a turn starts between the two calls, "steer" adds the review to it on
-// providers that support steering (others replace the turn, as the daemon does for any steer).
+// The agent's state is read again right before sending, with nothing awaited in between, and the
+// send never asks for "interrupt". Residual race: a turn that starts between the two calls gets the
+// review steered into it on providers that can steer, and replaced on the others, because the
+// daemon's "steer" falls back to replacing the turn. Closing it needs an idle-only send in Paseo.
 export async function sendReview(agents: ReviewAgents, agentId: string, message: ReviewMessage): Promise<SendOutcome> {
   const handle = agents.ref(agentId);
   const current = (await handle.refresh())?.agent;
