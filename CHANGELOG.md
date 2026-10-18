@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1 (2026-10-18)
+
+### New
+
+- Turn cards have a Settings link (a gear on phones) that opens Settings, Document viewer, where the cards can be turned off.
+
+### Changed
+
+- Opening a file in the viewer clears its New pill in Documents until the file changes again. Like visits, this is shared by every client of the daemon.
+
 ## 0.5.0 (2026-10-18)
 
 ### New
