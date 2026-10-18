@@ -115,7 +115,9 @@ function Block({ block, width, theme, styles, query, active }: { block: DocBlock
           ))}
         </View>
       );
-    case "table":
+    case "table": {
+      const columns = block.rows.reduce((max, row) => Math.max(max, row.length), 1);
+      const columnWidth = Math.max(160, (width - 2 * styles.card.borderWidth) / columns);
       return (
         <ScrollView horizontal style={styles.card}>
           <View>
@@ -128,7 +130,7 @@ function Block({ block, width, theme, styles, query, active }: { block: DocBlock
                   <View
                     key={cellIndex}
                     style={{
-                      width: 160,
+                      width: columnWidth,
                       padding: 8,
                       borderLeftWidth: cellIndex === 0 ? 0 : 1,
                       borderLeftColor: theme.colors.border,
@@ -145,6 +147,7 @@ function Block({ block, width, theme, styles, query, active }: { block: DocBlock
           </View>
         </ScrollView>
       );
+    }
     case "image": {
       const size = fitSize(Math.min(width, block.image.width), block.image);
       return (

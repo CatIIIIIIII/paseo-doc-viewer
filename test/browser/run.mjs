@@ -173,6 +173,15 @@ try {
   await expect(page.getByText("120 matches", { exact: true })).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole("button", { name: "Search more", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "contract.docx", exact: true }).click();
+  await expect.poll(() => page.getByText("Unit", { exact: true }).evaluate((cell) => {
+    let row = cell;
+    while (getComputedStyle(row).display !== "flex" || getComputedStyle(row).flexDirection !== "row") row = row.parentElement;
+    let card = row;
+    while (getComputedStyle(card).overflow !== "auto") card = card.parentElement;
+    const inside = card.getBoundingClientRect().width - 2; // the card's 1 px border, which the shim does not draw
+    const cells = row.lastElementChild.getBoundingClientRect().right - row.firstElementChild.getBoundingClientRect().left;
+    return { gap: Math.round(inside - cells), overflow: card.scrollWidth - card.clientWidth };
+  })).toEqual({ gap: 0, overflow: 0 });
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("services");
   await page.getByRole("button", { name: "Search", exact: true }).click();
@@ -674,6 +683,6 @@ try {
   await page.getByRole("button", { name: settingsLinkName, exact: true }).click();
   await expect(page.getByText("Turn these cards off in Settings, Document viewer.", { exact: true })).toBeVisible();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

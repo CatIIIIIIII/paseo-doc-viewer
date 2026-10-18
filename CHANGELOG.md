@@ -14,6 +14,7 @@
 ### Fixed
 
 - Review notes: when the preselected agent turns busy, it stays selected and the screen says why Send is off. Before, the selection moved to another idle agent, or to none with no explanation.
+- Word tables fill their card when the columns fit. Before, every column was 160 px wide, which left an empty band after the last column on wide screens. Tables with more columns still scroll sideways.
 
 ## 0.5.0 (2026-10-18)
 
