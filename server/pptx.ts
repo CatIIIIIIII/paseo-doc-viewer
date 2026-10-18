@@ -23,11 +23,13 @@ const TEXT_BUDGET_BYTES = SLIDE_BUDGET_BYTES / 2;
 const MAX_TEXT_CHARS = 20_000;
 export const SLIDE_TEXT_TRUNCATED = "More text on this slide is not shown";
 const MAX_REASONS = 5;
-const SLIDE_ID = /<(?:\w+:)?sldId\b[^>]*?\b\w+:id="([^"]+)"/g;
-const RELATIONSHIP = /<Relationship\b[^>]*>/g;
-const PARAGRAPH = /<a:p(?:\s[^>]*[^/])?>([\s\S]*?)<\/a:p>/g;
-const RUN = /<a:t(?:\s[^>]*)?>([^<]*)<\/a:t>|<a:br\b[^>]*\/>/g;
-const BLIP = /<a:blip\b[^>]*?\br:(?:embed|link)="([^"]+)"/g;
+// Start tags stop at the next "<" (never valid inside a tag) instead of scanning to the end of
+// the part once per candidate, so a part of unclosed tags costs linear time.
+const SLIDE_ID = /<(?:\w+:)?sldId\b[^<>]*?\b\w+:id="([^"]+)"/g;
+const RELATIONSHIP = /<Relationship\b[^<>]*>/g;
+const START_TAG_END = /[^<>]*>/y;
+const RUN = /<a:t(?:\s[^<>]*)?>([^<]*)<\/a:t>|<a:br\b[^<>]*\/>/g;
+const BLIP = /<a:blip\b[^<>]*?\br:(?:embed|link)="([^"]+)"/g;
 const MARKER_BYTES = Buffer.byteLength(JSON.stringify(SLIDE_TEXT_TRUNCATED), "utf8") + 1;
 const MISSING_IMAGE = "The picture is missing from the file";
 
@@ -46,10 +48,31 @@ async function relationships(index: ZipIndex, part: string): Promise<Map<string,
   return targets;
 }
 
+// Yields each <a:p> body up to the first "</a:p>" after its start tag. A lazy regex rescanned to
+// the end of the slide once per unclosed "<a:p>"; indexOf stops at the first one that never closes.
+function* paragraphs(xml: string): Generator<string> {
+  let from = 0;
+  for (let start = xml.indexOf("<a:p"); start >= 0; start = xml.indexOf("<a:p", from)) {
+    from = start + 4;
+    let gt = from;
+    if (xml[gt] !== ">") {
+      if (!/\s/.test(xml[gt] ?? "")) continue;
+      START_TAG_END.lastIndex = gt;
+      if (!START_TAG_END.test(xml)) continue;
+      gt = START_TAG_END.lastIndex - 1;
+      if (xml[gt - 1] === "/") continue;
+    }
+    const end = xml.indexOf("</a:p>", gt + 1);
+    if (end < 0) return;
+    yield xml.slice(gt + 1, end);
+    from = end + 6;
+  }
+}
+
 function boundedTexts(xml: string): string[] {
   const kept: string[] = [];
   let bytes = 0;
-  for (const [, body] of xml.matchAll(PARAGRAPH)) {
+  for (const body of paragraphs(xml)) {
     let text = "";
     for (const run of body.matchAll(RUN)) {
       text += run[1] === undefined ? "\n" : decodeEntities(run[1]);
