@@ -1,6 +1,6 @@
 # PDF and Office viewer for Paseo
 
-![An agent turn in Paseo ends with a card listing the three documents it changed, each marked New or Changed with an Open button](assets/screenshot-turn-card.png)
+![An agent turn in Paseo ends with a card listing the four documents it changed, each marked New or Changed with an Open button](assets/screenshot-turn-card.png)
 
 A [Paseo](https://github.com/getpaseo/paseo) plugin that shows PDF, Word, Excel, CSV, JSON Lines, Parquet, PowerPoint, image, video and audio files from your workspace inside the app, on desktop, web and mobile. Documents are rendered on the daemon host with pure JavaScript and WebAssembly, so nothing needs to be installed there. When an agent turn ends, a card in the agent's timeline lists the documents changed while it ran, with Open buttons and a Settings link to turn the cards off. The Documents panel has a New filter for files added or changed since your last visit. [OVERVIEW.md](OVERVIEW.md) describes what users see and the limits.
 
