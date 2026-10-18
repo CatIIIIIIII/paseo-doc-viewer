@@ -36,6 +36,7 @@ writeFileSync(join(outDir, "server.js"), bundles.serverBundle);
 
 const handlers = new Map<string, (input: unknown, context: unknown) => Promise<unknown>>();
 evaluateBundle(bundles.serverBundle)({
+  registerSettings: () => ({ read: async () => ({ status: "ready", revision: "", values: { turnCards: true } }), subscribe: () => () => {} }), on: () => () => {},
   handle: (contract: { name: string }, handler: never) => handlers.set(contract.name, handler),
 } as never);
 const paseoApi = {

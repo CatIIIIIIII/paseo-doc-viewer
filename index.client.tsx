@@ -7,6 +7,9 @@ import { setHostClient } from "./client/host-client";
 import { DOCUMENT_SCREEN_ID, DOCUMENTS_PANEL_ID, openByPath, openMostRecent } from "./client/recent";
 import { REVIEW_SCREEN_ID, reviewScreen } from "./client/review-note";
 import { ReviewScreen } from "./client/review-screen";
+import { SETTINGS_SCREEN_ID, ViewerSettings } from "./client/settings-screen";
+import { createTurnDocsCard } from "./client/turn-docs-card";
+import { TURN_DOCS_KIND, TURN_DOCS_VERSION, turnDocsSchema } from "./shared/turn-docs";
 
 export default function contribute(client: PluginClientContext) {
   setHostClient(client);
@@ -53,6 +56,8 @@ export default function contribute(client: PluginClientContext) {
       context: "workspace",
       onSelect: ({ openScreen, workspace }) => openScreen(reviewScreen(workspace.id)),
     }),
+    client.addTimelineRenderer({ kind: TURN_DOCS_KIND, version: TURN_DOCS_VERSION, schema: turnDocsSchema, Component: createTurnDocsCard(client) }),
+    client.addSettingsScreen({ id: SETTINGS_SCREEN_ID, title: "Document viewer", icon: "FileText", Component: ViewerSettings }),
   ];
   return () => {
     setHostClient(null);

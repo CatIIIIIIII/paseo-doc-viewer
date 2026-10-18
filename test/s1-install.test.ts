@@ -125,7 +125,7 @@ describe("S1: plugin installs on Paseo 0.11", () => {
     const contribute = evaluateBundle<(server: unknown) => () => void>(bundle, (name) => host[name] ?? outside(name));
 
     const handlers = new Map<string, (input: unknown, context: unknown) => Promise<unknown>>();
-    contribute({ handle: (contract: { name: string }, handler: never) => handlers.set(contract.name, handler) });
+    contribute({ registerSettings: () => ({ read: async () => ({ status: "ready", revision: "", values: { turnCards: true } }), subscribe: () => () => {} }), on: () => () => {}, handle: (contract: { name: string }, handler: never) => handlers.set(contract.name, handler) } as never);
     expect([...handlers.keys()].sort()).toEqual(DOCUMENT_RPCS.map((rpc) => rpc.name).sort());
 
     const root = workspaceWithFixtures("statement.pdf");

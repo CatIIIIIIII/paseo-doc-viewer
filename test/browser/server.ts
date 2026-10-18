@@ -33,7 +33,7 @@ bytes.writeUInt16LE(16, 34); bytes.write("data", 36); bytes.writeUInt32LE(16000,
 for (let i = 0; i < 8000; i++) bytes.writeInt16LE(Math.round(Math.sin(i * 2 * Math.PI * 440 / 8000) * 8000), 44 + i * 2);
 writeFileSync(join(root, "tone.wav"), bytes);
 const handlers = new Map<string, (input: any, context: any) => Promise<any>>();
-contribute({ handle: (contract: any, handler: any) => handlers.set(contract.name, handler) } as any);
+contribute({ registerSettings: () => ({ read: async () => ({ status: "ready", revision: "", values: { turnCards: true } }), subscribe: () => () => {} }), on: () => () => {}, handle: (contract: any, handler: any) => handlers.set(contract.name, handler) } as any);
 // A tiny budget makes every search span many requests, so the client must keep going on its own.
 handlers.set("doc.search", async ({ path, password, query, cursor, searchId }) =>
   searchDocument({ root, path, password }, query, cursor, 1, searchId && searchGenerations.begin(searchId.session, searchId.generation)));
