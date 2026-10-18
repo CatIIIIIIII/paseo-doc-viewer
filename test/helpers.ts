@@ -9,9 +9,10 @@ export const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures"
 export const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const created: string[] = [];
+// Removing a 50,000-file workspace (r3) can pass the 10 s default hook timeout on a loaded machine.
 afterEach(() => {
   for (const dir of created.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
+}, 60_000);
 
 export function workspace(files: Record<string, string | Uint8Array> = {}): string {
   const root = mkdtempSync(join(tmpdir(), "doc-viewer-"));
