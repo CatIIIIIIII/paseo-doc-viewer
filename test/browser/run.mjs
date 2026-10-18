@@ -468,7 +468,7 @@ try {
   expect(await page.evaluate(() => window.__sentReviews.length)).toBe(0);
   await page.request.get(`http://127.0.0.1:${port}/touch/statement.pdf`);
   await expect(page.getByText("Older revision: the file changed since this note", { exact: true })).toHaveCount(2, { timeout: 12000 });
-  await expect(preview).toContainText("statement.pdf, older version (modified ");
+  await expect(preview).toContainText("\"statement.pdf\", older version (modified ");
   await expect(page.getByRole("button", { name: "Attach page 1 image", exact: true })).toHaveAttribute("aria-disabled", "true");
   await page.screenshot({ path: `${directory}/review-screen.png`, fullPage: true });
   await page.getByRole("radio", { name: "Docs agent, Idle", exact: true }).click();
@@ -479,7 +479,7 @@ try {
   expect(delivered[0].id).toBe("docs");
   expect(delivered[0].options.activeTurnBehavior).toBe("steer");
   expect(delivered[0].options.images).toHaveLength(1);
-  expect(delivered[0].text).toContain("statement.pdf, older version");
+  expect(delivered[0].text).toContain("\"statement.pdf\", older version");
   expect(delivered[0].text).toMatch(/\(modified \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC, [\d,]+ bytes\)/);
   await page.screenshot({ path: `${directory}/review-sent.png`, fullPage: true });
   await page.getByRole("button", { name: "Open agent", exact: true }).click();
