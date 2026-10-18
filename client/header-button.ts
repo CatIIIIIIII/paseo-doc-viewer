@@ -6,8 +6,8 @@ import { docsAnyRpc } from "../shared/rpc";
 // The SDK does not say which workspaces are on screen, so every known workspace is
 // probed with docs.any, which stops at the first document, a few at a time.
 // Failures back off up to the cap. An agent whose turn just ended is the usual source of a first
-// document, so its workspace is probed again at once if the button is hidden. That listens to the
-// agent updates the app already receives: no extra polling and no daemon subscription of its own.
+// document, so its workspace is probed again at once if the button is hidden. Turn ends come from
+// one agent-list subscription (pushed updates), so this adds no polling.
 export const HEADER_POLL_MS = 2 * 60_000;
 export const HEADER_POLL_MAX_MS = 10 * 60_000;
 const MAX_CONCURRENT_PROBES = 2;
@@ -15,6 +15,9 @@ const MAX_CONCURRENT_PROBES = 2;
 export const TURN_RECHECK_MIN_MS = 10_000;
 
 type HeaderButtonHost = Pick<PluginClientContext, "paseo" | "rpc" | "addHeaderButton" | "openPanel">;
+type AgentUpdate =
+  | { kind: "upsert"; agent: { id: string; status: string; workspaceId?: string | null } }
+  | { kind: "remove"; agentId: string };
 
 interface WorkspaceProbe {
   timer?: ReturnType<typeof setTimeout>;
@@ -116,19 +119,41 @@ export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void 
     state.timer = setTimeout(() => void state.refresh(), wait);
   };
   const statuses = new Map<string, string>();
-  // Older hosts may lack agents.subscribe; the poll still covers them.
-  const stopTurns = typeof client.paseo.agents?.subscribe === "function"
-    ? client.paseo.agents.subscribe((update) => {
-      if (update.kind !== "upsert") {
-        statuses.delete(update.agentId);
+  const agentChanged = (update: AgentUpdate) => {
+    if (update.kind !== "upsert") {
+      statuses.delete(update.agentId);
+      return;
+    }
+    const { id, status, workspaceId } = update.agent;
+    const previous = statuses.get(id);
+    statuses.set(id, status);
+    if (previous === "running" && status !== "running" && workspaceId) turnEnded(workspaceId);
+  };
+  // agents.subscribe only relays updates from agent subscriptions opened through this API, not the
+  // app's own, so the plugin opens one: pushed updates, no polling. Older hosts fall back to the poll.
+  let stopTurns = () => {};
+  client.paseo.agents
+    .list({ subscribe: {} })
+    .then(({ entries, subscription }) => {
+      if (stopped) {
+        void subscription.release();
         return;
       }
-      const { id, status, workspaceId } = update.agent;
-      const previous = statuses.get(id);
-      statuses.set(id, status);
-      if (previous === "running" && status !== "running" && workspaceId) turnEnded(workspaceId);
+      for (const { agent } of entries) statuses.set(agent.id, agent.status);
+      const unsubscribe = subscription.subscribe({
+        snapshot: () => {},
+        update: (message) => {
+          if (message.type === "agent_update") agentChanged(message.payload as AgentUpdate);
+        },
+      });
+      stopTurns = () => {
+        unsubscribe();
+        void subscription.release();
+      };
     })
-    : () => {};
+    .catch((error: unknown) => {
+      if (!stopped) console.warn("Documents header button: agent updates unavailable", error);
+    });
 
   client.paseo.workspaces
     .list({ subscribe: {} })

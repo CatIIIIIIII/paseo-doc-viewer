@@ -20,8 +20,8 @@ function fakeClient() {
   let observer: Observer | null = null;
   let resolveList!: () => void;
   const release = vi.fn(async () => {});
-  let agentListener: ((update: unknown) => void) | null = null;
-  const stopAgents = vi.fn(() => void (agentListener = null));
+  let agentObserver: { update(message: unknown): void } | null = null;
+  const stopAgents = vi.fn(async () => void (agentObserver = null));
   const listed = new Promise<void>((resolve) => (resolveList = resolve));
   const client = {
     rpc: vi.fn(async (_contract: unknown, _request: unknown) => ({ found: true })),
@@ -33,10 +33,18 @@ function fakeClient() {
     }),
     paseo: {
       agents: {
-        subscribe: vi.fn((listener: (update: unknown) => void) => {
-          agentListener = listener;
-          return stopAgents;
-        }),
+        // A local listener that would only hear subscriptions opened by the plugin itself.
+        subscribe: vi.fn(() => () => {}),
+        list: vi.fn(async () => ({
+          entries: [{ agent: { id: "busy", status: "running", workspaceId: "ws-1" } }],
+          subscription: {
+            subscribe: (next: { update(message: unknown): void }) => {
+              agentObserver = next;
+              return () => {};
+            },
+            release: stopAgents,
+          },
+        })),
       },
       workspaces: {
         list: vi.fn(async () => {
@@ -68,7 +76,8 @@ function fakeClient() {
     release,
     settle,
     observer: () => observer,
-    agentUpdate: (update: unknown) => agentListener?.(update),
+    agentUpdate: (update: unknown) => agentObserver?.update({ type: "agent_update", payload: update }),
+    agentList: client.paseo.agents.list,
     stopAgents,
   };
 }
@@ -264,8 +273,17 @@ describe("Documents header button after an agent turn", () => {
     fake.agentUpdate(agentStatus("a", "idle"));
     await vi.advanceTimersByTimeAsync(0);
     expect(fake.rpc).toHaveBeenCalledTimes(1);
+    expect(fake.agentList).toHaveBeenCalledWith({ subscribe: {} });
     cleanup();
     expect(fake.stopAgents).toHaveBeenCalled();
+  });
+
+  it("knows agents already running when it starts, so their first turn end counts", async () => {
+    const { fake, cleanup } = await hiddenWorkspace();
+    fake.agentUpdate(agentStatus("busy", "idle"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.rpc).toHaveBeenCalledTimes(1);
+    cleanup();
   });
 
   it("ignores updates that are not a turn ending and agents of unknown workspaces", async () => {
