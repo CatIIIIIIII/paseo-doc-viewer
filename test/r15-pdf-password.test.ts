@@ -83,7 +83,7 @@ describe("R15: password-protected PDFs open with a password", () => {
     }
     const root = workspaceWithFixtures("locked.pdf");
     const handlers = new Map<string, (input: unknown, context: unknown) => Promise<unknown>>();
-    contribute({ handle: (contract: { name: string }, handler: never) => handlers.set(contract.name, handler) } as never);
+    contribute({ registerSettings: () => ({ read: async () => ({ status: "ready", revision: "", values: { turnCards: true } }), subscribe: () => () => {} }), on: () => () => {}, handle: (contract: { name: string }, handler: never) => handlers.set(contract.name, handler) } as never);
     const paseo = {
       workspaces: {
         list: async () => ({ entries: [{ id: "ws", workspaceDirectory: root, projectRootPath: root }], pageInfo: { hasMore: false } }),

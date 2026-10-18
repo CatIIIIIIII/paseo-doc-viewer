@@ -126,7 +126,7 @@ describe("R6: WebP renders as a decoded image", () => {
     const host: Record<string, unknown> = { "@getpaseo/plugin": pluginRoot, "@getpaseo/plugin/server": pluginServer, zod };
     const contribute = evaluateBundle<(server: unknown) => () => void>(bundle, (name) => host[name] ?? outside(name));
     const handlers = new Map<string, (input: unknown, context: unknown) => Promise<unknown>>();
-    contribute({ handle: (contract: { name: string }, handler: never) => handlers.set(contract.name, handler) });
+    contribute({ registerSettings: () => ({ read: async () => ({ status: "ready", revision: "", values: { turnCards: true } }), subscribe: () => () => {} }), on: () => () => {}, handle: (contract: { name: string }, handler: never) => handlers.set(contract.name, handler) } as never);
     const root = workspaceWithFixtures("alpha-lossless.webp", "animated.webp");
     const paseo = {
       workspaces: {

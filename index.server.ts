@@ -1,17 +1,37 @@
 import { fileInfo, fileChunk } from "./server/files";
 import { markReviewed, readViewerState, setPin, stateDirectory, viewerStateStore } from "./server/viewer-state";
 import { VisitStore } from "./server/visits";
-import type { PluginServerContext } from "@getpaseo/plugin/server";
+import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
+import type { TurnDocsHost } from "./server/turn-docs";
 import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, renderPage, renderThumbnail, scanIssues, renderReviewPage } from "./server/documents";
 import { searchGenerations } from "./server/search";
 import { workspaceRoot } from "./server/paths";
-import { forgetScan, hasDocuments } from "./server/recent";
+import { forgetScan, hasDocuments, scannedDocuments } from "./server/recent";
+import { createTurnDocs } from "./server/turn-docs";
+import { viewerSettings } from "./shared/settings";
 import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
 
 // Workspace roots are salted with the viewer-state secret, so the file does not reveal them.
 const visitStore = new VisitStore(stateDirectory(), async (root) => (await viewerStateStore.scannedKeys(root))(""));
 
 export default function contribute(server: PluginServerContext) {
+  const settings = server.registerSettings(viewerSettings);
+  const turnDocs = createTurnDocs({
+    scan: scannedDocuments,
+    // An unreadable settings file keeps the default (on) rather than silently dropping cards.
+    enabled: async () => {
+      const state = await settings.read().catch(() => null);
+      return state?.status !== "ready" || state.values.turnCards;
+    },
+  });
+  const unsubscribe = [
+    server.on("agent.turn_started", (event, { paseo }) => turnDocs.turnStarted(event, turnDocsHost(paseo))),
+    server.on("agent.turn_ended", async (event, { paseo }) => {
+      await turnDocs.turnEnded(event, turnDocsHost(paseo)).catch((error: unknown) => console.error("[doc-viewer] turn card failed:", error));
+    }),
+    server.on("agent.closed", ({ agent }) => turnDocs.forget(agent.id)),
+    server.on("agent.archived", ({ agent }) => turnDocs.forget(agent.id)),
+  ];
   server.handle(docOpenRpc, async ({ workspaceId, path, password }, { paseo }) =>
     openDocument({ root: await workspaceRoot(paseo, workspaceId), path, password }),
   );
@@ -71,5 +91,14 @@ export default function contribute(server: PluginServerContext) {
   server.handle(reviewPageImageRpc, async ({ workspaceId, path, password, ...request }, { paseo }) =>
     renderReviewPage({ root: await workspaceRoot(paseo, workspaceId), path, password }, request),
   );
-  return () => {};
+  return () => {
+    for (const stop of unsubscribe) stop();
+  };
+}
+
+function turnDocsHost(paseo: PluginHandlerContext["paseo"]): TurnDocsHost {
+  return {
+    resolveRoot: (workspaceId) => workspaceRoot(paseo, workspaceId),
+    append: (agentId, row) => paseo.agents.ref(agentId).timeline.append(row),
+  };
 }

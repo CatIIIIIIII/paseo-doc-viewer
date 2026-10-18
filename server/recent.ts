@@ -202,3 +202,11 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
   if (queue.size > 0) complete = false;
   return { entries: newestFirst(found), unsupported, complete };
 }
+
+// Supported documents as the shared scan sees them: cached when fresh, so a turn start costs nothing
+// after a recent list. `fresh` drops the cache first, for the scan at a turn's end.
+export async function scannedDocuments(root: string, { fresh = false } = {}): Promise<{ entries: readonly RecentEntry[]; complete: boolean }> {
+  if (fresh) forgetScan(root);
+  const scan = await sharedScan(root);
+  return { entries: scan.entries, complete: scan.complete };
+}

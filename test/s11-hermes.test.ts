@@ -58,8 +58,8 @@ var host = {
   "react/jsx-runtime": { jsx: noop, jsxs: noop, Fragment: "Fragment" },
   "react-native": { Platform: { OS: "ios", select: function (o) { return o.ios !== undefined ? o.ios : o.default; } }, StyleSheet: { create: function (s) { return s; } }, View: "View", Text: "Text", Image: "Image", ScrollView: "ScrollView", Pressable: "Pressable", ActivityIndicator: "ActivityIndicator", PixelRatio: { get: function () { return 3; } }, useWindowDimensions: function () { return { width: 390, height: 844 }; } },
   "@tanstack/react-query": { useQuery: noop, useQueryClient: noop, useInfiniteQuery: noop },
-  "@getpaseo/plugin": { defineRpc: function (contract) { return contract; } },
-  "@getpaseo/plugin/client": { useRpc: noop },
+  "@getpaseo/plugin": { defineRpc: function (contract) { return contract; }, defineSettings: function (definition) { return definition; } },
+  "@getpaseo/plugin/client": { useRpc: noop, useSettings: noop },
   "@getpaseo/plugin/client/ui": {},
   "@getpaseo/plugin/client/react-native": { Icon: noop, FlatList: noop },
   "zod": { z: chain, default: chain }
@@ -70,19 +70,19 @@ function hostRequire(name) {
 }
 var evaluate = globalThis.eval;
 var setup = evaluate(${JSON.stringify(bundle)})(hostRequire)["default"];
-var registered = { screen: [], cc: [], panel: [], slash: [], header: [] };
+var registered = { screen: [], cc: [], panel: [], slash: [], timeline: [], settings: [], header: [] };
 function record(kind) { return function (c) { registered[kind].push(c); return noop; }; }
 var subscription = { subscribe: function (observer) { observer.snapshot({ entries: [{ id: "ws" }] }); return noop; }, release: function () { return Promise.resolve(); } };
 var paseo = { workspaces: { list: function () { return Promise.resolve({ entries: [], subscription: subscription }); } } };
 function addHeaderButton(c) { registered.header.push(c); return { update: noop, remove: noop }; }
-var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addHeaderButton: addHeaderButton, openScreen: noop, openPanel: noop, paseo: paseo, rpc: function (contract) { return Promise.resolve(contract.name === "docs.any" ? { found: true } : { entries: [{ path: "a.pdf" }] }); } });
+var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addTimelineRenderer: record("timeline"), addSettingsScreen: record("settings"), addHeaderButton: addHeaderButton, openScreen: noop, openPanel: noop, paseo: paseo, rpc: function (contract) { return Promise.resolve(contract.name === "docs.any" ? { found: true } : { entries: [{ path: "a.pdf" }] }); } });
 var opened = [];
 var context = {
   args: "", context: "workspace", workspace: { id: "ws" },
   openScreen: function (input) { opened.push(input); }, openPanel: noop,
   rpc: function () { return Promise.resolve({ entries: [{ path: "a.pdf", kind: "pdf", mtimeMs: 1, size: 1 }, { path: "b/new.pdf", kind: "pdf", mtimeMs: 9, size: 1 }], truncated: false }); }
 };
-log(JSON.stringify({ step: "contribute", cleanup: typeof cleanup, screens: registered.screen.length, commands: registered.cc.length, panels: registered.panel.length, slash: registered.slash.length, title: registered.screen[0].title({ path: "report/main.pdf" }) }));
+log(JSON.stringify({ step: "contribute", cleanup: typeof cleanup, screens: registered.screen.length, commands: registered.cc.length, panels: registered.panel.length, slash: registered.slash.length, timeline: registered.timeline.map(function (c) { return c.kind; }), settings: registered.settings.length, title: registered.screen[0].title({ path: "report/main.pdf" }) }));
 // setTimeout is stubbed, so let the header probe's promise chain settle before reading buttons.
 function drain(ticks) { return ticks ? Promise.resolve().then(function () { return drain(ticks - 1); }) : Promise.resolve(); }
 registered.slash[0].onSubmit(context).then(function () { return drain(20); }).then(
@@ -108,7 +108,7 @@ describe("S11: client bundle runs on the Hermes VM", () => {
     expect(result.stderr).toBe("");
     const steps = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
     expect(steps).toEqual([
-      { step: "contribute", cleanup: "function", screens: 2, commands: 3, panels: 1, slash: 1, title: "main.pdf · report" },
+      { step: "contribute", cleanup: "function", screens: 2, commands: 3, panels: 1, slash: 1, timeline: ["turn-docs"], settings: 1, title: "main.pdf · report" },
       { step: "slash", opened: [{ screenId: "document", params: { workspaceId: "ws", path: "b/new.pdf" } }], headerButtons: ["ws:FileText"] },
     ]);
   }, 120_000);
