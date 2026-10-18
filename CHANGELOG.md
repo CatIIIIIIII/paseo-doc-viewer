@@ -17,6 +17,16 @@
 - JSON Lines (.jsonl, .ndjson) open in the sheet grid and Records, listed under Spreadsheets and data. Columns are the union of key paths in the first 1,000 records, nested objects flattened to `a.b.c` up to 3 keys deep (at most 500 columns); arrays and deeper objects stay one cell. The file is streamed and indexed once, so a 50,000-line file opens in about 0.1 s. An invalid line shows its parse error in its row instead of failing the file, and Issues lists invalid lines and keys first seen after the sample, by line number. Integers beyond 2^53 keep every digit. Records labels fields by key path and shows the whole record as JSON. Find covers every column.
 - Parquet (.parquet) opens in the same grid through hyparquet (pure JavaScript). Opening reads only the footer; a page reads only the row groups and columns it shows. Struct columns are flattened like JSON Lines, and the inspector shows each column's declared type. Snappy, gzip, Brotli, Zstandard and LZ4 are supported, LZO is not. A row group that would need more than 64 MiB of column chunks in memory (compressed plus uncompressed, decided from the footer before any read) is refused with a message that asks for smaller row groups, because a plugin process that runs out of memory is not restarted. Find decodes each row group once.
 - Full cell values: the inspector's Show full value reads a cell's whole value on request (up to 256 KB), wrapped, selectable and with Copy, for spreadsheets, CSV, JSON Lines and Parquet. The grid still cuts cells at 2,000 characters and the inspector marks shortened values. New `doc.cell` RPC; `doc.rows` returns `columnNames` for JSON Lines and Parquet and marks shortened cells with `truncated`.
+- A malformed TIFF (a directory loop or an inflated value count) can no longer stop the viewer; it is refused as damaged.
+- A Word file can no longer hide its main document under another name or a second relationship to get past the size limits.
+- PDFs render in a separate worker thread: a PDF that crashes PDFium fails alone, the next PDF opens normally, and a slow page no longer freezes other documents.
+- Find in a wide CSV with blank rows, and Excel sheets with unclosed tags, no longer freeze the viewer.
+- Every request now finishes within 20 s, and work that ran out of time is stopped instead of running beside new work.
+- Find in a spreadsheet no longer skips matches after you open a result.
+- Workbooks whose dimension or cell references go past Excel's limits open instead of failing.
+- A PNG whose header claims an enormous width is refused before memory is reserved.
+- Saved positions, pins and review marks: daemons sharing the folder no longer overwrite each other, an oversized file is trimmed by last use instead of wiped, and a daemon with its own `PASEO_HOME` keeps separate state.
+- Review notes: the overview now says exactly when a send can still reach a turn that just started.
 
 ## 0.4.0 (2026-10-17)
 

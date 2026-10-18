@@ -64,6 +64,7 @@ export const ERROR_MESSAGES = {
     tagged("unsupported_encryption", "PDF is protected with certificate security, which cannot be opened here"),
   pdfUnsupportedSecurity: () => tagged("unsupported_encryption", "PDF is encrypted with an unsupported security scheme"),
   pdfDamaged: () => tagged("damaged", "PDF is damaged or invalid"),
+  pdfRenderFailed: () => tagged("damaged", "This PDF could not be rendered; it may be damaged or too complex"),
   invalidOffice: (extension: string) => tagged("damaged", `File is not a valid .${extension} file`),
   fileTooLarge: (size: number, limit: number) =>
     tagged("too_large", `File is too large to preview (${mib(size)}; the limit is ${mib(limit)})`),

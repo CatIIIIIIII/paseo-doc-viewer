@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { createReadStream } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
 import { createInflateRaw, inflateRawSync } from "node:zlib";
@@ -104,6 +105,31 @@ function zip64Fields(extra: Buffer, needs: { size: boolean; compressed: boolean;
   return {};
 }
 
+const UNICODE_PATH = 0x7075;
+
+// JSZip's utils.resolve: drops "." and empty segments and applies "..".
+function resolveLikeJszip(path: string): string {
+  const parts = path.split("/");
+  const result: string[] = [];
+  parts.forEach((part, index) => {
+    if (part === "." || (part === "" && index !== 0 && index !== parts.length - 1)) return;
+    if (part === "..") result.pop();
+    else result.push(part);
+  });
+  return result.join("/");
+}
+
+// mammoth reads .docx packages with JSZip, which decodes every name as UTF-8, prefers an Info-ZIP
+// Unicode Path field and resolves "." and ".." segments. A name it reads differently could hide
+// the part mammoth parses from the checks here, so for .docx such names are refused.
+function jszipReadsSameName(name: string, nameBytes: Buffer, flags: number, extra: Buffer): boolean {
+  for (let at = 0; at + 4 <= extra.length; at += 4 + extra.readUInt16LE(at + 2)) {
+    if (extra.readUInt16LE(at) === UNICODE_PATH) return false;
+  }
+  if (flags & 0x800 ? !isUtf8(nameBytes) : nameBytes.some((byte) => byte >= 0x80)) return false;
+  return resolveLikeJszip(name) === name;
+}
+
 export async function readZipIndex(path: string, fileSize: number, extension: string, limits: ZipLimits): Promise<ZipIndex> {
   const handle = await open(path, "r");
   try {
@@ -141,6 +167,9 @@ export async function readZipIndex(path: string, fileSize: number, extension: st
         compressedSize = wide.compressed ?? compressedSize;
         localOffset = wide.offset ?? localOffset;
       }
+      if (extension === "docx" && !jszipReadsSameName(name, nameBytes, flags, table.subarray(at + 46 + nameLength, at + 46 + nameLength + extraLength))) {
+        throw damaged(extension);
+      }
       at += 46 + nameLength + extraLength + commentLength;
       if (flags & 0x1 || method === AES) throw new Error(ERROR_MESSAGES.encryptedOffice());
       if (method !== STORED && method !== DEFLATED) throw damaged(extension);
@@ -152,7 +181,10 @@ export async function readZipIndex(path: string, fileSize: number, extension: st
       if (total > limits.maxTotalBytes) {
         throw new Error(ERROR_MESSAGES.archiveTooLarge(`its parts unpack to more than ${limits.maxTotalBytes / MiB} MiB`));
       }
-      if (!entries.has(name)) entries.set(name, { name, method, compressedSize, size, localOffset });
+      // Readers disagree on which copy of a duplicated name wins (JSZip keeps the last), so a
+      // checked part could differ from the one parsed. Part names must be unique in a package.
+      if (entries.has(name)) throw damaged(extension);
+      entries.set(name, { name, method, compressedSize, size, localOffset });
     }
     return { path, entries };
   } finally {
@@ -235,11 +267,13 @@ export interface ZipMarkup {
   xmlBytes: number;
 }
 
-export async function verifyEntries(index: ZipIndex, extension: string, maxMarkup: number): Promise<ZipMarkup> {
+// Counts tags in every part named like XML plus `markupParts`, the parts a reader parses as XML
+// under another name.
+export async function verifyEntries(index: ZipIndex, extension: string, maxMarkup: number, markupParts: ReadonlySet<string> = new Set()): Promise<ZipMarkup> {
   let markup = 0;
   let xmlBytes = 0;
   for (const entry of index.entries.values()) {
-    const xml = XML_PART.test(entry.name);
+    const xml = XML_PART.test(entry.name) || markupParts.has(entry.name);
     if (xml) xmlBytes += entry.size;
     if (entry.method !== DEFLATED && !xml) continue;
     for await (const chunk of streamEntry(index, entry.name, extension)) {

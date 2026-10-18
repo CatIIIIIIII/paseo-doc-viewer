@@ -13,6 +13,9 @@ export interface PngHeader {
 
 const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const CHANNELS: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+// decodePngScaled holds a column map and two rows of the source width. The area cap does not bound
+// one row: a 69-byte file claiming 300,000,000 x 1 reserved gigabytes before reading a pixel.
+const MAX_ROW_STATE_BYTES = 64 * 1024 * 1024;
 const damaged = (detail: string) => new Error(ERROR_MESSAGES.imageDamaged("PNG", detail));
 
 export function pngHeader(bytes: Buffer): PngHeader {
@@ -153,6 +156,9 @@ export async function decodePngScaled(bytes: Buffer, header: PngHeader, width: n
   const channels = CHANNELS[header.colorType];
   const bpp = Math.max(1, (channels * header.bitDepth) >> 3);
   const rowBytes = Math.ceil((header.width * channels * header.bitDepth) / 8);
+  if (header.width * Int32Array.BYTES_PER_ELEMENT + 2 * rowBytes > MAX_ROW_STATE_BYTES) {
+    throw new Error(ERROR_MESSAGES.imageTooLarge(header.width, header.height));
+  }
   const read = pixelReader(header, found);
   const xs = spans(header.width, width);
   const ys = spans(header.height, height);

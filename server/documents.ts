@@ -3,7 +3,7 @@ import type { CellDetail, DocCellOutput, DocIssuesOutput, DocSearchOutput } from
 import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { CELL_FULL_MAX_CHARS, DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS } from "../shared/limits";
+import { CELL_FULL_MAX_CHARS, DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, RPC_DEADLINE_MS, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS } from "../shared/limits";
 import type { ReviewStatus } from "../shared/browse";
 import { KIND_REGISTRY, detectKind, extensionOf, kindForPath, type DocumentKind, type PagedRpc } from "../shared/kinds";
 import type {
@@ -20,11 +20,11 @@ import type {
 } from "../shared/rpc";
 import { estimateBytes, memo } from "./cache";
 import { isEncryptedOoxml } from "./cfb";
-import { csvFullCell, csvRows, csvWindow, indexCsv } from "./csv";
+import { csvCells, csvFullCell, csvWindow, indexCsv } from "./csv";
 import { recordCells, type FullValue } from "./data-table";
 import { indexJsonl, jsonlFullValue, jsonlRecords, jsonlWindow } from "./jsonl";
 import { openParquet, parquetFullValue, parquetModelBytes, parquetRecords, parquetWindow } from "./parquet";
-import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, type DocxModel, type SourceBlock } from "./docx";
+import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, verifyDocx, type DocxModel, type SourceBlock } from "./docx";
 import { heavy } from "./heavy";
 import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
 import { readChunk, sliceChunk, videoMimeType, audioMimeType } from "./media";
@@ -38,7 +38,7 @@ import { viewerStateStore } from "./viewer-state";
 import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, position, takeStream, type SearchPosition } from "./search";
 import { SharedFormulas } from "./formulas";
 import { fullCellText, issueDecoder, loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
-import { readZipIndex, verifyEntries, type ZipIndex, type ZipLimits } from "./zip";
+import { readZipIndex, type ZipIndex, type ZipLimits } from "./zip";
 import { ERROR_MESSAGES, errorText } from "../shared/errors";
 
 export interface DocumentRef {
@@ -139,7 +139,7 @@ async function locate(ref: DocumentRef): Promise<DocumentFile> {
 const cached = <T>(file: DocumentFile, name: string, compute: () => Promise<T>, sizeOf?: (value: T) => number) =>
   memo({ path: file.path, revision: file.revision, name: `${name}\0${file.passwordKey}` }, compute, sizeOf);
 
-const heavyCached = <T>(file: DocumentFile, name: string, compute: () => Promise<T>, sizeOf?: (value: T) => number) =>
+const heavyCached = <T>(file: DocumentFile, name: string, compute: (signal: AbortSignal) => Promise<T>, sizeOf?: (value: T) => number) =>
   cached(file, name, () => heavy(compute), sizeOf);
 
 function fitFor(maxWidth: number | undefined): Fit {
@@ -181,7 +181,7 @@ const docx = (file: DocumentFile) =>
     "docx",
     async (): Promise<DocxModel> => {
       const index = await readZipIndex(file.path, file.size, "docx", OFFICE_LIMITS);
-      return loadDocx(index, await verifyEntries(index, "docx", DOCX_MAX_MARKUP));
+      return loadDocx(index, await verifyDocx(index, DOCX_MAX_MARKUP, OFFICE_LIMITS.maxPartBytes));
     },
     docxModelBytes,
   );
@@ -230,23 +230,23 @@ function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamil
 
 const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
   pdf: {
-    open: async (file) => ({ kind: "pdf", revision: file.revision, pageCount: await heavy(() => pdfPageCount(file)) }),
+    open: async (file) => ({ kind: "pdf", revision: file.revision, pageCount: await heavy((signal) => pdfPageCount(file, signal)) }),
     page: async (file, { index, maxWidth }) => {
       const fit = fitFor(maxWidth);
-      const { pageCount, image } = await heavyCached(file, `page\0${index}\0${fit.maxWidth}`, () => renderPdfPage(file, index, fit));
+      const { pageCount, image } = await heavyCached(file, `page\0${index}\0${fit.maxWidth}`, (signal) => renderPdfPage(file, index, fit, signal));
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
     // Thumbnails skip the shared cache so a grid cannot evict the pages being read; the client keeps them.
     thumbnail: async (file, { index, width }) => {
       const fit = { maxWidth: Math.min(width, THUMBNAIL_MAX_WIDTH_PX), maxBytes: THUMBNAIL_MAX_BYTES };
-      const { pageCount, image } = await heavy(() => renderPdfPage(file, index, fit), { background: true });
+      const { pageCount, image } = await heavy((signal) => renderPdfPage(file, index, fit, signal), { background: true });
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
     text: async (file, { index }) => ({
       kind: "pdf",
       revision: file.revision,
       index,
-      ...(await heavyCached(file, `text\0${index}`, () => readPdfPageText(file, index))),
+      ...(await heavyCached(file, `text\0${index}`, (signal) => readPdfPageText(file, index, signal))),
     }),
   },
   docx: {
@@ -431,7 +431,7 @@ export async function renderReviewPage(ref: DocumentRef, { index, revision }: { 
   const file = await locate(ref);
   if (file.kind !== "pdf") throw new Error(ERROR_MESSAGES.unavailable("review.page-image", file.kind));
   if (file.revision !== revision) throw new Error(ERROR_MESSAGES.revisionChanged());
-  const { image } = await heavyCached(file, `review-page\0${index}`, () => renderPdfPage(file, index, REVIEW_FIT));
+  const { image } = await heavyCached(file, `review-page\0${index}`, (signal) => renderPdfPage(file, index, REVIEW_FIT, signal));
   return { revision, index, image };
 }
 
@@ -498,9 +498,11 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
     notes.add("Search covers selectable text; scanned pages and outlined text require OCR.");
     const opened = await openCached(file);
     const pageCount = "pageCount" in opened ? opened.pageCount : 0;
+    // Pages are searched off this thread; the signal bounds the whole call like heavy() does.
+    const signal = AbortSignal.timeout(RPC_DEADLINE_MS);
     for (let page = state.unit; page < pageCount; page++) {
       await scan.breathe();
-      const result = await searchPdfPage(file, page, query);
+      const result = await searchPdfPage(file, page, query, signal);
       if (result.truncated) notes.add("Some page text exceeds the extraction limit and was not searched.");
       const found: SearchMatch[] = result.matches.map((match) => ({
         target: { type: "page", index: page },
@@ -544,8 +546,7 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
     if (file.kind === "csv") {
       const index = await csvIndex(file);
       if (state.sheet === 0) {
-        await heavy(() => csvRows(file.path, index, state.unit, 0, index.columnCount, Number.POSITIVE_INFINITY,
-          (row, cells) => visitRow(0, row, cells.entries(), state)));
+        await heavy(() => csvCells(file.path, index, state.unit, (row, cells) => visitRow(0, row, cells, state) && scan.pass(position(0, row + 1))));
       }
     } else {
       const model = await workbook(file);

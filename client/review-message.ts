@@ -1,4 +1,5 @@
 import { revisionModifiedAt, revisionSize } from "../shared/revision";
+import { safeIndentedText } from "../shared/safe-text";
 import { pageImageKey, type ReviewDraft, type ReviewNote } from "./review-draft";
 
 export type RevisionStatus = "current" | "older" | "unknown";
@@ -34,19 +35,18 @@ export function versionLabel(revision: string): string | null {
 const UNSAFE_INLINE = /[\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g;
 const escapeChar = (char: string) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
 
-// A file name or pin label as one quoted line: JSON escapes newlines, quotes and backslashes, and the
-// rest of the unsafe characters are escaped too, so the value cannot start a line, a heading or a note.
+// File names come from the workspace, which agents and cloned repos can write. A file name or pin label
+// is one quoted line: JSON escapes newlines, quotes and backslashes, and the rest of the unsafe
+// characters are escaped too, so the value cannot start a line, a heading or a note, and the agent can
+// still recover the exact name.
 export function quoted(value: string): string {
   return JSON.stringify(value).replace(UNSAFE_INLINE, escapeChar);
 }
 
-// Note text keeps its line breaks, but every continuation line is indented under its "- Page" line.
+// Note text keeps its line breaks (shared/safe-text.ts, the rule download names use), but every
+// continuation line is indented under its "- Page" line and other unsafe characters are dropped.
 export function noteBody(text: string): string {
-  return text
-    .replace(/\r\n?|[\u0085\u2028\u2029]/g, "\n")
-    .replace(/[\u0000-\u0008\u000b-\u001f]/g, escapeChar)
-    .replace(UNSAFE_INLINE, escapeChar)
-    .replace(/\n/g, "\n  ");
+  return safeIndentedText(text, "  ");
 }
 
 export type PinLabel = (note: Pick<ReviewNote, "path" | "page" | "revision">) => string | undefined;

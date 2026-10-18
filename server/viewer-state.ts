@@ -1,7 +1,8 @@
-import { createHmac, randomBytes } from "node:crypto";
-import { mkdir, open, readdir, readFile, realpath, rename, rm, stat } from "node:fs/promises";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { link, mkdir, open, readdir, readFile, realpath, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { PINS_MAX_PER_FILE } from "../shared/limits";
@@ -11,20 +12,43 @@ import { revisionOf } from "./revision";
 
 const record = z.object({ position: viewerPosition.optional(), pins: pagePins.optional(), review: reviewMark.optional(), touched: z.number() });
 type Entry = Omit<z.infer<typeof record>, "touched">;
-const stored = z.object({ version: z.literal(1), entries: z.record(z.string(), record) });
+type Stored = { version: 1; entries: Record<string, z.infer<typeof record>> };
 const MAX_ENTRIES = 500;
 const MAX_BYTES = 1024 * 1024;
+// A larger file is still read so its most recent entries survive the next write.
+const MAX_READ_BYTES = 16 * MAX_BYTES;
 const SECRET_BYTES = 32;
 const STALE_TEMPORARY_MS = 60_000;
+// Writes hold positions.lock for milliseconds; an older lock was left by a process that died.
+const STALE_LOCK_MS = 10_000;
+const LOCK_WAIT_MS = 5_000;
 
+// Daemons with their own Paseo home (PASEO_HOME other than ~/.paseo) get their own folder, so an
+// isolated daemon never shares saved state with the user's daemon.
 export function stateDirectory(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
   const configured = env.PASEO_DOC_VIEWER_STATE_DIR;
   if (configured && isAbsolute(configured)) return configured;
   const xdg = env.XDG_STATE_HOME;
-  return join(xdg && isAbsolute(xdg) ? xdg : join(home, ".local", "state"), "paseo-doc-viewer");
+  const base = join(xdg && isAbsolute(xdg) ? xdg : join(home, ".local", "state"), "paseo-doc-viewer");
+  const paseoHome = env.PASEO_HOME?.replace(/^~(?=$|[\\/])/, home);
+  if (!paseoHome || !isAbsolute(paseoHome) || resolve(paseoHome) === resolve(home, ".paseo")) return base;
+  return join(base, "homes", createHash("sha256").update(resolve(paseoHome)).digest("hex").slice(0, 16));
 }
 
-// One store per daemon process; all reads and writes pass through the same queue.
+// Keeps the entries that still parse, so one bad record does not discard the rest.
+function parseStored(text: string): Stored {
+  const data = JSON.parse(text) as { version?: unknown; entries?: unknown };
+  const entries: Stored["entries"] = {};
+  if (data?.version !== 1 || typeof data.entries !== "object" || data.entries === null) return { version: 1, entries };
+  for (const [key, value] of Object.entries(data.entries)) {
+    const parsed = record.safeParse(value);
+    if (parsed.success) entries[key] = parsed.data;
+  }
+  return { version: 1, entries };
+}
+
+// One store per daemon process; all reads and writes pass through the same queue, and writes also
+// take a lock file, so stores in other processes sharing the folder merge instead of overwriting.
 export class ViewerStateStore {
   private tail: Promise<unknown> = Promise.resolve();
   private secret: Promise<Buffer> | null = null;
@@ -63,7 +87,7 @@ export class ViewerStateStore {
 
   // Applies one change to a document's record inside the queue; a record left empty is removed.
   update(key: string, change: (current: Entry | null) => Entry): Promise<Entry | null> {
-    return this.queue(async () => {
+    return this.queue(() => this.locked(async () => {
       const data = await this.load();
       const existing = data.entries[key];
       const { touched: _touched, ...current } = existing ?? { touched: 0 };
@@ -91,7 +115,30 @@ export class ViewerStateStore {
       if (empty) return null;
       const { touched: _saved, ...saved } = next;
       return saved;
-    });
+    }));
+  }
+
+  private async locked<T>(run: () => Promise<T>): Promise<T> {
+    await this.ensureDirectory();
+    const lock = join(this.directory, "positions.lock");
+    const started = Date.now();
+    for (;;) {
+      try {
+        await (await open(lock, "wx", 0o600)).close();
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      const age = await stat(lock).then((info) => Date.now() - info.mtimeMs, () => 0);
+      if (age > STALE_LOCK_MS) await rm(lock, { force: true });
+      else if (Date.now() - started > LOCK_WAIT_MS) throw new Error(ERROR_MESSAGES.busy());
+      else await delay(5 + Math.random() * 20);
+    }
+    try {
+      return await run();
+    } finally {
+      await rm(lock, { force: true });
+    }
   }
 
   private queue<T>(run: () => Promise<T>): Promise<T> {
@@ -102,16 +149,18 @@ export class ViewerStateStore {
     return next;
   }
 
-  private async load(): Promise<z.infer<typeof stored>> {
+  // A file too large or too damaged to read is kept aside as positions.json.bad, not overwritten.
+  private async load(): Promise<Stored> {
+    const path = join(this.directory, "positions.json");
     try {
-      const path = join(this.directory, "positions.json");
-      if ((await stat(path)).size > MAX_BYTES) return { version: 1, entries: {} };
-      return stored.parse(JSON.parse(await readFile(path, "utf8")));
+      if ((await stat(path)).size > MAX_READ_BYTES) throw new SyntaxError("positions.json is too large");
+      return parseStored(await readFile(path, "utf8"));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError || error instanceof z.ZodError) {
-        return { version: 1, entries: {} };
-      }
-      throw error;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, entries: {} };
+      if (!(error instanceof SyntaxError)) throw error;
+      console.error("[doc-viewer] saved viewer state could not be read; keeping it as positions.json.bad:", error.message);
+      await rename(path, `${path}.bad`).catch(() => {});
+      return { version: 1, entries: {} };
     }
   }
 
@@ -125,9 +174,11 @@ export class ViewerStateStore {
 
   private async loadSecret(): Promise<Buffer> {
     const path = join(this.directory, "secret");
+    let damaged = false;
     try {
       const secret = await readFile(path);
       if (secret.length === SECRET_BYTES) return secret;
+      damaged = true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
@@ -137,7 +188,14 @@ export class ViewerStateStore {
     try {
       const file = await open(temporary, "wx", 0o600);
       try { await file.writeFile(secret); } finally { await file.close(); }
-      await rename(temporary, path);
+      // link fails if another process created the secret first; then its secret is the one to use.
+      if (damaged) await rename(temporary, path);
+      else await link(temporary, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const existing = await readFile(path);
+      if (existing.length !== SECRET_BYTES) throw new Error("The viewer state secret is damaged; delete it to start over");
+      return existing;
     } finally {
       await rm(temporary, { force: true });
     }

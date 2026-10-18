@@ -4,7 +4,7 @@ import SSF from "ssf";
 import { MAX_RESPONSE_BYTES, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS } from "../shared/limits";
 import { ERROR_MESSAGES } from "../shared/errors";
 import type { CellDetail } from "../shared/rpc";
-import { cellAddress, SharedFormulas, shiftFormula } from "./formulas";
+import { cellAddress, MAX_COLUMN, MAX_ROW, SharedFormulas, shiftFormula } from "./formulas";
 import { decodeEntities } from "./html";
 import { readText, streamEntry, type ZipIndex } from "./zip";
 
@@ -47,35 +47,117 @@ const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 27, 28, 29, 30, 31, 32, 33
 const BUILTIN_NUMBER_FORMATS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 18, 19, 20, 21, 22, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48]);
 const SHEET = /<sheet\b[^>]*>/g;
 const RELATIONSHIP = /<Relationship\b[^>]*>/g;
-const SHEET_TOKEN = /<row\b[^>]*?(\/?)>|<\/row>|<c\b[^>]*?\/>|<c\b[^>]*>[\s\S]*?<\/c>|<\/sheetData>/g;
-const SHARED_STRING = /<si\b[^>]*>[\s\S]*?<\/si>|<si\s*\/>/g;
-const TEXT_RUN = /<t\b[^>]*>([^<]*)<\/t>/g;
-const PHONETIC = /<rPh\b[\s\S]*?<\/rPh>/g;
+// Cell and shared-string tokens can reach 4 MiB, so their patterns stop at the next "<" (never
+// valid inside a tag) instead of scanning to the end of the token once per candidate.
+const TEXT_RUN = /<t\b[^<>]*>([^<]*)<\/t>/g;
+const V_VALUE = /<v\b[^<>]*>([^<]*)<\/v>/;
 
 const attribute = (tag: string, name: string) => {
   const value = new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1];
   return value === undefined ? undefined : decodeEntities(value);
 };
+// Removes <rPh> phonetic runs with indexOf; a lazy regex rescans to the end once per unclosed run.
+function withoutPhonetic(text: string): string {
+  let out = "";
+  let at = 0;
+  for (let from = 0, start = text.indexOf("<rPh", from); start >= 0; start = text.indexOf("<rPh", from)) {
+    from = start + 4;
+    if (isNameChar(text.charCodeAt(from))) continue;
+    const end = text.indexOf("</rPh>", from);
+    if (end < 0) break;
+    out += text.slice(at, start);
+    at = from = end + 6;
+  }
+  return at === 0 ? text : out + text.slice(at);
+}
+
 const clip = (text: string) => (text.length > XLSX_MAX_CELL_CHARS ? text.slice(0, XLSX_MAX_CELL_CHARS) : text);
 
-async function* scan(chunks: AsyncIterable<Buffer>, token: RegExp): AsyncGenerator<RegExpExecArray> {
+// What scan() yields: the start tag of an `open` element, a whole `element` up to its first
+// closing tag (or the start tag alone when self-closing), and the listed closing tags.
+interface Tokens {
+  open: readonly string[];
+  element: readonly string[];
+  close: readonly string[];
+}
+
+const SHEET_TOKENS: Tokens = { open: ["row"], element: ["c"], close: ["</row>", "</sheetData>"] };
+const SHARED_STRING_TOKENS: Tokens = { open: [], element: ["si"], close: [] };
+// A "<" closer than this to the end of a chunk waits for the next one, so a tag split across
+// chunks is never misread.
+const TOKEN_LOOKAHEAD = 16;
+const SLASH = 0x2f;
+
+const isNameChar = (code: number) => (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95;
+
+// Tokenizes a streamed part with indexOf. A token left unfinished at the end of a chunk keeps how
+// far its search got, so a tag or element that never closes costs time linear in the part's size
+// (re-running a regex over the buffer per chunk was quadratic on "<c>" repeated).
+async function* scan(chunks: AsyncIterable<Buffer>, tokens: Tokens): AsyncGenerator<string> {
   const decoder = new StringDecoder("utf8");
+  const names = [...tokens.open.map((name) => ({ name, element: false })), ...tokens.element.map((name) => ({ name, element: true }))];
   let pending = "";
+  // Progress on the unfinished token at pending[0]: its start tag's ">" (or -1) and where to resume.
+  let resume: { gt: number; from: number } | null = null;
+
+  function* drain(final: boolean): Generator<string> {
+    let carried = resume;
+    resume = null;
+    let at = 0;
+    for (;;) {
+      const lt = pending.indexOf("<", at);
+      if (lt < 0) {
+        at = pending.length;
+        break;
+      }
+      if (!final && pending.length - lt < TOKEN_LOOKAHEAD) {
+        at = lt;
+        break;
+      }
+      const hint = lt === 0 ? carried : null;
+      carried = null;
+      const close = tokens.close.find((tag) => pending.startsWith(tag, lt));
+      if (close) {
+        yield close;
+        at = lt + close.length;
+        continue;
+      }
+      const tag = names.find(({ name }) => pending.startsWith(name, lt + 1) && !isNameChar(pending.charCodeAt(lt + 1 + name.length)));
+      if (!tag) {
+        at = lt + 1;
+        continue;
+      }
+      const gt = hint && hint.gt >= 0 ? lt + hint.gt : pending.indexOf(">", hint ? lt + hint.from : lt);
+      if (gt < 0) {
+        resume = { gt: -1, from: pending.length - lt };
+        at = lt;
+        break;
+      }
+      if (!tag.element || pending.charCodeAt(gt - 1) === SLASH) {
+        yield pending.slice(lt, gt + 1);
+        at = gt + 1;
+        continue;
+      }
+      const closing = `</${tag.name}>`;
+      const end = pending.indexOf(closing, hint && hint.gt >= 0 ? lt + hint.from : gt + 1);
+      if (end < 0) {
+        resume = { gt: gt - lt, from: Math.max(gt + 1, pending.length - closing.length + 1) - lt };
+        at = lt;
+        break;
+      }
+      yield pending.slice(lt, end + closing.length);
+      at = end + closing.length;
+    }
+    pending = pending.slice(at);
+  }
+
   for await (const chunk of chunks) {
     pending += decoder.write(chunk);
-    token.lastIndex = 0;
-    let end = -1;
-    for (let match = token.exec(pending); match; match = token.exec(pending)) {
-      end = token.lastIndex;
-      yield match;
-    }
-    if (end >= 0) pending = pending.slice(end);
-    else {
-      const resume = Math.max(pending.lastIndexOf("<c"), pending.lastIndexOf("<row"), pending.lastIndexOf("</"), pending.lastIndexOf("<si"));
-      pending = resume >= 0 ? pending.slice(resume) : "";
-    }
+    yield* drain(false);
     if (pending.length > MAX_PENDING_CHARS) throw new Error(ERROR_MESSAGES.archiveTooLarge("a single cell is larger than 4 MiB"));
   }
+  pending += decoder.end();
+  yield* drain(true);
 }
 
 const TOKEN_START = /<(?:c|row|si)[\s>/]|<\/sheetData/g;
@@ -88,12 +170,15 @@ function resumePoint(pending: string): number {
   return tail >= 0 && !pending.includes(">", tail) ? tail : pending.length;
 }
 
+// The zero-based column of a reference like "AB12", or -1 when it has no letters or lies past
+// Excel's last column (XFD): larger values are not safe integers in responses.
 function columnIndex(reference: string): number {
   let column = 0;
   for (const char of reference) {
     const code = char.charCodeAt(0);
     if (code < 65 || code > 90) break;
     column = column * 26 + (code - 64);
+    if (column > MAX_COLUMN) return -1;
   }
   return column - 1;
 }
@@ -155,8 +240,11 @@ async function relationships(index: ZipIndex, part: string): Promise<Map<string,
 function parseRange(reference: string): { rows: number; columns: number } | null {
   const last = reference.split(":").pop() ?? "";
   const match = /^\$?([A-Z]+)\$?(\d+)$/.exec(last);
-  if (!match) return null;
-  return { rows: Number(match[2]), columns: columnIndex(match[1]) + 1 };
+  const rows = Number(match?.[2]);
+  const column = match ? columnIndex(match[1]!) : -1;
+  // A dimension past Excel's limits is bogus; the counts are then found by reading the sheet.
+  if (!(rows >= 1 && rows <= MAX_ROW) || column < 0) return null;
+  return { rows, columns: column + 1 };
 }
 
 async function sheetDimension(index: ZipIndex, part: string): Promise<{ rows: number; columns: number } | null> {
@@ -209,9 +297,9 @@ export async function loadWorkbook(index: ZipIndex): Promise<Workbook> {
 export async function loadSharedStrings(workbook: Workbook): Promise<string[]> {
   const strings: string[] = [];
   if (!workbook.sharedStringsPart) return strings;
-  for await (const [item] of scan(streamEntry(workbook.index, workbook.sharedStringsPart, "xlsx"), SHARED_STRING)) {
+  for await (const item of scan(streamEntry(workbook.index, workbook.sharedStringsPart, "xlsx"), SHARED_STRING_TOKENS)) {
     let text = "";
-    for (const run of item.replace(PHONETIC, "").matchAll(TEXT_RUN)) {
+    for (const run of withoutPhonetic(item).matchAll(TEXT_RUN)) {
       text += run[1];
       if (text.length > XLSX_MAX_CELL_CHARS * 2) break;
     }
@@ -238,7 +326,7 @@ function formatNumber(format: string | number | undefined, value: number, date19
 
 // openpyxl writes `<f>..</f><v></v>` for formulas it never calculated. Only a string result can be empty.
 function savedValue(cell: string, type: string | undefined): string | undefined {
-  const raw = /<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1];
+  const raw = V_VALUE.exec(cell)?.[1];
   return raw === "" && type !== "str" ? undefined : raw;
 }
 
@@ -247,12 +335,12 @@ function cellText(cell: string, workbook: Workbook, strings: string[]): string {
   const type = attribute(open, "t");
   if (type === "inlineStr") {
     let text = "";
-    for (const run of cell.replace(PHONETIC, "").matchAll(TEXT_RUN)) text += run[1];
+    for (const run of withoutPhonetic(cell).matchAll(TEXT_RUN)) text += run[1];
     return clip(decodeEntities(text));
   }
   const raw = savedValue(cell, type);
   if (raw === undefined) {
-    const formula = /<f\b[^>]*>([^<]*)<\/f>/.exec(cell)?.[1];
+    const formula = /<f\b[^<>]*>([^<]*)<\/f>/.exec(cell)?.[1];
     return formula ? clip(`=${decodeEntities(formula)}`) : "";
   }
   const value = decodeEntities(raw);
@@ -299,12 +387,11 @@ export async function* sheetRows<T>(workbook: Workbook, sheet: SheetRef, fromRow
   let current: SheetRow<T> | null = null;
   let column = -1;
   let seen = 0;
-  for await (const match of scan(streamEntry(workbook.index, sheet.part, "xlsx"), SHEET_TOKEN)) {
-    const token = match[0];
+  for await (const token of scan(streamEntry(workbook.index, sheet.part, "xlsx"), SHEET_TOKENS)) {
     if (token.startsWith("<row")) {
       if (current) yield current;
       const declared = Number(attribute(token, "r"));
-      const row: number = Number.isInteger(declared) && declared > 0 ? declared - 1 : (current?.row ?? -1) + 1;
+      const row: number = Number.isInteger(declared) && declared > 0 && declared <= MAX_ROW ? declared - 1 : (current?.row ?? -1) + 1;
       current = { row, cells: row >= fromRow ? new Map() : null, maxColumn: -1 };
       column = -1;
       if (++seen % 4096 === 0 && Date.now() > deadline) throw new Error(ERROR_MESSAGES.slowWindow());
@@ -313,7 +400,8 @@ export async function* sheetRows<T>(workbook: Workbook, sheet: SheetRef, fromRow
     if (token === "</sheetData>") break;
     if (token === "</row>") continue;
     const reference = attribute(/^<c\b[^>]*>/.exec(token)?.[0] ?? token, "r");
-    column = reference ? columnIndex(reference) : column + 1;
+    const declaredColumn = reference ? columnIndex(reference) : -1;
+    column = declaredColumn >= 0 ? declaredColumn : column + 1;
     if (current) formulas?.observe(token, current.row, column);
     if (!current?.cells) continue;
     current.maxColumn = Math.max(current.maxColumn, column);
@@ -331,7 +419,7 @@ export function textDecoder(workbook: Workbook, strings: string[], sharedMatches
 
 function keepsSharedString(cell: string, matches: ReadonlySet<number>): boolean {
   if (attribute(/^<c\b[^>]*>/.exec(cell)?.[0] ?? cell, "t") !== "s") return true;
-  return matches.has(Number(/<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1]));
+  return matches.has(Number(V_VALUE.exec(cell)?.[1]));
 }
 
 const CELL_TYPES = new Set(["n", "s", "b", "e", "d", "str", "inlineStr"]);
@@ -339,7 +427,7 @@ const FORMULA_KINDS = new Set(["normal", "shared", "array", "dataTable"]);
 const MAX_FORMULA_CHARS = 8192;
 
 function formulaDetail(cell: string, row: number, column: number, cached: boolean, formulas?: SharedFormulas): CellDetail["formula"] {
-  const formula = /<f\b([^>]*?)(?:\/>|>([^<]*)<\/f>)/.exec(cell);
+  const formula = /<f\b([^<>]*?)(?:\/>|>([^<]*)<\/f>)/.exec(cell);
   if (!formula) return undefined;
   const tag = formula[1]!;
   const declared = attribute(tag, "t") ?? "normal";
@@ -372,7 +460,7 @@ export function cellDetail(cell: string, row: number, column: number, workbook: 
   let raw: string | null = null;
   if (type === "inlineStr") {
     let text = "";
-    for (const run of cell.replace(PHONETIC, "").matchAll(TEXT_RUN)) text += run[1];
+    for (const run of withoutPhonetic(cell).matchAll(TEXT_RUN)) text += run[1];
     raw = clip(decodeEntities(text));
   } else {
     const stored = savedValue(cell, declared);
@@ -472,18 +560,18 @@ export async function fullCellText(workbook: Workbook, strings: string[], sheet:
   const whole = (text: string) => (text.length > maxChars ? { text: text.slice(0, maxChars), truncated: true, length: text.length } : { text, truncated: false, length: text.length });
   const runs = (xml: string) => {
     let text = "";
-    for (const run of xml.replace(PHONETIC, "").matchAll(TEXT_RUN)) text += run[1];
+    for (const run of withoutPhonetic(xml).matchAll(TEXT_RUN)) text += run[1];
     return decodeEntities(text);
   };
   const open = /^<c\b[^>]*>/.exec(token)?.[0] ?? token;
   const type = attribute(open, "t");
-  const stored = /<v\b[^>]*>([^<]*)<\/v>/.exec(token)?.[1];
+  const stored = V_VALUE.exec(token)?.[1];
   if (type === "inlineStr") return whole(runs(token));
   if (type === "str" && stored !== undefined) return whole(decodeEntities(stored));
   if (type === "s" && stored !== undefined && workbook.sharedStringsPart) {
     const target = Number(decodeEntities(stored));
     let at = 0;
-    for await (const [item] of scan(streamEntry(workbook.index, workbook.sharedStringsPart, "xlsx"), SHARED_STRING)) {
+    for await (const item of scan(streamEntry(workbook.index, workbook.sharedStringsPart, "xlsx"), SHARED_STRING_TOKENS)) {
       if (at++ === target) return whole(runs(item));
       if (at % 4096 === 0 && Date.now() > deadline) throw new Error(ERROR_MESSAGES.slowWindow());
     }

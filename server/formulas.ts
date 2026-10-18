@@ -1,7 +1,7 @@
 import { decodeEntities } from "./html";
 
-const MAX_COLUMN = 16_384;
-const MAX_ROW = 1_048_576;
+export const MAX_COLUMN = 16_384;
+export const MAX_ROW = 1_048_576;
 const MAX_SHARED_FORMULA_CHARS = 4 * 1024 * 1024;
 const CELL_REFERENCE = /^(\$?)([A-Za-z]{1,3})(\$?)(\d{1,7})(?![\p{L}\p{N}_.(!\\?])/u;
 const IDENTIFIER = /^[\p{L}_\\][\p{L}\p{N}_.\\?]*/u;
@@ -91,7 +91,7 @@ export class SharedFormulas {
 
   observe(cell: string, row: number, column: number): void {
     if (!cell.includes('t="shared"')) return;
-    const formula = /<f\b([^>]*)>([^<]+)<\/f>/.exec(cell);
+    const formula = /<f\b([^<>]*)>([^<]+)<\/f>/.exec(cell);
     const group = formula && /\ssi="(\d+)"/.exec(formula[1]!)?.[1];
     const range = formula && /\sref="([^"]+)"/.exec(formula[1]!)?.[1];
     if (!formula || !group || !range || this.masters.has(group)) return;

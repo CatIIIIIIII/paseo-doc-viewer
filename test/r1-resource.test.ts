@@ -1,13 +1,13 @@
 import { closeSync, openSync, writeSync, ftruncateSync } from "node:fs";
 import { join } from "node:path";
 import { deflateRawSync } from "node:zlib";
-import { PDFiumLibrary } from "@hyzyla/pdfium/inline";
 import UTIF from "utif2";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cacheKeys, memo } from "../server/cache";
 import { openDocument, readBlocks, readRows, renderPage } from "../server/documents";
-import { heavy } from "../server/heavy";
+import { ABANDON_GRACE_MS, heavy } from "../server/heavy";
 import { pdfPageCount } from "../server/pdf";
+import { pdfiumStats } from "../server/pdfium";
 import { SLIDE_TEXT_TRUNCATED } from "../server/pptx";
 import { decodeEntities } from "../server/html";
 import { ERROR_MESSAGES, errorCode } from "../shared/errors";
@@ -238,7 +238,7 @@ describe("R1e: heavy work is serialized", () => {
       const hung = [0, 1].map(() => failure(() => heavy(() => new Promise(() => {}))));
       await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS / 2);
       const later = heavy(async () => "done");
-      await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS / 2);
+      await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS / 2 + ABANDON_GRACE_MS);
       for (const error of await Promise.all(hung)) expect(errorCode(error)).toBe("timeout");
       expect(await later).toBe("done");
     } finally {
@@ -249,15 +249,15 @@ describe("R1e: heavy work is serialized", () => {
 
 describe("R1f: a PDF is loaded once per revision", () => {
   it("renders three pages from a single PDFium load", async () => {
-    const load = vi.spyOn(PDFiumLibrary.prototype, "loadDocument");
+    const opens = pdfiumStats().opens;
     const root = workspace({ "three.pdf": await textPdf(["one", "two", "three"]) });
     await openDocument({ root, path: "three.pdf" });
     for (const index of [0, 1, 2]) await renderPage({ root, path: "three.pdf" }, { index, maxWidth: 300 });
-    expect(load).toHaveBeenCalledTimes(1);
+    expect(pdfiumStats().opens - opens).toBe(1);
   });
 
   it("opens a PDF larger than the held budget but never holds it alongside another", async () => {
-    const load = vi.spyOn(PDFiumLibrary.prototype, "loadDocument");
+    const opens = pdfiumStats().opens;
     const root = workspace({ "small.pdf": await textPdf(["small"]), "big.pdf": await textPdf(["big"]) });
     const small = { path: join(root, "small.pdf"), revision: "1", size: MiB, passwordKey: "" };
     const big = { path: join(root, "big.pdf"), revision: "1", size: 300 * MiB, passwordKey: "" };
@@ -265,7 +265,7 @@ describe("R1f: a PDF is loaded once per revision", () => {
     expect(await pdfPageCount(big)).toBe(1);
     expect(await pdfPageCount(small)).toBe(1);
     expect(await pdfPageCount(big)).toBe(1);
-    expect(load).toHaveBeenCalledTimes(4);
+    expect(pdfiumStats().opens - opens).toBe(4);
   });
 });
 

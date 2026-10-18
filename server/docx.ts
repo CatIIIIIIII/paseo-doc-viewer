@@ -4,10 +4,10 @@ import mammoth from "mammoth";
 import { DEFAULT_RENDER_WIDTH_PX, DOCX_MAX_BLOCKS, MAX_RESPONSE_BYTES, XLSX_MAX_CELL_CHARS } from "../shared/limits";
 import type { DocBlock } from "../shared/rpc";
 import { descendants, parseHtml, textOf, type Element } from "./html";
-import { readDocxLayout, streamDocxBlocks, type DocxLayout } from "./docx-stream";
+import { mainDocumentPart, readDocxLayout, relationshipList, streamDocxBlocks, type DocxLayout } from "./docx-stream";
 import { embeddedImage } from "./images";
 import { IMAGE_BUDGET_BYTES, type DecodeBudget, type EncodedImage } from "./raster";
-import { readEntry, type ZipIndex, type ZipMarkup } from "./zip";
+import { readEntry, verifyEntries, type ZipIndex, type ZipMarkup } from "./zip";
 import { ERROR_MESSAGES } from "../shared/errors";
 
 export type SourceBlock = Exclude<DocBlock, { type: "image" | "omitted-image" }> | { type: "source-image"; alt: string; id: number };
@@ -28,6 +28,8 @@ const BLOCK_BUDGET_BYTES = Math.floor(PAGE_BUDGET_BYTES / 2);
 const MAX_ALT_CHARS = 1000;
 const HEADING = /^h([1-6])$/;
 const IMAGE_SOURCE = /^image:(\d+)$/;
+const BINARY_RELATIONSHIP = /\/(image|oleObject|package|video|audio|media|vbaProject|printerSettings|font)$/;
+const MiB = 1024 * 1024;
 
 const bytesOf = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8");
 const isList = (element: Element) => element.tag === "ul" || element.tag === "ol";
@@ -97,6 +99,22 @@ function blocksOf(element: Element): SourceBlock[] {
   }
   const text = textOf(element);
   return [...(text.trim() ? [{ type: "paragraph" as const, text }] : []), ...imagesIn(element)];
+}
+
+// Mammoth and the streaming reader parse the main document and the parts it relates to as XML,
+// whatever they are named, so their tags and sizes count against the limits too.
+export async function verifyDocx(index: ZipIndex, maxMarkup: number, maxPartBytes: number): Promise<ZipMarkup> {
+  const main = await mainDocumentPart(index);
+  // mammoth follows a related part's relationship even when it is marked External.
+  const related = (await relationshipList(index, main)).filter((rel) => !BINARY_RELATIONSHIP.test(rel.type));
+  const parts = new Set([main, ...related.map((rel) => rel.target)]);
+  for (const name of parts) {
+    const size = index.entries.get(name)?.size ?? 0;
+    if (size > maxPartBytes) {
+      throw new Error(ERROR_MESSAGES.archiveTooLarge(`${name} is ${Math.round(size / MiB)} MiB (the limit is ${maxPartBytes / MiB} MiB)`));
+    }
+  }
+  return verifyEntries(index, "docx", maxMarkup, parts);
 }
 
 export async function loadDocx(index: ZipIndex, markup: ZipMarkup): Promise<DocxModel> {
