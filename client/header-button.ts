@@ -132,8 +132,10 @@ export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void 
   // agents.subscribe only relays updates from agent subscriptions opened through this API, not the
   // app's own, so the plugin opens one: pushed updates, no polling. Older hosts fall back to the poll.
   let stopTurns = () => {};
-  client.paseo.agents
-    .list({ subscribe: {} })
+  const agentList = typeof client.paseo.agents?.list === "function"
+    ? Promise.resolve().then(() => client.paseo.agents.list({ subscribe: {} }))
+    : Promise.reject(new Error("this host has no agent list"));
+  agentList
     .then(({ entries, subscription }) => {
       if (stopped) {
         void subscription.release();

@@ -278,6 +278,19 @@ describe("Documents header button after an agent turn", () => {
     expect(fake.stopAgents).toHaveBeenCalled();
   });
 
+  it("keeps polling on a host without the agent list", async () => {
+    const fake = fakeClient();
+    delete (fake.client.paseo as { agents?: unknown }).agents;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cleanup = addDocumentsHeaderButtons(fake.client);
+    await fake.settle();
+    fake.observer()!.snapshot({ entries: [{ id: "ws-1" }] });
+    await fake.settle();
+    expect(fake.live.has("ws-1")).toBe(true);
+    cleanup();
+    warn.mockRestore();
+  });
+
   it("knows agents already running when it starts, so their first turn end counts", async () => {
     const { fake, cleanup } = await hiddenWorkspace();
     fake.agentUpdate(agentStatus("busy", "idle"));
