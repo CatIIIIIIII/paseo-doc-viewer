@@ -10,6 +10,10 @@
 
 - Opening a file in the viewer clears its New pill in Documents until the file changes again. Like visits, this is shared by every client of the daemon.
 
+### Fixed
+
+- Review notes: when the preselected agent turns busy, it stays selected and the screen says why Send is off. Before, the selection moved to another idle agent, or to none with no explanation.
+
 ## 0.5.0 (2026-10-18)
 
 ### New

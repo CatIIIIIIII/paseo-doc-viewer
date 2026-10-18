@@ -21,6 +21,11 @@ const agents = [
 ];
 const sent: unknown[] = [];
 (window as any).__sentReviews = sent;
+// Replaces the agent, so the next agent list poll sees a changed entry.
+(window as any).__setAgentStatus = (id: string, status: string) => {
+  const index = agents.findIndex((each) => each.id === id);
+  agents[index] = { ...agents[index], status };
+};
 (globalThis as any).__fakePaseo = { agents: {
   list: async () => ({ entries: agents.map((each) => ({ agent: each })) }),
   ref: (id: string) => ({

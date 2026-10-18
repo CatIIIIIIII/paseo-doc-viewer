@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { type PluginScreenProps, usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { copyText, ScrollView, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { errorText } from "../shared/errors";
 import { REVIEW_MAX_NOTE_CHARS } from "../shared/limits";
@@ -12,7 +12,7 @@ import { documentQueryOptions, viewerMarksQueryKey } from "./queries";
 import { pageImageKey, reviewDrafts, reviewScope, type ReviewNote, useReviewDraft } from "./review-draft";
 import { formatReview, noteRevisionStatus, type PinLabel } from "./review-message";
 import { canAttachPage, useAttachPage } from "./review-note";
-import { defaultRecipient, recipientStatusLabel, type ReviewRecipient, reviewRecipients, sendReview } from "./review-send";
+import { recipientStatusLabel, type ReviewRecipient, reviewRecipients, selectedRecipientId, sendReview } from "./review-send";
 import { makeStyles, MessageState, type Styles, ToolbarButton } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
 
@@ -34,6 +34,7 @@ export function ReviewScreen({ host, theme, layout, params, navigation }: Plugin
   const attachPage = useAttachPage(workspaceId);
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [recipientId, setRecipientId] = useState<string | null>(null);
+  const [preselectedId, setPreselectedId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [attaching, setAttaching] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -60,9 +61,13 @@ export function ReviewScreen({ host, theme, layout, params, navigation }: Plugin
     refetchInterval: AGENT_POLL_MS,
   });
   const recipients = useMemo(() => reviewRecipients(agents.data ?? [], workspaceId), [agents.data, workspaceId]);
-  // Until the reviewer picks one, the most recently active idle agent is selected.
-  const chosenId = recipientId ?? defaultRecipient(recipients)?.id ?? null;
+  // Until the reviewer picks one, the most recently active idle agent is selected, and it stays
+  // selected when it turns busy so the hint below says why Send is off.
+  const chosenId = selectedRecipientId(recipients, recipientId, preselectedId);
   const recipient = recipients.find((each) => each.id === chosenId) ?? null;
+  useEffect(() => {
+    if (recipientId === null && chosenId !== preselectedId) setPreselectedId(chosenId);
+  }, [recipientId, chosenId, preselectedId]);
 
   const copy = () => {
     copyText(message.text).then(

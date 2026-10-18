@@ -68,6 +68,14 @@ export function defaultRecipient(recipients: readonly ReviewRecipient[]): Review
   return recipients.find((agent) => agent.ready && agent.status === "idle");
 }
 
+// The reviewer's pick wins. Otherwise the agent preselected earlier stays selected while it is
+// listed, also once it turns busy, so the selection never moves to another agent on its own.
+export function selectedRecipientId(recipients: readonly ReviewRecipient[], picked: string | null, preselected: string | null): string | null {
+  if (picked !== null) return picked;
+  if (preselected !== null && recipients.some((agent) => agent.id === preselected)) return preselected;
+  return defaultRecipient(recipients)?.id ?? null;
+}
+
 // The agent's state is read again right before sending, with nothing awaited in between, and the
 // send never asks for "interrupt". Residual race: a turn that starts between the two calls gets the
 // review steered into it on providers that can steer, and replaced on the others, because the

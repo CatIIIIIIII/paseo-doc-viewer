@@ -458,6 +458,15 @@ try {
   await expect(page.getByRole("radio", { name: "Busy agent, Busy", exact: true })).toHaveAttribute("aria-disabled", "true");
   // The most recently active idle agent is preselected; the busy one is newer but cannot take the review.
   await expect(page.getByRole("button", { name: "Send review to Docs agent", exact: true })).toBeVisible();
+  // When the preselected agent turns busy it stays selected, and the screen says why Send is off.
+  await page.evaluate(() => window.__setAgentStatus("docs", "running"));
+  await expect(page.getByRole("radio", { name: "Docs agent, Busy", exact: true })).toBeVisible({ timeout: 12000 });
+  await expect(page.getByRole("button", { name: "Send review to Docs agent", exact: true })).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByText("Docs agent is busy. Wait until it is idle, or copy the review.", { exact: true })).toBeVisible();
+  await page.evaluate(() => window.__setAgentStatus("docs", "idle"));
+  await expect(page.getByRole("radio", { name: "Docs agent, Idle", exact: true })).toBeVisible({ timeout: 12000 });
+  await expect(page.getByRole("button", { name: "Send review to Docs agent", exact: true })).not.toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByText(/ is busy\. Wait until it is idle/)).toHaveCount(0);
   await page.getByRole("radio", { name: "Racing agent, Idle", exact: true }).click();
   await page.getByRole("button", { name: "Send review to Racing agent", exact: true }).click();
   await expect(page.getByText("Racing agent is not ready (busy). Nothing was sent; the draft is kept.", { exact: true })).toBeVisible();
@@ -628,6 +637,6 @@ try {
   await page.getByRole("button", { name: settingsLinkName, exact: true }).click();
   await expect(page.getByText("Turn these cards off in Settings, Document viewer.", { exact: true })).toBeVisible();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, review notes (collect, edit, preview, copy, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { defaultRecipient, recipientStatusLabel, reviewRecipients, sendReview, type RecipientAgent } from "../client/review-send";
+import { defaultRecipient, recipientStatusLabel, reviewRecipients, selectedRecipientId, sendReview, type RecipientAgent } from "../client/review-send";
 
 const agent = (id: string, overrides: Partial<RecipientAgent> = {}): RecipientAgent => ({
   id,
@@ -29,6 +29,19 @@ describe("review recipients", () => {
     ])).toBe("new");
     expect(pick([agent("failed", { status: "error" }), agent("closed", { status: "closed" }), agent("asking", { pendingPermissions: [{}] })])).toBeUndefined();
     expect(pick([])).toBeUndefined();
+  });
+
+  it("keeps the preselected agent selected while it is listed, also once it turns busy", () => {
+    const listed = (agents: RecipientAgent[]) => reviewRecipients(agents, "ws");
+    const docs = (overrides: Partial<RecipientAgent> = {}) => agent("docs", { updatedAt: "2026-10-17T11:00:00.000Z", ...overrides });
+    expect(selectedRecipientId(listed([docs(), agent("other")]), null, null)).toBe("docs");
+    const docsBusy = listed([docs({ status: "running" }), agent("other")]);
+    expect(selectedRecipientId(docsBusy, null, "docs")).toBe("docs");
+    expect(selectedRecipientId(listed([docs({ status: "running" })]), null, "docs")).toBe("docs");
+    // The reviewer's pick wins, and an agent that left the list gives way to the default.
+    expect(selectedRecipientId(docsBusy, "other", "docs")).toBe("other");
+    expect(selectedRecipientId(listed([agent("other")]), null, "docs")).toBe("other");
+    expect(selectedRecipientId(listed([docs({ archivedAt: "2026-10-17T12:00:00.000Z" })]), null, "docs")).toBeNull();
   });
 
   it("lists this workspace's unarchived agents, ready ones first and most recent first", () => {
