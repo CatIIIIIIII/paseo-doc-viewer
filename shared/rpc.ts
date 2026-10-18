@@ -8,7 +8,7 @@ import { DOCUMENT_KINDS } from "./kinds";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "./limits";
 
 // Kinds shown in the sheet grid. JSON Lines and Parquet have named columns instead of a header row.
-export const SHEET_KINDS = ["xlsx", "csv", "jsonl"] as const;
+export const SHEET_KINDS = ["xlsx", "csv", "jsonl", "parquet"] as const;
 export type SheetKind = (typeof SHEET_KINDS)[number];
 
 const documentRef = { workspaceId: z.string().min(1), path: z.string().min(1) };
@@ -122,7 +122,7 @@ export const docTextRpc = defineRpc({
 // `raw` is the stored value (the text for shared strings), null when nothing is stored; a formula
 // without a stored value has no saved result. A shared formula's text is null when it cannot be derived.
 export const cellDetail = z.object({
-  type: z.enum(["n", "s", "b", "e", "d", "str", "inlineStr", "text", "json"]),
+  type: z.enum(["n", "s", "b", "e", "d", "str", "inlineStr", "text", "json", "parquet"]),
   raw: z.string().nullable(),
   display: z.string(),
   // The stored value is longer than `raw` and `display` show; doc.cell returns it in full.
@@ -130,6 +130,8 @@ export const cellDetail = z.object({
   // JSON Lines: the value's JSON type, its key path, the line it came from and why the line is unreadable.
   valueType: z.string().optional(),
   keyPath: z.string().optional(),
+  // Parquet: the column's declared type.
+  columnType: z.string().optional(),
   line: z.number().int().positive().optional(),
   error: z.string().optional(),
   numberFormat: z.string().optional(),

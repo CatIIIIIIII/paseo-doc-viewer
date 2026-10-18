@@ -17,13 +17,13 @@ const ENTRIES = [
 ];
 
 describe("document groups", () => {
-  it("puts every kind in one of seven groups, both image kinds in Images and CSV and JSON Lines with Excel", () => {
+  it("puts every kind in one of seven groups, both image kinds in Images and CSV, JSON Lines and Parquet with Excel", () => {
     expect(DOCUMENT_GROUPS).toEqual(["pdf", "word", "excel", "powerpoint", "image", "video", "audio"]);
     const groups = groupEntries(DOCUMENT_KINDS.map((kind, i) => entry(`f${i}`, kind, i)));
     expect(groups.map(({ group, entries }) => [group, entries.length])).toEqual([
       ["pdf", 1],
       ["word", 1],
-      ["excel", 3],
+      ["excel", 4],
       ["powerpoint", 1],
       ["image", 2],
       ["video", 1],

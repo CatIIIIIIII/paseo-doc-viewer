@@ -212,7 +212,13 @@ export interface RecordCells {
 }
 
 // One record's cells for `columns`; an unreadable record shows its error in the first cell.
-export function recordCells(record: ParsedRecord, columns: readonly KeyPath[], detail: boolean, describe?: (path: KeyPath) => string): RecordCells {
+export interface CellOptions {
+  type?: "json" | "parquet";
+  // The declared type of a column, for files with a schema.
+  columnType?: (path: KeyPath) => string | undefined;
+}
+
+export function recordCells(record: ParsedRecord, columns: readonly KeyPath[], detail: boolean, { type = "json", columnType }: CellOptions = {}): RecordCells {
   const cells = new Array<string>(columns.length).fill("");
   const details: (CellDetail | null)[] = detail ? new Array<CellDetail | null>(columns.length).fill(null) : [];
   const line = record.line !== undefined ? { line: record.line } : {};
@@ -233,11 +239,13 @@ export function recordCells(record: ParsedRecord, columns: readonly KeyPath[], d
     cells[index] = shown.text;
     if (!detail) return;
     const raw = typeof value === "string" ? shown : boundedJson(value, XLSX_MAX_CELL_CHARS);
+    const declared = columnType?.(path);
     details[index] = {
-      type: "json",
+      type,
       raw: raw.text,
       display: shown.text,
-      valueType: describe ? describe(path) : valueType(value),
+      valueType: valueType(value),
+      ...(declared !== undefined ? { columnType: declared } : {}),
       keyPath: columnName(path),
       ...line,
       ...(shown.truncated || raw.truncated ? { truncated: true } : {}),

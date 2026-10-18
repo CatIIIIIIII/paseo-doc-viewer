@@ -30,6 +30,7 @@ const TYPE_LABELS: { readonly [K in CellDetail["type"]]: string } = {
   d: "Date (ISO 8601)",
   text: "Text (CSV and TSV files store no types or formulas)",
   json: "JSON value",
+  parquet: "Parquet value",
 };
 
 const JSON_TYPES: Readonly<Record<string, string>> = {
@@ -53,7 +54,9 @@ function jsonFields(detail: CellDetail): InspectorField[] {
   return [
     ...(detail.keyPath !== undefined ? [{ label: "Key path", value: detail.keyPath }] : []),
     { label: structured ? "JSON" : "Raw value", value: detail.raw ?? "", ...shortened },
-    { label: "Type", value: JSON_TYPES[detail.valueType ?? ""] ?? detail.valueType ?? TYPE_LABELS.json },
+    detail.columnType !== undefined
+      ? { label: "Column type", value: detail.columnType }
+      : { label: "Type", value: JSON_TYPES[detail.valueType ?? ""] ?? detail.valueType ?? TYPE_LABELS.json },
     ...line,
   ];
 }
@@ -92,7 +95,7 @@ export function hasFullValue(detail: CellDetail | null): boolean {
 // Rows for the inspector: what the file stores, kept apart from how the grid displays it.
 export function inspectorFields(detail: CellDetail | null): InspectorField[] {
   if (!detail) return [{ label: "Type", value: "Empty: nothing is stored in this cell" }];
-  if (detail.type === "json") return jsonFields(detail);
+  if (detail.type === "json" || detail.type === "parquet") return jsonFields(detail);
   const fields: InspectorField[] = [];
   if (detail.formula) {
     fields.push(...formulaFields(detail.formula));

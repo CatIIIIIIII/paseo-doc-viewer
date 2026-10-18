@@ -23,6 +23,7 @@ import { isEncryptedOoxml } from "./cfb";
 import { csvFullCell, csvRows, csvWindow, indexCsv } from "./csv";
 import { recordCells, type FullValue } from "./data-table";
 import { indexJsonl, jsonlFullValue, jsonlRecords, jsonlWindow } from "./jsonl";
+import { openParquet, parquetFullValue, parquetModelBytes, parquetRecords, parquetWindow } from "./parquet";
 import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, type DocxModel, type SourceBlock } from "./docx";
 import { heavy } from "./heavy";
 import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
@@ -81,7 +82,8 @@ const MAX_FILE_BYTES: { readonly [K in DocumentKind]: number } = {
   docx: 64 * MiB,
   xlsx: 64 * MiB,
   csv: 64 * MiB,
-  jsonl: 256 * MiB,
+  jsonl: 512 * MiB,
+  parquet: 2048 * MiB,
   pptx: 64 * MiB,
   video: Number.POSITIVE_INFINITY,
   audio: Number.POSITIVE_INFINITY,
@@ -162,6 +164,7 @@ const sharedStrings = (file: DocumentFile, model: Workbook) =>
     strings.reduce((total, text) => total + 64 + text.length * 2, 0),
   );
 const csvIndex = (file: DocumentFile) => heavyCached(file, "csv-index", () => indexCsv(file.path, file.extension));
+const parquetModel = (file: DocumentFile) => heavyCached(file, "parquet", () => openParquet(file.path, file.size), parquetModelBytes);
 const jsonlIndex = (file: DocumentFile) =>
   heavyCached(file, "jsonl-index", () => indexJsonl(file.path), (index) =>
     index.checkpoints.length * 48 + index.issues.length * 160 + index.columns.reduce((total, path) => total + 64 + path.join(".").length * 2, 0));
@@ -332,6 +335,27 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       inRange(sheet, 1, "Sheet");
       const index = await jsonlIndex(file);
       return heavy(() => jsonlFullValue(file.path, index, row, column));
+    },
+  },
+  parquet: {
+    open: async (file) => {
+      const { rowCount, columns } = await parquetModel(file);
+      return { kind: "parquet", revision: file.revision, sheets: [{ name: basename(file.path), rowCount, columnCount: columns.length, countsApproximate: false }] };
+    },
+    rows: async (file, { sheet, rowOffset, columnOffset, maxColumns, maxRows, detail = false }) => {
+      inRange(sheet, 1, "Sheet");
+      const model = await parquetModel(file);
+      const columns = Math.min(maxColumns ?? XLSX_MAX_COLUMNS, XLSX_MAX_COLUMNS);
+      const rows = Math.min(maxRows ?? 200, 200);
+      const window = await heavyCached(file, `rows\0${rowOffset}\0${columnOffset}\0${columns}\0${rows}\0${detail}`, () =>
+        parquetWindow(file.path, file.size, model, rowOffset, columnOffset, columns, rows, detail),
+      );
+      return { kind: "parquet", revision: file.revision, sheet, rowOffset, columnOffset, ...window };
+    },
+    cell: async (file, { sheet, row, column }) => {
+      inRange(sheet, 1, "Sheet");
+      const model = await parquetModel(file);
+      return heavy(() => parquetFullValue(file.path, file.size, model, row, column));
     },
   },
   pptx: {
@@ -558,6 +582,21 @@ export async function searchDocument(ref: DocumentRef, query: string, cursor?: S
         }
         return true;
       }));
+    }
+  } else if (file.kind === "parquet") {
+    notes.add("Search covers displayed cell text (up to 2,000 characters per cell) in the listed columns.");
+    const model = await parquetModel(file);
+    const columns = model.columns.map((column) => column.path);
+    if (state.sheet === 0) {
+      await heavy(() => parquetRecords(file.path, file.size, model, state.unit, (row, value) => {
+        const { cells } = recordCells({ value }, columns, false);
+        for (let column = row === state.unit ? state.column : 0; column < cells.length; column++) {
+          const text = cells[column];
+          if (!text) continue;
+          if (!scan.visit(text, { type: "cell", sheet: 0, row, column }, position(0, row, column), position(0, row, column + 1))) return false;
+        }
+        return true;
+      }, () => scan.breathe()));
     }
   } else throw new Error("Find is available for PDF, Word, spreadsheets, data files and PowerPoint");
 

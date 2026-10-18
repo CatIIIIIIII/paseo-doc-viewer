@@ -107,7 +107,7 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
   );
   const recordSheet = { index: grid.sheet, ...sheet };
   // JSON Lines and Parquet name their columns, so records need no header row.
-  const named = kind === "jsonl";
+  const named = kind === "jsonl" || kind === "parquet";
   const header = headers.get(grid.sheet);
   const common = { workspaceId, path, revision, sheet: recordSheet, theme, styles, leading: modeSwitch };
   const sheetTabs = sheets.length > 1 ? (
