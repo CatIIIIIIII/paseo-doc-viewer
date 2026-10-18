@@ -2,34 +2,34 @@
 
 ## Unreleased
 
-- Agent turns: when a turn ends, the agent timeline gets one card listing the supported documents whose modified time falls inside the turn (New or Changed, up to 12, then "+N more in Documents"), each with Open into the viewer. Files written by shell scripts count. No card when nothing changed. Turn it off in Settings, Document viewer.
-- Excel: a formula saved with an empty result (`<v></v>`, as openpyxl writes every formula) counts as having no saved result. The grid shows its formula text, the inspector says None saved and Issues lists it. Before, such cells looked blank.
-- Spreadsheets: a Find or Issues jump keeps column A in view when the target cell fits in the first columns. Records remembers the header row chosen for each sheet until the app reloads, also after the document is closed and reopened.
-- Zoom is remembered per layout class (phone-sized or wide). The page, text mode and sheet window stay shared across clients, but a 1.5x zoom set on desktop no longer opens cropped on a phone. A zoom saved by an earlier version counts as a wide zoom.
-- Bare `/doc` and "Open recent document" open the newest PDF, Word, spreadsheet or slide file instead of the newest file of any type, so a screenshot written after a report no longer wins. Images, video and audio are opened only when the workspace has no such document.
-- The document screen title shows the folder after the file name (`report.pdf · runs/2026-10-17-rag-eval`), so two files with the same name can be told apart. A long folder keeps its last 40 characters.
-- Documents search: when nothing the viewer opens matches but other files do (for example `notebooks/analysis.ipynb`), the panel names up to 3 of them and says their type is not supported, instead of "No files match". `docs.recent` returns them as `unsupported`, only when no document matched. Hidden files are never named.
-- Review message: each file states the modified time (to the second, UTC) and exact size in bytes of the version you reviewed, instead of an opaque revision token, so the agent can check it against the file. A note on a pinned page carries the pin label when the pin belongs to the same version. The most recently active idle agent is preselected as the recipient; busy agents, agents whose last turn failed and unloaded agents are never preselected.
-- Review message: file names and pin labels are quoted as JSON strings, with line breaks, bidi controls and invisible characters escaped, and note text is normalised so every continuation line stays indented under its page. A file name (which agents and cloned repos choose) can no longer forge lines, headings or notes in the message sent to the agent.
-- A note being typed in the composer is kept in app memory when you leave the document or switch workspace, and the composer reopens with it on the same page. Cancel or Add note clears it.
-- The Documents button, panel and Show documents command use the FileText icon. On phones the button is icon-only, and FileStack looked like a copy button.
-- The Documents header button appears right after an agent's turn ends in a workspace that had no documents, instead of up to 2 minutes later. The client opens one agent-list subscription (pushed updates, no polling) and runs `docs.any` for that workspace again, at most every 10 seconds; the 2-minute poll is unchanged.
-- Documents shows a New pill and filter, next to Needs review, for files that appeared or changed since you last opened Documents in that workspace and were never reviewed. The first visit marks nothing as new. Visits are recorded per workspace in `visits.json` beside the viewer state (keys salted like positions); the app reuses a visit for 30 minutes, so switching workspaces does not reset it. New `docs.visit` RPC; `docs.recent` takes `newSince` and `newOnly` and returns a per-entry `isNew` and a `newCount`.
-- JSON Lines (.jsonl, .ndjson) open in the sheet grid and Records, listed under Spreadsheets and data. Columns are the union of key paths in the first 1,000 records, nested objects flattened to `a.b.c` up to 3 keys deep (at most 500 columns); arrays and deeper objects stay one cell. The file is streamed and indexed once, so a 50,000-line file opens in about 0.1 s. An invalid line shows its parse error in its row instead of failing the file, and Issues lists invalid lines and keys first seen after the sample, by line number. Integers beyond 2^53 keep every digit. Records labels fields by key path and shows the whole record as JSON. Find covers every column.
-- Parquet (.parquet) opens in the same grid through hyparquet (pure JavaScript). Opening reads only the footer; a page reads only the row groups and columns it shows. Struct columns are flattened like JSON Lines, and the inspector shows each column's declared type. Snappy, gzip, Brotli, Zstandard and LZ4 are supported, LZO is not. A row group that would need more than 64 MiB of column chunks in memory (compressed plus uncompressed, decided from the footer before any read) is refused with a message that asks for smaller row groups, because a plugin process that runs out of memory is not restarted. Find decodes each row group once.
-- Full cell values: the inspector's Show full value reads a cell's whole value on request (up to 256 KB), wrapped, selectable and with Copy, for spreadsheets, CSV, JSON Lines and Parquet. The grid still cuts cells at 2,000 characters and the inspector marks shortened values. New `doc.cell` RPC; `doc.rows` returns `columnNames` for JSON Lines and Parquet and marks shortened cells with `truncated`.
-- A malformed TIFF (a directory loop or an inflated value count) can no longer stop the viewer; it is refused as damaged.
-- A Word file can no longer hide its main document under another name or a second relationship to get past the size limits.
-- PDFs render in a separate worker thread: a PDF that crashes PDFium fails alone, the next PDF opens normally, and a slow page no longer freezes other documents.
-- Find in a wide CSV with blank rows, and Excel sheets with unclosed tags, no longer freeze the viewer.
-- PowerPoint slides, slide lists and relationship parts with unclosed tags no longer freeze the viewer, and a paragraph whose start tag ends in a space keeps its text.
-- Large Word files and Word relationship parts with unclosed tags no longer freeze the viewer.
-- Every request now finishes within 20 s, and work that ran out of time is stopped instead of running beside new work.
-- Find in a spreadsheet no longer skips matches after you open a result.
-- Workbooks whose dimension or cell references go past Excel's limits open instead of failing.
-- A PNG whose header claims an enormous width is refused before memory is reserved.
-- Saved positions, pins and review marks: daemons sharing the folder no longer overwrite each other, an oversized file is trimmed by last use instead of wiped, and a daemon with its own `PASEO_HOME` keeps separate state.
-- Review notes: the overview now says exactly when a send can still reach a turn that just started.
+### New
+
+- Turn cards: when an agent turn ends, the agent's timeline gets one card listing the supported documents changed while the turn ran, marked New or Changed, each with Open into the viewer. Up to 12 rows, then "+N more in Documents". Files written by shell scripts count; a turn that changed nothing gets no card. The list comes from file times, so it includes changes by anyone during the turn, not only that agent. Cards live in the daemon's memory and are gone after a daemon restart. Turn them off in Settings, Document viewer.
+- New filter: Documents shows a New pill and filter, next to Needs review, for files that appeared or changed since your last visit to Documents in that workspace and were never reviewed. The first visit marks nothing as new. New `docs.visit` RPC; `docs.recent` takes `newSince` and `newOnly`.
+- JSON Lines (.jsonl, .ndjson) open in the sheet grid and Records, under Spreadsheets and data. Nested keys become `a.b.c` columns, an invalid line shows its error in its row and is listed in Issues, and integers beyond 2^53 keep every digit. A 50,000-line file opens in about 0.1 s.
+- Parquet (.parquet) opens in the same grid, reading only the footer and the row groups and columns on screen, with each column's declared type in the inspector. Snappy, gzip, Brotli, Zstandard and LZ4 are supported, LZO is not. A row group that would need more than 64 MiB in memory is refused with a message asking for smaller row groups.
+- Full cell values: Show full value in the cell inspector reads a whole cell (up to 256 KB) with Copy, for spreadsheets, CSV, JSON Lines and Parquet. The grid still cuts cells at 2,000 characters. New `doc.cell` RPC.
+
+### Fixed
+
+- Excel formulas saved with an empty result (as openpyxl writes them) show their formula text instead of looking blank, and Issues lists them.
+- Find in a spreadsheet no longer skips matches after opening a result. Find and Issues jumps keep column A in view, and Records remembers the header row per sheet.
+- Workbooks with dimension or cell references past Excel's limits open.
+- Zoom is remembered separately for phone-sized and wide layouts, so a desktop zoom no longer opens cropped on a phone.
+- Bare `/doc` and "Open recent document" open the newest PDF, Word, spreadsheet, data or slide file before images and media, so a fresh screenshot no longer wins over a report.
+- The document title shows the folder (`report.pdf · runs/eval`), so files with the same name can be told apart.
+- Documents search names up to 3 matching files of unsupported types instead of saying "No files match".
+- The Documents header button appears right after an agent's turn ends instead of up to 2 minutes later. Documents uses the FileText icon.
+- Review message: each file states the modified time and exact size of the version you reviewed, notes on pinned pages carry the pin label, and the most recently active idle agent is preselected.
+- A half-typed review note survives leaving the document or switching workspace.
+
+### Robustness
+
+- A malformed TIFF, a Word file hiding its main part, a PNG with an enormous header, or a forged Parquet footer is refused instead of crashing the viewer.
+- PDFs render in a worker thread: a PDF that crashes PDFium fails alone, and a slow page no longer blocks other documents.
+- Find in wide CSVs, and Excel, PowerPoint and Word files with unclosed tags, no longer freeze the viewer. Every request finishes within 20 s, and work past its deadline is stopped.
+- File names and pin labels are quoted in the review message, so a file name cannot forge lines or notes sent to the agent.
+- Saved positions, pins and review marks merge across daemons sharing the folder, are trimmed instead of wiped when oversized, and stay separate for a daemon with its own `PASEO_HOME`.
 
 ## 0.4.0 (2026-10-17)
 
