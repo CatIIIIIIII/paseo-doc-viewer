@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-10-18)
 
 ### New
 
@@ -27,7 +27,7 @@
 
 - A malformed TIFF, a Word file hiding its main part, a PNG with an enormous header, or a forged Parquet footer is refused instead of crashing the viewer.
 - PDFs render in a worker thread: a PDF that crashes PDFium fails alone, and a slow page no longer blocks other documents.
-- Find in wide CSVs, and Excel, PowerPoint and Word files with unclosed tags, no longer freeze the viewer. Every request finishes within 20 s, and work past its deadline is stopped.
+- Find in wide CSVs, and Excel, PowerPoint and Word files with unclosed tags, no longer freeze the viewer. PDF work past its 20 s deadline is stopped.
 - File names and pin labels are quoted in the review message, so a file name cannot forge lines or notes sent to the agent.
 - Saved positions, pins and review marks merge across daemons sharing the folder, are trimmed instead of wiped when oversized, and stay separate for a daemon with its own `PASEO_HOME`.
 
