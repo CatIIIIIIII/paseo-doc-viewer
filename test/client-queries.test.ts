@@ -44,18 +44,21 @@ describe("client query keys and polling", () => {
 
   it("polls the recent documents panel", () => {
     const options = recentQueryOptions("ws", {});
-    expect(options.queryKey).toEqual(["docs.recent", "ws", "", null, false]);
+    expect(options.queryKey).toEqual(["docs.recent", "ws", "", null, false, null, false]);
     expect(options.refetchInterval).toBeGreaterThan(0);
     expect(options.refetchInterval).toBeLessThanOrEqual(10_000);
   });
 
   it("keys the recent list by normalized search and type, and keeps the last list while a new filter loads", () => {
     const options = recentQueryOptions("ws", { query: "  Q4   Report ", group: "pdf" });
-    expect(options.queryKey).toEqual(["docs.recent", "ws", "q4 report", "pdf", false]);
+    expect(options.queryKey).toEqual(["docs.recent", "ws", "q4 report", "pdf", false, null, false]);
     expect(recentQueryOptions("ws", { needsReview: true }).request).toEqual({ workspaceId: "ws", needsReview: true });
     expect(options.request).toEqual({ workspaceId: "ws", query: "q4 report", group: "pdf" });
     expect(recentQueryOptions("ws", {}).request).toEqual({ workspaceId: "ws" });
-    const previous = { entries: [], truncated: false, counts: { pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 }, needsReview: 0 };
+    expect(recentQueryOptions("ws", { newOnly: true, newSince: 1000 }).request).toEqual({ workspaceId: "ws", newSince: 1000, newOnly: true });
+    // Until the last visit is known there is nothing to call new, so the filter waits for it.
+    expect(recentQueryOptions("ws", { newOnly: true, newSince: null }).request).toEqual({ workspaceId: "ws" });
+    const previous = { entries: [], truncated: false, counts: { pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 }, needsReview: 0, newCount: 0 };
     expect(options.placeholderData(previous)).toBe(previous);
   });
 });

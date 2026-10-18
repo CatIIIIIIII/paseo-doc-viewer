@@ -11,7 +11,10 @@ export interface RecentEntry {
   mtimeMs: number;
   size: number;
   revision: string;
+  // The later of the modified and status-change times, so a copied or moved file counts as new.
+  changedMs: number;
   review?: ReviewStatus;
+  isNew?: boolean;
 }
 
 const SKIPPED_DIRECTORIES = new Set(["node_modules", "__pycache__", "venv", "target", "vendor"]);
@@ -84,14 +87,19 @@ const scans = new Map<string, { result: Promise<Scan>; expiresAt: number }>();
 
 export async function recentDocuments(
   root: string,
-  { limit = RECENT_MAX_ENTRIES, query, group, needsReview }: BrowseFilter & { limit?: number } = {},
+  { limit = RECENT_MAX_ENTRIES, query, group, needsReview, newOnly, newSince }: BrowseFilter & { limit?: number; newSince?: number } = {},
   reviewStatus?: (entry: RecentEntry) => ReviewStatus | undefined,
-): Promise<{ entries: RecentEntry[]; truncated: boolean; counts: GroupCounts; needsReview: number; unsupported?: string[] }> {
+): Promise<{ entries: RecentEntry[]; truncated: boolean; counts: GroupCounts; needsReview: number; newCount: number; unsupported?: string[] }> {
   const scan = await sharedScan(root);
   const cap = Math.max(1, Math.min(limit, RECENT_MAX_ENTRIES));
   const searched = filterEntries(scan.entries, { query });
-  const matched = reviewStatus ? searched.map((entry) => ({ ...entry, review: reviewStatus(entry) })) : searched;
-  const shown = filterEntries(matched, { group, needsReview });
+  const matched = reviewStatus || newSince !== undefined
+    ? searched.map((entry) => {
+        const review = reviewStatus?.(entry);
+        return { ...entry, review, isNew: newSince !== undefined && review === undefined && entry.changedMs > newSince };
+      })
+    : searched;
+  const shown = filterEntries(matched, { group, needsReview, newOnly });
   const terms = queryTerms(query ?? "");
   const unsupported = shown.length === 0 && terms.length > 0
     ? scan.unsupported.filter((path) => matchesQuery(path, terms)).slice(0, MAX_UNSUPPORTED_SHOWN)
@@ -102,6 +110,7 @@ export async function recentDocuments(
     truncated: !scan.complete || shown.length > cap,
     counts: countGroups(matched),
     needsReview: filterEntries(matched, { needsReview: true }).length,
+    newCount: filterEntries(matched, { newOnly: true }).length,
   };
 }
 
@@ -183,7 +192,7 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
       }
       try {
         const info = await stat(full);
-        found.push({ path: relative(root, full).split(sep).join("/"), kind, mtimeMs: info.mtimeMs, size: info.size, revision: revisionOf(info) });
+        found.push({ path: relative(root, full).split(sep).join("/"), kind, mtimeMs: info.mtimeMs, size: info.size, revision: revisionOf(info), changedMs: Math.max(info.mtimeMs, info.ctimeMs) });
         if (found.length >= stopAfter) return { entries: found, unsupported, complete: false };
       } catch {
         continue;

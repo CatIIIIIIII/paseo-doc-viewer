@@ -1,11 +1,15 @@
 import { fileInfo, fileChunk } from "./server/files";
-import { markReviewed, readViewerState, setPin, viewerStateStore } from "./server/viewer-state";
+import { markReviewed, readViewerState, setPin, stateDirectory, viewerStateStore } from "./server/viewer-state";
+import { VisitStore } from "./server/visits";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { searchDocument, listRecent, openDocument, readBlocks, readMediaChunk, readPageText, readRows, renderPage, renderThumbnail, scanIssues, renderReviewPage } from "./server/documents";
 import { searchGenerations } from "./server/search";
 import { workspaceRoot } from "./server/paths";
 import { forgetScan, hasDocuments } from "./server/recent";
-import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
+import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
+
+// Workspace roots are salted with the viewer-state secret, so the file does not reveal them.
+const visitStore = new VisitStore(stateDirectory(), async (root) => (await viewerStateStore.scannedKeys(root))(""));
 
 export default function contribute(server: PluginServerContext) {
   server.handle(docOpenRpc, async ({ workspaceId, path, password }, { paseo }) =>
@@ -35,6 +39,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(docsRecentRpc, async ({ workspaceId, ...request }, { paseo }) =>
     listRecent(await workspaceRoot(paseo, workspaceId), request),
   );
+  server.handle(docsVisitRpc, async ({ workspaceId }, { paseo }) => ({ since: await visitStore.visit(await workspaceRoot(paseo, workspaceId)) }));
   server.handle(docsAnyRpc, async ({ workspaceId }, { paseo }) => ({ found: await hasDocuments(await workspaceRoot(paseo, workspaceId)) }));
   server.handle(fileInfoRpc, async ({ workspaceId, path }, { paseo }) =>
     fileInfo(await workspaceRoot(paseo, workspaceId), path),

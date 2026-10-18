@@ -23,12 +23,15 @@ export interface BrowseEntry {
   kind: DocumentKind;
   mtimeMs: number;
   review?: ReviewStatus;
+  // Appeared or changed since Documents was last opened in this workspace, and never reviewed.
+  isNew?: boolean;
 }
 
 export interface BrowseFilter {
   query?: string;
   group?: DocumentGroup | null;
   needsReview?: boolean;
+  newOnly?: boolean;
 }
 
 export function queryTerms(query: string): string[] {
@@ -40,10 +43,14 @@ export function matchesQuery(path: string, terms: readonly string[]): boolean {
   return terms.every((term) => haystack.includes(term));
 }
 
-export function filterEntries<T extends BrowseEntry>(entries: readonly T[], { query = "", group = null, needsReview = false }: BrowseFilter): T[] {
+export function filterEntries<T extends BrowseEntry>(entries: readonly T[], { query = "", group = null, needsReview = false, newOnly = false }: BrowseFilter): T[] {
   const terms = queryTerms(query);
   return entries.filter(
-    (entry) => (!group || KIND_GROUP[entry.kind] === group) && (!needsReview || entry.review === "changed") && matchesQuery(entry.path, terms),
+    (entry) =>
+      (!group || KIND_GROUP[entry.kind] === group) &&
+      (!needsReview || entry.review === "changed") &&
+      (!newOnly || entry.isNew === true) &&
+      matchesQuery(entry.path, terms),
   );
 }
 

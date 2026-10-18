@@ -375,6 +375,7 @@ try {
   await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Open long\.pdf, PDF, [^,]*$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Needs review/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^New, / })).toHaveCount(0);
   await touch("statement.pdf", Date.now() / 1000 + 60);
   await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible({ timeout: 15000 });
   // Needs review leads the filter row, so it is not scrolled off on a phone.
@@ -494,6 +495,16 @@ try {
   await page.waitForTimeout(1200);
   const phone = page;
   await phone.setViewportSize({ width: 390, height: 844 });
+  // A file the agent wrote since Documents was last opened is new until reviewed. Reloading
+  // starts a new app session, so this visit compares against the first one above.
+  await writeFile(`${root}/fresh.csv`, "a,b\n1,2\n");
+  await phone.goto(`http://127.0.0.1:${port}/?compact`);
+  await phone.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(phone.getByRole("button", { name: /^Open fresh\.csv, CSV table, .*, new$/ })).toBeVisible();
+  await expect(phone.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible();
+  await phone.getByRole("button", { name: "New, 1 document", exact: true }).click();
+  await expect(phone.getByRole("button", { name: /^Open / })).toHaveCount(1);
+  await phone.screenshot({ path: `${directory}/documents-new.png` });
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "report.pdf", exact: true }).click();
   // Download sits in the tools row: no row of its own above the toolbar.
@@ -540,6 +551,6 @@ try {
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await expect(phone.getByText("2x", { exact: true })).toBeVisible();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit.");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit.");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

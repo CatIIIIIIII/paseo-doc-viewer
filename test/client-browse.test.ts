@@ -143,6 +143,8 @@ describe("documents panel empty and footer text", () => {
     expect(noMatchDetail({ query: "", group: "video" }, false)).toBe("No Video files in this workspace");
     expect(noMatchDetail({ query: "", group: "pdf", needsReview: true }, false)).toBe("No PDF files changed since review");
     expect(noMatchDetail({ query: "q4", needsReview: true }, false)).toBe('No files changed since review match "q4"');
+    expect(noMatchDetail({ newOnly: true }, false)).toBe("No new files");
+    expect(noMatchDetail({ group: "pdf", newOnly: true, query: "q4" }, false)).toBe('No new PDF files match "q4"');
   });
 
   it("says a matching file exists but is not a supported type", () => {

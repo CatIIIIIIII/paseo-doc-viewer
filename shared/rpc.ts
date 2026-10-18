@@ -232,6 +232,9 @@ export const docsRecentRpc = defineRpc({
     query: z.string().max(200).optional(),
     group: z.enum(DOCUMENT_GROUPS).optional(),
     needsReview: z.boolean().optional(),
+    // When Documents was last opened in this workspace (from docs.visit); later, unreviewed files are new.
+    newSince: z.number().nonnegative().optional(),
+    newOnly: z.boolean().optional(),
   }),
   output: z.object({
     entries: z.array(
@@ -241,14 +244,23 @@ export const docsRecentRpc = defineRpc({
         mtimeMs: z.number(),
         size: z.number().int().nonnegative(),
         review: z.enum(["reviewed", "changed"]).optional(),
+        isNew: z.literal(true).optional(),
       }),
     ),
     truncated: z.boolean(),
     counts: z.record(z.enum(DOCUMENT_GROUPS), z.number().int().nonnegative()),
     needsReview: z.number().int().nonnegative(),
+    newCount: z.number().int().nonnegative(),
     // Up to 3 files matching the query that the viewer cannot open, sent only when no document matched.
     unsupported: z.array(z.string()).max(3).optional(),
   }),
+});
+
+// Records that Documents was opened in a workspace and returns the previous time, or null the first time.
+export const docsVisitRpc = defineRpc({
+  name: "docs.visit",
+  input: z.object({ workspaceId: z.string().min(1) }),
+  output: z.object({ since: z.number().nonnegative().nullable() }),
 });
 
 export const docsAnyRpc = defineRpc({
@@ -300,7 +312,7 @@ export const reviewPageImageRpc = defineRpc({
 });
 export type ReviewPageImageOutput = RpcOutput<typeof reviewPageImageRpc>;
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, reviewPageImageRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, reviewPageImageRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;

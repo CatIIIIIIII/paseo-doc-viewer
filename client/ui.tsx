@@ -212,6 +212,7 @@ export function Checkbox({ theme, styles, label, checked, disabled, onChange }: 
 const STATUS_PILL = {
   reviewed: { icon: "Check", label: "Reviewed", short: "Reviewed", tone: "statusSuccess" },
   changed: { icon: "TriangleAlert", label: "Changed since review", short: "Changed", tone: "statusWarning" },
+  new: { icon: "Sparkles", label: "New", short: "New", tone: "accent" },
 } as const;
 
 // Review status as an icon and label on a tint of the status color. The tint is the color itself
