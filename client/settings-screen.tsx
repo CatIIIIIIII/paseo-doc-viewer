@@ -3,8 +3,6 @@ import { SettingsAction, SettingsCard, SettingsSection, SettingsSwitch } from "@
 import { Text } from "react-native";
 import { viewerSettings } from "../shared/settings";
 
-export const SETTINGS_SCREEN_ID = "viewer";
-
 export function ViewerSettings({ theme }: PluginSurfaceProps) {
   const settings = useSettings(viewerSettings);
   const muted = { color: theme.colors.foregroundMuted, fontSize: 13 };

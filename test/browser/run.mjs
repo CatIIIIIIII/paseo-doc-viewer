@@ -589,7 +589,35 @@ try {
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("model-b");
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByText("2 matches", { exact: true })).toBeVisible();
+  // Turn card: the Settings link opens the viewer's settings screen on desktop and phone, fits 390 px
+  // without pushing the title to a second line, and a host that cannot open settings leaves a hint.
+  const settingsLinkName = "Settings: show changed documents after each turn";
+  await page.getByRole("button", { name: "Turn card", exact: true }).click();
+  await expect(page.getByRole("button", { name: settingsLinkName, exact: true })).toContainText("Settings");
+  await page.getByRole("button", { name: settingsLinkName, exact: true }).click();
+  expect(await page.evaluate(() => window.__openedSettings)).toEqual(["viewer"]);
+  await page.screenshot({ path: `${directory}/turn-card.png` });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`http://127.0.0.1:${port}/?compact`);
+  await page.getByRole("button", { name: "Turn card", exact: true }).click();
+  const phoneLink = page.getByRole("button", { name: settingsLinkName, exact: true });
+  await expect(phoneLink).not.toContainText("Settings");
+  const linkBox = await phoneLink.boundingBox();
+  const titleBox = await page.getByText("4 documents changed while this turn ran", { exact: true }).boundingBox();
+  expect(linkBox.x + linkBox.width).toBeLessThanOrEqual(390);
+  expect(titleBox.height).toBeLessThan(20);
+  expect(Math.abs(linkBox.y + linkBox.height / 2 - (titleBox.y + titleBox.height / 2))).toBeLessThan(3);
+  for (const open of await page.getByRole("button", { name: /^Open / }).all()) expect((await open.boundingBox()).x + (await open.boundingBox()).width).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
+  await phoneLink.click();
+  expect(await page.evaluate(() => window.__openedSettings)).toEqual(["viewer"]);
+  await page.screenshot({ path: `${directory}/turn-card-phone.png` });
+  await page.goto(`http://127.0.0.1:${port}/?compact&settingsFail`);
+  await page.getByRole("button", { name: "Turn card", exact: true }).click();
+  await expect(page.getByText("Turn these cards off in Settings, Document viewer.", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: settingsLinkName, exact: true }).click();
+  await expect(page.getByText("Turn these cards off in Settings, Document viewer.", { exact: true })).toBeVisible();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

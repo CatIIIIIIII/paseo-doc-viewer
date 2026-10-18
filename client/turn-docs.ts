@@ -14,3 +14,6 @@ export function turnDocsNote(data: Pick<TurnDocs, "outcome" | "partial">): strin
   ].filter((note): note is string => note !== null);
   return notes.length > 0 ? notes.join(" · ") : null;
 }
+
+// Shown only when the host cannot open the settings screen, so the user still knows where the switch lives.
+export const TURN_CARDS_SETTING_HINT = "Turn these cards off in Settings, Document viewer.";

@@ -4,10 +4,10 @@ import { documentTitle } from "./client/format";
 import { createDocumentsPanel } from "./client/documents-panel";
 import { addDocumentsHeaderButtons } from "./client/header-button";
 import { setHostClient } from "./client/host-client";
-import { DOCUMENT_SCREEN_ID, DOCUMENTS_PANEL_ID, openByPath, openMostRecent } from "./client/recent";
+import { DOCUMENT_SCREEN_ID, DOCUMENTS_PANEL_ID, openByPath, openMostRecent, SETTINGS_SCREEN_ID } from "./client/recent";
 import { REVIEW_SCREEN_ID, reviewScreen } from "./client/review-note";
 import { ReviewScreen } from "./client/review-screen";
-import { SETTINGS_SCREEN_ID, ViewerSettings } from "./client/settings-screen";
+import { ViewerSettings } from "./client/settings-screen";
 import { createTurnDocsCard } from "./client/turn-docs-card";
 import { TURN_DOCS_KIND, TURN_DOCS_VERSION, turnDocsSchema } from "./shared/turn-docs";
 

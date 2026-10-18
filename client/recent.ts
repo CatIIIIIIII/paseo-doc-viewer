@@ -15,6 +15,7 @@ import { formatCount, GROUP_FILES } from "./format";
 
 export const DOCUMENT_SCREEN_ID = "document";
 export const DOCUMENTS_PANEL_ID = "documents";
+export const SETTINGS_SCREEN_ID = "viewer";
 
 export type RecentEntry = DocsRecentOutput["entries"][number];
 
