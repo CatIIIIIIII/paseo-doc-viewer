@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -35,18 +35,22 @@ export interface RealCompile {
 export async function compileWithPaseo(pluginDir: string = PLUGIN_ROOT): Promise<RealCompile> {
   if (!PASEO_SOURCE) throw new Error(PASEO_SOURCE_MISSING);
   const out = mkdtempSync(join(tmpdir(), "paseo-real-compile-"));
-  await run(
-    join(PASEO_SOURCE, "node_modules/.bin/tsx"),
-    [join(PLUGIN_ROOT, "scripts/paseo-compile.mts"), PASEO_SOURCE, pluginDir, out, workspaceWithFixtures("statement.pdf", "animated.webp")],
-    { cwd: PASEO_SOURCE, maxBuffer: 64 * 1024 * 1024 },
-  );
-  const result = JSON.parse(readFileSync(join(out, "result.json"), "utf8"));
-  if (result.error) return { error: result.error, clientBundle: "", serverBundle: "", handlers: [], page: null, webp: null };
-  return {
-    ...result,
-    clientBundle: readFileSync(join(out, "client.js"), "utf8"),
-    serverBundle: readFileSync(join(out, "server.js"), "utf8"),
-  };
+  try {
+    await run(
+      join(PASEO_SOURCE, "node_modules/.bin/tsx"),
+      [join(PLUGIN_ROOT, "scripts/paseo-compile.mts"), PASEO_SOURCE, pluginDir, out, workspaceWithFixtures("statement.pdf", "animated.webp")],
+      { cwd: PASEO_SOURCE, maxBuffer: 64 * 1024 * 1024 },
+    );
+    const result = JSON.parse(readFileSync(join(out, "result.json"), "utf8"));
+    if (result.error) return { error: result.error, clientBundle: "", serverBundle: "", handlers: [], page: null, webp: null };
+    return {
+      ...result,
+      clientBundle: readFileSync(join(out, "client.js"), "utf8"),
+      serverBundle: readFileSync(join(out, "server.js"), "utf8"),
+    };
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 }
 
 let shared: Promise<RealCompile> | null = null;

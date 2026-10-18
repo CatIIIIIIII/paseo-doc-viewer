@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { builtinModules, createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { extname, join, relative } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import * as pluginRoot from "@getpaseo/plugin";
 import * as pluginServer from "@getpaseo/plugin/server";
 import * as zod from "zod";
@@ -152,6 +152,7 @@ describe("S1: plugin installs on Paseo 0.11", () => {
     `S1: after the manifest build installs production dependencies only, Paseo's own compilePlugin accepts the plugin and its server bundle renders a PDF page and a WebP${PASEO_SOURCE ? "" : ` (skipped: ${PASEO_SOURCE_MISSING})`}`,
     async () => {
       const copy = mkdtempSync(join(tmpdir(), "paseo-doc-viewer-install-"));
+      onTestFinished(() => rmSync(copy, { recursive: true, force: true }));
       const files = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: PLUGIN_ROOT, encoding: "utf8" })
         .split("\0")
         .filter((file) => file && existsSync(join(PLUGIN_ROOT, file)));
