@@ -6,13 +6,13 @@ import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { errorText } from "../shared/errors";
 import { REVIEW_MAX_NOTE_CHARS } from "../shared/limits";
-import { docOpenRpc } from "../shared/rpc";
+import { docOpenRpc, viewerStateReadRpc } from "../shared/rpc";
 import { baseName, humanSize } from "./format";
-import { documentQueryOptions } from "./queries";
+import { documentQueryOptions, viewerMarksQueryKey } from "./queries";
 import { pageImageKey, reviewDrafts, reviewScope, type ReviewNote, useReviewDraft } from "./review-draft";
-import { formatReview, noteRevisionStatus } from "./review-message";
+import { formatReview, noteRevisionStatus, type PinLabel } from "./review-message";
 import { canAttachPage, useAttachPage } from "./review-note";
-import { recipientStatusLabel, type ReviewRecipient, reviewRecipients, sendReview } from "./review-send";
+import { defaultRecipient, recipientStatusLabel, type ReviewRecipient, reviewRecipients, sendReview } from "./review-send";
 import { makeStyles, MessageState, type Styles, ToolbarButton } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
 
@@ -30,6 +30,7 @@ export function ReviewScreen({ host, theme, layout, params, navigation }: Plugin
   const toast = useToast();
   const paseo = usePaseo();
   const openDocument = useRpc(docOpenRpc);
+  const readMarks = useRpc(viewerStateReadRpc);
   const attachPage = useAttachPage(workspaceId);
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [recipientId, setRecipientId] = useState<string | null>(null);
@@ -43,7 +44,13 @@ export function ReviewScreen({ host, theme, layout, params, navigation }: Plugin
   });
   const revisions = new Map(paths.map((path, index) => [path, opened[index]?.data?.revision]));
   const currentRevision = (path: string) => revisions.get(path);
-  const message = formatReview(draft, currentRevision);
+  const marks = useQueries({
+    queries: paths.map((path) => ({ queryKey: viewerMarksQueryKey(workspaceId, path), queryFn: () => readMarks({ workspaceId, path }), staleTime: 10_000, retry: false })),
+  });
+  const pins = new Map(paths.map((path, index) => [path, marks[index]?.data?.pins ?? []]));
+  // A pin names the page only for the revision it was saved or confirmed on.
+  const pinLabel: PinLabel = ({ path, page, revision }) => pins.get(path)?.find((pin) => pin.index === page && pin.revision === revision)?.label;
+  const message = formatReview(draft, currentRevision, pinLabel);
   const imageBytes = message.images.reduce((total, image) => total + Math.floor((image.data.length * 3) / 4), 0);
 
   const agents = useQuery({
@@ -53,7 +60,9 @@ export function ReviewScreen({ host, theme, layout, params, navigation }: Plugin
     refetchInterval: AGENT_POLL_MS,
   });
   const recipients = useMemo(() => reviewRecipients(agents.data ?? [], workspaceId), [agents.data, workspaceId]);
-  const recipient = recipients.find((each) => each.id === recipientId) ?? null;
+  // Until the reviewer picks one, the most recently active idle agent is selected.
+  const chosenId = recipientId ?? defaultRecipient(recipients)?.id ?? null;
+  const recipient = recipients.find((each) => each.id === chosenId) ?? null;
 
   const copy = () => {
     copyText(message.text).then(
@@ -193,7 +202,7 @@ export function ReviewScreen({ host, theme, layout, params, navigation }: Plugin
           ) : null}
         </View>
         <RecipientPicker theme={theme} styles={styles} recipients={recipients} loading={agents.isPending} error={agents.error}
-          selected={recipientId} disabled={sending} onSelect={setRecipientId} />
+          selected={chosenId} disabled={sending} onSelect={setRecipientId} />
         {outcome ? (
           <Text style={outcome.tone === "danger" ? styles.danger : styles.text} accessibilityRole={outcome.tone === "danger" ? "alert" : undefined}>{outcome.text}</Text>
         ) : null}

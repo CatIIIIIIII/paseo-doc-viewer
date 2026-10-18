@@ -61,6 +61,13 @@ export function reviewRecipients(agents: readonly RecipientAgent[], workspaceId:
     .sort((a, b) => Number(b.ready) - Number(a.ready) || b.updatedAt.localeCompare(a.updatedAt));
 }
 
+// Preselected recipient: the most recently active agent that is idle right now. Recipients are
+// already sorted ready first, newest first; an agent whose last turn failed or that is not loaded is
+// never preselected.
+export function defaultRecipient(recipients: readonly ReviewRecipient[]): ReviewRecipient | undefined {
+  return recipients.find((agent) => agent.ready && agent.status === "idle");
+}
+
 // The daemon interrupts a running turn unless told otherwise. The agent's state is read again
 // right before sending; if a turn starts between the two calls, "steer" adds the review to it on
 // providers that support steering (others replace the turn, as the daemon does for any steer).

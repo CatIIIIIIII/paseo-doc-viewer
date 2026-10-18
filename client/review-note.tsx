@@ -33,7 +33,18 @@ export function NoteComposer({ scope, workspaceId, path, revision, page, passwor
 }) {
   const toast = useToast();
   const attachPage = useAttachPage(workspaceId);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => {
+    const kept = reviewDrafts.composing(scope, path);
+    return kept?.page === page ? kept.text : "";
+  });
+  const type = (value: string) => {
+    setText(value);
+    reviewDrafts.setComposing(scope, path, { revision, page, text: value });
+  };
+  const close = () => {
+    reviewDrafts.setComposing(scope, path, null);
+    onClose();
+  };
   const [attach, setAttach] = useState(false);
   const [busy, setBusy] = useState(false);
   const attachable = canAttachPage(draft, { path, revision, page });
@@ -50,14 +61,14 @@ export function NoteComposer({ scope, workspaceId, path, revision, page, passwor
     } catch (failure) {
       toast.error(`Note added without the page image: ${errorText(failure)}`);
     }
-    onClose();
+    close();
   };
   return (
     <View style={[styles.toolbar, { flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
       <Text style={styles.label}>Note on page {page + 1}</Text>
       <TextInput
         value={text}
-        onChangeText={setText}
+        onChangeText={type}
         multiline
         autoFocus
         maxLength={REVIEW_MAX_NOTE_CHARS}
@@ -69,7 +80,7 @@ export function NoteComposer({ scope, workspaceId, path, revision, page, passwor
       <View style={styles.toolbarGroup}>
         <Checkbox theme={theme} styles={styles} label="Attach page image" checked={attach} disabled={!attachable || busy} onChange={setAttach} />
         <View style={styles.toolbarSpacer} />
-        <ToolbarButton theme={theme} styles={styles} label="Cancel" disabled={busy} onPress={onClose} />
+        <ToolbarButton theme={theme} styles={styles} label="Cancel" disabled={busy} onPress={close} />
         <ToolbarButton theme={theme} styles={styles} icon="Check" label="Add note" variant="primary" disabled={!text.trim() || busy} onPress={() => void add()} />
       </View>
       {!attachable ? <Text style={styles.muted}>{REVIEW_MAX_IMAGES} page images are already attached</Text> : null}

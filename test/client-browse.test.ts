@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browseRows, filterChips, listFooter, noMatchDetail } from "../client/recent";
+import { browseRows, filterChips, listFooter, noMatchDetail, unsupportedDetail } from "../client/recent";
 import { countGroups, DOCUMENT_GROUPS, filterEntries, groupEntries, matchesQuery, queryTerms } from "../shared/browse";
 import { DOCUMENT_KINDS, type DocumentKind } from "../shared/kinds";
 
@@ -143,6 +143,15 @@ describe("documents panel empty and footer text", () => {
     expect(noMatchDetail({ query: "", group: "video" }, false)).toBe("No Video files in this workspace");
     expect(noMatchDetail({ query: "", group: "pdf", needsReview: true }, false)).toBe("No PDF files changed since review");
     expect(noMatchDetail({ query: "q4", needsReview: true }, false)).toBe('No files changed since review match "q4"');
+    expect(noMatchDetail({ newOnly: true }, false)).toBe("No new files");
+    expect(noMatchDetail({ group: "pdf", newOnly: true, query: "q4" }, false)).toBe('No new PDF files match "q4"');
+  });
+
+  it("says a matching file exists but is not a supported type", () => {
+    expect(unsupportedDetail([])).toBeNull();
+    expect(unsupportedDetail(["notebooks/analysis.ipynb"])).toBe(
+      "Found notebooks/analysis.ipynb, but .ipynb is not a supported type. The viewer opens PDF, Word, Excel, CSV, TSV, PowerPoint, image, video and audio files.");
+    expect(unsupportedDetail(["a.ipynb", "b.parquet", "Makefile"])).toMatch(/^Found a\.ipynb, b\.parquet, Makefile, but \.ipynb, \.parquet, a file without an extension are not supported types\./);
   });
 
   it("warns when the workspace was too large to search completely", () => {

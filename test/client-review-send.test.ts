@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { recipientStatusLabel, reviewRecipients, sendReview, type RecipientAgent } from "../client/review-send";
+import { defaultRecipient, recipientStatusLabel, reviewRecipients, sendReview, type RecipientAgent } from "../client/review-send";
 
 const agent = (id: string, overrides: Partial<RecipientAgent> = {}): RecipientAgent => ({
   id,
@@ -20,6 +20,17 @@ function fakeAgents(snapshot: RecipientAgent | null, send = vi.fn(async () => {}
 const message = { text: "Review notes", images: [{ data: "AAAA", mimeType: "image/png" }] };
 
 describe("review recipients", () => {
+  it("preselects the most recently active idle agent, never a busy, failed or unloaded one", () => {
+    const pick = (agents: RecipientAgent[]) => defaultRecipient(reviewRecipients(agents, "ws"))?.id;
+    expect(pick([
+      agent("old", { updatedAt: "2026-10-17T09:00:00.000Z" }),
+      agent("new", { updatedAt: "2026-10-17T11:00:00.000Z" }),
+      agent("busy", { status: "running", updatedAt: "2026-10-17T12:00:00.000Z" }),
+    ])).toBe("new");
+    expect(pick([agent("failed", { status: "error" }), agent("closed", { status: "closed" }), agent("asking", { pendingPermissions: [{}] })])).toBeUndefined();
+    expect(pick([])).toBeUndefined();
+  });
+
   it("lists this workspace's unarchived agents, ready ones first and most recent first", () => {
     const recipients = reviewRecipients(
       [

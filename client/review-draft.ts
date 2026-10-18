@@ -39,8 +39,19 @@ function withinBounds(image: PageImage): boolean {
   return image.width <= REVIEW_IMAGE_MAX_EDGE_PX && image.height <= REVIEW_IMAGE_MAX_EDGE_PX && image.data.length <= REVIEW_IMAGE_MAX_BASE64_CHARS;
 }
 
+// Text typed in the note composer but not added yet, one per document. Kept beside the draft so a
+// workspace switch, which unmounts the viewer, does not lose it. Not part of the sent review.
+export interface ComposingNote {
+  readonly revision: string;
+  readonly page: number;
+  readonly text: string;
+}
+
+const MAX_COMPOSING = 50;
+
 export function createReviewDrafts() {
   const drafts = new Map<string, ReviewDraft>();
+  const composing = new Map<string, ComposingNote>();
   const listeners = new Set<() => void>();
   let serial = 0;
   const get = (scope: string) => drafts.get(scope) ?? EMPTY;
@@ -58,6 +69,15 @@ export function createReviewDrafts() {
 
   return {
     get,
+    composing: (scope: string, path: string): ComposingNote | undefined => composing.get(`${scope}\0${path}`),
+    // Not observed by React: the composer reads it once when it opens.
+    setComposing(scope: string, path: string, note: ComposingNote | null) {
+      const key = `${scope}\0${path}`;
+      composing.delete(key);
+      if (!note || !note.text.trim()) return;
+      composing.set(key, { ...note, text: note.text.slice(0, REVIEW_MAX_NOTE_CHARS) });
+      if (composing.size > MAX_COMPOSING) composing.delete(composing.keys().next().value!);
+    },
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => void listeners.delete(listener);

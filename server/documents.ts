@@ -392,7 +392,9 @@ export async function listRecent(root: string, request: Omit<DocsRecentInput, "w
   const listed = await recentDocuments(root, request, keyOf ? status : undefined);
   return {
     ...listed,
-    entries: listed.entries.map(({ path, kind, mtimeMs, size, review }) => ({ path, kind, mtimeMs, size, ...(review ? { review } : {}) })),
+    entries: listed.entries.map(({ path, kind, mtimeMs, size, review, isNew }) => ({
+      path, kind, mtimeMs, size, ...(review ? { review } : {}), ...(isNew ? { isNew: true as const } : {}),
+    })),
   };
 }
 

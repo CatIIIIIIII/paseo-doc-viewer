@@ -2,15 +2,19 @@ import type { PluginWorkspaceCommandContext } from "@getpaseo/plugin/client";
 import { describe, expect, it, vi } from "vitest";
 import { describeError, relativeTime } from "../client/format";
 import { ERROR_MESSAGES } from "../shared/errors";
-import { DOCUMENTS_PANEL_ID, openByPath, openMostRecent } from "../client/recent";
-import { newestFirst } from "../shared/browse";
+import { DOCUMENTS_PANEL_ID, openByPath, openMostRecent, type RecentEntry } from "../client/recent";
+import { countGroups, type DocumentGroup, KIND_GROUP, newestFirst } from "../shared/browse";
 
-function commandContext(entries: { path: string; mtimeMs: number }[]) {
+type Listed = { path: string; mtimeMs: number; kind?: RecentEntry["kind"] };
+
+// Mimics docs.recent: newest first, capped at `cap`, with counts over the whole scan.
+function commandContext(listed: Listed[], cap = 50) {
+  const all = listed.map((entry) => ({ kind: "pdf" as const, ...entry, size: 1 }));
   return {
-    rpc: vi.fn(async () => ({
-      entries: entries.map((entry) => ({ ...entry, kind: "pdf" as const, size: 1 })),
-      truncated: false,
-    })) as unknown as PluginWorkspaceCommandContext["rpc"],
+    rpc: vi.fn(async (_contract: unknown, input: { group?: DocumentGroup; limit?: number }) => {
+      const matched = newestFirst(all).filter((entry) => !input.group || KIND_GROUP[entry.kind] === input.group);
+      return { entries: matched.slice(0, input.limit ?? cap), truncated: matched.length > cap, counts: countGroups(all) };
+    }) as unknown as PluginWorkspaceCommandContext["rpc"],
     openScreen: vi.fn(),
     openPanel: vi.fn(),
     workspace: { id: "ws-1" },
@@ -34,6 +38,31 @@ describe("client recent documents", () => {
     ]);
     await openMostRecent(context);
     expect(context.openScreen).toHaveBeenCalledWith({ screenId: "document", params: { workspaceId: "ws-1", path: "build/main.pdf" } });
+  });
+
+  it("prefers the newest document over a newer screenshot, video or audio file", async () => {
+    const context = commandContext([
+      { path: "report.pdf", mtimeMs: 5 },
+      { path: "shots/login.png", mtimeMs: 9, kind: "image-raster" },
+      { path: "results.csv", mtimeMs: 7, kind: "csv" },
+    ]);
+    await openMostRecent(context);
+    expect(context.openScreen).toHaveBeenCalledWith({ screenId: "document", params: { workspaceId: "ws-1", path: "results.csv" } });
+  });
+
+  it("finds a document even when newer screenshots fill the capped list", async () => {
+    const shots = Array.from({ length: 3 }, (_, index) => ({ path: `shots/${index}.png`, mtimeMs: 10 + index, kind: "image-raster" as const }));
+    const context = commandContext([...shots, { path: "notes.docx", mtimeMs: 2, kind: "docx" }, { path: "old.pdf", mtimeMs: 1 }], 3);
+    await openMostRecent(context);
+    expect(context.openScreen).toHaveBeenCalledWith({ screenId: "document", params: { workspaceId: "ws-1", path: "notes.docx" } });
+    expect(context.rpc).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls back to the newest image when the workspace has no documents", async () => {
+    const context = commandContext([{ path: "a.png", mtimeMs: 1, kind: "image-raster" }, { path: "b.mp4", mtimeMs: 2, kind: "video" }]);
+    await openMostRecent(context);
+    expect(context.openScreen).toHaveBeenCalledWith({ screenId: "document", params: { workspaceId: "ws-1", path: "b.mp4" } });
+    expect(context.rpc).toHaveBeenCalledTimes(1);
   });
 
   it("opens the Documents panel when the workspace has no documents", async () => {

@@ -102,6 +102,8 @@ try {
   await expect(page.getByRole("button", { name: "Next match", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Next match", exact: true }).click();
   await expect(page.getByText("Invoices!B2", { exact: true })).toBeVisible();
+  // The jump keeps column A in view when the match fits in the first columns.
+  await expect(page.getByText(/^Columns 1-/)).toBeVisible();
   await page.getByRole("button", { name: "Close find", exact: true }).click();
   await page.getByRole("button", { name: "forecast.xlsx", exact: true }).click();
   await page.getByText("$165.00", { exact: true }).click();
@@ -144,6 +146,12 @@ try {
   await issues.getByRole("button", { name: "Show list", exact: true }).click();
   await expect(issues.getByRole("button", { name: "Summary!E7: #REF!", exact: true })).toBeVisible();
   await page.screenshot({ path: `${directory}/sheet-issues.png`, fullPage: true });
+  // Records keeps the chosen header row for the session, also after the document is reopened.
+  await page.getByRole("button", { name: "invoices.xlsx", exact: true }).click();
+  await page.getByRole("button", { name: "forecast.xlsx", exact: true }).click();
+  await page.getByRole("button", { name: "Records", exact: true }).click();
+  await expect(page.getByText(/^Record \d+ of 8 \(row \d+\)$/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use row 2 as header", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "long.pdf", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("needle");
@@ -367,6 +375,7 @@ try {
   await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Open long\.pdf, PDF, [^,]*$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Needs review/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^New, / })).toHaveCount(0);
   await touch("statement.pdf", Date.now() / 1000 + 60);
   await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible({ timeout: 15000 });
   // Needs review leads the filter row, so it is not scrolled off on a phone.
@@ -389,6 +398,12 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   page.off("request", recordReview);
+  // A search that only matches a file the viewer cannot open says so.
+  await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("analysis");
+  await expect(page.getByText("Not a supported file type", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Found analysis\.ipynb, but \.ipynb is not a supported type\./)).toBeVisible();
+  await page.screenshot({ path: `${directory}/search-unsupported.png`, fullPage: true });
+  await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("");
   // Review notes: collect notes on two pages, leave the document and come back, then edit,
   // preview, copy and send them, with a busy, a racing and a failing recipient keeping the draft.
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -409,6 +424,18 @@ try {
   await page.screenshot({ path: `${directory}/review-compose.png`, fullPage: true });
   await page.getByRole("button", { name: "Add note", exact: true }).click();
   await expect(page.getByRole("button", { name: "Review notes (2)", exact: true })).toBeVisible();
+  // A half-typed note survives leaving the document, as on a workspace switch, until it is cancelled.
+  await expect(page.getByRole("textbox", { name: "Note text", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add note to page 2", exact: true }).click();
+  await page.getByRole("textbox", { name: "Note text", exact: true }).fill("Half typed");
+  await page.getByRole("button", { name: "deck.pptx", exact: true }).click();
+  await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Note text", exact: true })).toHaveValue("Half typed");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "deck.pptx", exact: true }).click();
+  await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Review notes (2)", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Note text", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "contract.docx", exact: true }).click();
   await expect(page.getByRole("button", { name: "Review notes (2)", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Review notes (2)", exact: true }).click();
@@ -429,6 +456,8 @@ try {
   expect(await radios.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label")))).toEqual(
     ["Docs agent, Idle", "Racing agent, Idle", "Broken agent, Idle", "Busy agent, Busy"]);
   await expect(page.getByRole("radio", { name: "Busy agent, Busy", exact: true })).toHaveAttribute("aria-disabled", "true");
+  // The most recently active idle agent is preselected; the busy one is newer but cannot take the review.
+  await expect(page.getByRole("button", { name: "Send review to Docs agent", exact: true })).toBeVisible();
   await page.getByRole("radio", { name: "Racing agent, Idle", exact: true }).click();
   await page.getByRole("button", { name: "Send review to Racing agent", exact: true }).click();
   await expect(page.getByText("Racing agent is not ready (busy). Nothing was sent; the draft is kept.", { exact: true })).toBeVisible();
@@ -439,7 +468,7 @@ try {
   expect(await page.evaluate(() => window.__sentReviews.length)).toBe(0);
   await page.request.get(`http://127.0.0.1:${port}/touch/statement.pdf`);
   await expect(page.getByText("Older revision: the file changed since this note", { exact: true })).toHaveCount(2, { timeout: 12000 });
-  await expect(preview).toContainText("older revision");
+  await expect(preview).toContainText("statement.pdf, older version (modified ");
   await expect(page.getByRole("button", { name: "Attach page 1 image", exact: true })).toHaveAttribute("aria-disabled", "true");
   await page.screenshot({ path: `${directory}/review-screen.png`, fullPage: true });
   await page.getByRole("radio", { name: "Docs agent, Idle", exact: true }).click();
@@ -450,7 +479,8 @@ try {
   expect(delivered[0].id).toBe("docs");
   expect(delivered[0].options.activeTurnBehavior).toBe("steer");
   expect(delivered[0].options.images).toHaveLength(1);
-  expect(delivered[0].text).toContain("statement.pdf, older revision");
+  expect(delivered[0].text).toContain("statement.pdf, older version");
+  expect(delivered[0].text).toMatch(/\(modified \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC, [\d,]+ bytes\)/);
   await page.screenshot({ path: `${directory}/review-sent.png`, fullPage: true });
   await page.getByRole("button", { name: "Open agent", exact: true }).click();
   expect(await page.evaluate(() => window.__openedAgent)).toBe("docs");
@@ -459,8 +489,22 @@ try {
   await expect(page.getByRole("button", { name: /^Review notes/ })).toHaveCount(0);
   // Phone layout: every PDF toolbar control, including the review ones, fits inside 390 px on one line.
   // The browser runs single-process, so the same page switches to the phone viewport.
+  // Zoom is remembered per layout class: the desktop zoom set here must not reach the phone.
+  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await expect(page.getByText("1.5x", { exact: true })).toBeVisible();
+  await page.waitForTimeout(1200);
   const phone = page;
   await phone.setViewportSize({ width: 390, height: 844 });
+  // A file the agent wrote since Documents was last opened is new until reviewed. Reloading
+  // starts a new app session, so this visit compares against the first one above.
+  await writeFile(`${root}/fresh.csv`, "a,b\n1,2\n");
+  await phone.goto(`http://127.0.0.1:${port}/?compact`);
+  await phone.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(phone.getByRole("button", { name: /^Open fresh\.csv, CSV table, .*, new$/ })).toBeVisible();
+  await expect(phone.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible();
+  await phone.getByRole("button", { name: "New, 1 document", exact: true }).click();
+  await expect(phone.getByRole("button", { name: /^Open / })).toHaveCount(1);
+  await phone.screenshot({ path: `${directory}/documents-new.png` });
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "report.pdf", exact: true }).click();
   // Download sits in the tools row: no row of its own above the toolbar.
@@ -494,7 +538,19 @@ try {
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "broken.pdf", exact: true }).click();
   await expect(phone.getByRole("button", { name: "Download original", exact: true })).toContainText("Download original");
+  await phone.goto(`http://127.0.0.1:${port}/?compact`);
+  await phone.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  await expect(phone.getByText("Fit", { exact: true })).toBeVisible();
+  await phone.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await phone.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await expect(phone.getByText("2x", { exact: true })).toBeVisible();
+  await phone.waitForTimeout(1200);
+  await phone.setViewportSize({ width: 1100, height: 1000 });
+  await phone.goto(`http://127.0.0.1:${port}/`);
+  await expect(phone.getByText("1.5x", { exact: true })).toBeVisible();
+  await phone.goto(`http://127.0.0.1:${port}/?compact`);
+  await expect(phone.getByText("2x", { exact: true })).toBeVisible();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status and Needs review filter, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit.");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit.");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

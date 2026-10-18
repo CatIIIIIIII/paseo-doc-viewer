@@ -5,12 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { type DocumentGroup, filterEntries, queryTerms } from "../shared/browse";
-import { docsRecentRpc } from "../shared/rpc";
+import { docsRecentRpc, docsVisitRpc } from "../shared/rpc";
 import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, KIND_LABEL, parentDir, relativeTime } from "./format";
 import { recentQueryOptions } from "./queries";
-import { type BrowseRow, browseRows, documentScreen, filterChips, listFooter, noMatchDetail, type RecentEntry } from "./recent";
+import { type BrowseRow, browseRows, documentScreen, filterChips, listFooter, noMatchDetail, type RecentEntry, unsupportedDetail } from "./recent";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, type Styles } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
+import { documentsVisits } from "./visits";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const NO_GROUPS: ReadonlySet<DocumentGroup> = new Set();
@@ -36,9 +37,28 @@ export function createDocumentsPanel(openScreen: (input: PluginOpenScreenInput) 
   };
 }
 
+// The previous time Documents was opened here, or null the first time; undefined until known.
+function useLastVisit(hostId: string | undefined, workspaceId: string): number | null | undefined {
+  const scope = `${hostId ?? ""}\0${workspaceId}`;
+  const recordVisit = useRpc(docsVisitRpc);
+  const [visit, setVisit] = useState(() => ({ scope, since: documentsVisits.peek(scope) }));
+  useEffect(() => {
+    let live = true;
+    documentsVisits.open(scope, async () => (await recordVisit({ workspaceId })).since).then(
+      (since) => live && setVisit((current) => (current.scope === scope && current.since === since ? current : { scope, since })),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [scope, workspaceId, recordVisit]);
+  return visit.scope === scope ? visit.since : documentsVisits.peek(scope);
+}
+
 function DocumentsList({
   theme,
   layout,
+  host,
   workspaceId,
   styles,
   openScreen,
@@ -46,17 +66,22 @@ function DocumentsList({
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<DocumentGroup | null>(null);
   const [needsReview, setNeedsReview] = useState(false);
+  const [newOnly, setNewOnly] = useState(false);
   const [collapsed, setCollapsed] = useState(NO_GROUPS);
   const searched = useDebounced(query, SEARCH_DEBOUNCE_MS);
+  const newSince = useLastVisit(host?.id, workspaceId);
   const listRecent = useRpc(docsRecentRpc);
-  const { request, ...options } = recentQueryOptions(workspaceId, { query: searched, group, needsReview });
+  const { request, ...options } = recentQueryOptions(workspaceId, { query: searched, group, needsReview, newOnly, newSince });
   const recent = useQuery({ ...options, queryFn: () => listRecent(request) });
-  const filtering = queryTerms(query).length > 0 || group !== null || needsReview;
+  const filtering = queryTerms(query).length > 0 || group !== null || needsReview || newOnly;
   const pending = recent.isPlaceholderData || searched !== query;
-  const entries = useMemo(() => (recent.data ? filterEntries(recent.data.entries, { query, group, needsReview }) : []), [recent.data, query, group, needsReview]);
+  const entries = useMemo(
+    () => (recent.data ? filterEntries(recent.data.entries, { query, group, needsReview, newOnly }) : []),
+    [recent.data, query, group, needsReview, newOnly],
+  );
   const rows = useMemo(
-    () => (recent.data ? browseRows(entries, { counts: recent.data.counts, collapsed, headers: group === null && !needsReview }) : []),
-    [entries, recent.data, collapsed, group, needsReview],
+    () => (recent.data ? browseRows(entries, { counts: recent.data.counts, collapsed, headers: group === null && !needsReview && !newOnly }) : []),
+    [entries, recent.data, collapsed, group, needsReview, newOnly],
   );
   const now = recent.dataUpdatedAt || Date.now();
 
@@ -77,7 +102,7 @@ function DocumentsList({
         <MessageState
           theme={theme}
           styles={styles}
-          icon="FileStack"
+          icon="FileText"
           title="No documents yet"
           detail="PDF, Word, Excel, CSV, PowerPoint, image, video, and audio files in this workspace appear here"
         />
@@ -95,6 +120,7 @@ function DocumentsList({
     setQuery("");
     setGroup(null);
     setNeedsReview(false);
+    setNewOnly(false);
   };
 
   return (
@@ -110,6 +136,9 @@ function DocumentsList({
         >
           {recent.data.needsReview > 0 || needsReview ? (
             <Chip theme={theme} styles={styles} label="Needs review" count={recent.data.needsReview} selected={needsReview} onPress={() => setNeedsReview(!needsReview)} />
+          ) : null}
+          {recent.data.newCount > 0 || newOnly ? (
+            <Chip theme={theme} styles={styles} label="New" count={recent.data.newCount} selected={newOnly} onPress={() => setNewOnly(!newOnly)} />
           ) : null}
           {filterChips(recent.data.counts, group).map((chip) => (
             <Chip
@@ -131,9 +160,9 @@ function DocumentsList({
           <MessageState
             theme={theme}
             styles={styles}
-            icon="SearchX"
-            title="No matching documents"
-            detail={noMatchDetail({ query, group, needsReview }, recent.data.truncated)}
+            icon={recent.data.unsupported ? "FileX" : "SearchX"}
+            title={recent.data.unsupported ? "Not a supported file type" : "No matching documents"}
+            detail={unsupportedDetail(recent.data.unsupported ?? []) ?? noMatchDetail({ query, group, needsReview, newOnly }, recent.data.truncated)}
             action={{ label: "Clear filters", onPress: clearFilters }}
           />
         )
@@ -317,7 +346,7 @@ function EntryRow({
   onPress,
 }: ChromeProps & { entry: RecentEntry; now: number; onPress(): void }) {
   const directory = parentDir(entry.path);
-  const review = entry.review === "changed" ? ", changed since review" : entry.review === "reviewed" ? ", reviewed" : "";
+  const review = entry.review === "changed" ? ", changed since review" : entry.review === "reviewed" ? ", reviewed" : entry.isNew ? ", new" : "";
   return (
     <Pressable
       accessibilityRole="button"
@@ -339,7 +368,9 @@ function EntryRow({
           <Text style={[styles.text, { flexShrink: 1 }]} numberOfLines={1}>
             {baseName(entry.path)}
           </Text>
-          {entry.review ? <StatusPill theme={theme} styles={styles} status={entry.review} label={styles.compact ? "short" : "full"} /> : null}
+          {entry.review || entry.isNew ? (
+            <StatusPill theme={theme} styles={styles} status={entry.review ?? "new"} label={styles.compact ? "short" : "full"} />
+          ) : null}
         </View>
         <Text style={styles.muted} numberOfLines={1}>
           {directory ? `${directory} · ` : ""}

@@ -3,10 +3,35 @@ import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSyn
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { stateDirectory, ViewerStateStore } from "../server/viewer-state";
+import { zoomFor } from "../shared/viewer-state";
 import { workspace } from "./helpers";
 
 const position = { type: "page" as const, index: 4, zoom: 2, text: true };
 const posix = process.platform !== "win32";
+describe("zoom per layout class", () => {
+  it("keeps a wide zoom off the phone while page and text mode stay shared", async () => {
+    const store = new ViewerStateStore(workspace());
+    await store.write("doc", { type: "page", index: 3, zoom: 1.5, text: false, zooms: { wide: 1.5 } });
+    const desktop = (await store.read("doc"))!.position!;
+    expect(desktop).toMatchObject({ index: 3 });
+    expect(zoomFor(desktop as never, "compact")).toBe(1);
+    expect(zoomFor(desktop as never, "wide")).toBe(1.5);
+    await store.write("doc", { type: "page", index: 5, zoom: 2, text: true, zooms: { compact: 2 } });
+    const merged = (await store.read("doc"))!.position!;
+    expect(merged).toEqual({ type: "page", index: 5, zoom: 2, text: true, zooms: { wide: 1.5, compact: 2 } });
+  });
+
+  it("treats a zoom saved before layouts were tracked as a wide zoom", async () => {
+    const legacy = { type: "page" as const, index: 0, zoom: 2, text: false };
+    expect(zoomFor(legacy, "wide")).toBe(2);
+    expect(zoomFor(legacy, "compact")).toBe(1);
+    const store = new ViewerStateStore(workspace());
+    await store.write("doc", legacy);
+    await store.write("doc", { ...legacy, zoom: 1, zooms: { compact: 1 } });
+    expect((await store.read("doc"))!.position).toMatchObject({ zooms: { wide: 2, compact: 1 } });
+  });
+});
+
 describe("durable viewer positions", () => {
   it("survives reopening the store, serializes concurrent writes, and resets one file only", async () => {
     const directory = workspace();

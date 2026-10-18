@@ -110,3 +110,26 @@ describe("review draft store", () => {
     expect(sharedReviewDrafts({})).not.toBe(first);
   });
 });
+
+describe("note being typed", () => {
+  it("is kept per document until it is cleared, and an empty one is not kept", () => {
+    const drafts = createReviewDrafts();
+    drafts.setComposing("ws", "a.pdf", { revision: "r1", page: 2, text: "Half typed" });
+    expect(drafts.composing("ws", "a.pdf")).toEqual({ revision: "r1", page: 2, text: "Half typed" });
+    expect(drafts.composing("ws", "b.pdf")).toBeUndefined();
+    expect(drafts.composing("other", "a.pdf")).toBeUndefined();
+    expect(drafts.get("ws").notes).toEqual([]);
+    drafts.setComposing("ws", "a.pdf", { revision: "r1", page: 2, text: "   " });
+    expect(drafts.composing("ws", "a.pdf")).toBeUndefined();
+    drafts.setComposing("ws", "a.pdf", { revision: "r1", page: 2, text: "x" });
+    drafts.setComposing("ws", "a.pdf", null);
+    expect(drafts.composing("ws", "a.pdf")).toBeUndefined();
+  });
+
+  it("keeps at most 50 documents' notes, dropping the oldest", () => {
+    const drafts = createReviewDrafts();
+    for (let index = 0; index <= 50; index++) drafts.setComposing("ws", `${index}.pdf`, { revision: "r", page: 0, text: "t" });
+    expect(drafts.composing("ws", "0.pdf")).toBeUndefined();
+    expect(drafts.composing("ws", "50.pdf")).toBeDefined();
+  });
+});

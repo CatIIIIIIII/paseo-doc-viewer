@@ -1,5 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
-import { DocumentScreen, documentTitle } from "./client/document-screen";
+import { DocumentScreen } from "./client/document-screen";
+import { documentTitle } from "./client/format";
 import { createDocumentsPanel } from "./client/documents-panel";
 import { addDocumentsHeaderButtons } from "./client/header-button";
 import { setHostClient } from "./client/host-client";
@@ -22,7 +23,7 @@ export default function contribute(client: PluginClientContext) {
     client.addCommandCenterItem({
       id: "show-documents",
       title: "Show documents",
-      icon: "FileStack",
+      icon: "FileText",
       keywords: ["recent", "viewer"],
       context: "workspace",
       onSelect: ({ openPanel }) => openPanel(DOCUMENTS_PANEL_ID),
@@ -30,14 +31,14 @@ export default function contribute(client: PluginClientContext) {
     client.addWorkspacePanel({
       id: DOCUMENTS_PANEL_ID,
       title: "Documents",
-      icon: "FileStack",
+      icon: "FileText",
       context: "workspace",
       locations: ["workspace", "explorer"],
       Component: createDocumentsPanel((input) => client.openScreen(input)),
     }),
     client.addSlashCommand({
       name: "doc",
-      description: "Open a document in the viewer, or the most recent one",
+      description: "Open a document in the viewer, or the newest PDF, Word, spreadsheet or slide file",
       argumentHint: "[path]",
       context: "workspace",
       onSubmit: openByPath,

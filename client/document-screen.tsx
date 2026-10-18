@@ -4,11 +4,11 @@ import { FindScope } from "./web";
 import { DownloadOriginal } from "./download-original";
 import { type PluginScreenProps, useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { docOpenRpc, type DocOpenOutput } from "../shared/rpc";
 import { BlocksViewer } from "./blocks-viewer";
-import { baseName, originalReachable } from "./format";
+import { originalReachable } from "./format";
 import { PageViewer } from "./page-viewer";
 import { passwordPrompt } from "./password";
 import { PasswordPrompt } from "./password-prompt";
@@ -22,12 +22,8 @@ import { type DocumentReview, reviewStatus } from "./review";
 import { MediaViewer } from "./media-viewer";
 import { kindForPath } from "../shared/kinds";
 import { openHostScreen } from "./host-client";
-import { reviewScope, useReviewDraft } from "./review-draft";
+import { reviewDrafts, reviewScope, useReviewDraft } from "./review-draft";
 import { NoteComposer, reviewScreen } from "./review-note";
-
-export function documentTitle(params: Record<string, string>): string {
-  return params.path ? baseName(params.path) : "Document";
-}
 
 export function DocumentScreen({ host, theme, layout, params }: PluginScreenProps) {
   const { ref, onLayout, bottomInset } = useBottomInset();
@@ -149,7 +145,12 @@ function ViewerContent({
 
 function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof ViewerContent>[0] & { reviewScope: string }) {
   const [finding, setFinding] = useState(false);
-  const [notePage, setNotePage] = useState<number | null>(null);
+  // A note being typed when the viewer was unmounted (for example by a workspace switch) reopens.
+  const [notePage, setNotePage] = useState<number | null>(() => {
+    const kept = reviewDrafts.composing(scope, props.path);
+    return kept && props.document.kind === "pdf" && kept.page < props.document.pageCount ? kept.page : null;
+  });
+  const shownRevision = useRef(props.document.revision);
   const draft = useReviewDraft(scope);
   const marks = useViewerMarks(props.workspaceId, props.path);
   const review = reviewStatus(marks.review, props.document.revision);
@@ -157,7 +158,11 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
   const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([]);
   const [mapOpen, setMapOpen] = useState(false);
   const [activePage, setActivePage] = useState(0);
-  useEffect(() => { setNavigation(null); setSearchMatches([]); setNotePage(null); }, [props.document.revision]);
+  useEffect(() => {
+    if (shownRevision.current === props.document.revision) return;
+    shownRevision.current = props.document.revision;
+    setNavigation(null); setSearchMatches([]); setNotePage(null);
+  }, [props.document.revision]);
   useEffect(() => { if (navigation) setMapOpen(false); }, [navigation]);
   const searchable = ["pdf", "docx", "xlsx", "csv", "pptx"].includes(props.document.kind);
   // Page map and review notes act on a PDF page, so both need at least one.

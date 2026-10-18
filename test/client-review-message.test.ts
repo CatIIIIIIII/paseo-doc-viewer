@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatReview, noteRevisionStatus } from "../client/review-message";
 import { createReviewDrafts, pageImageKey } from "../client/review-draft";
-import { documentRevision, revisionModifiedAt } from "../shared/revision";
+import { documentRevision, revisionModifiedAt, revisionSize } from "../shared/revision";
 
 const modified = Date.UTC(2026, 9, 17, 14, 2, 31, 250);
 const current = documentRevision(52_000, modified, modified);
@@ -23,6 +23,8 @@ describe("review message", () => {
   it("round-trips the modified time encoded in a document revision", () => {
     expect(revisionModifiedAt(current)).toBe(modified);
     expect(revisionModifiedAt("opaque")).toBeNull();
+    expect(revisionSize(current)).toBe(52_000);
+    expect(revisionSize("opaque")).toBeNull();
   });
 
   it("marks a note as older once the file's displayed revision moves on", () => {
@@ -37,25 +39,37 @@ describe("review message", () => {
     const message = formatReview(sampleDraft(), (path) => revisions.get(path));
     expect(message.text).toBe(
       [
-        "Review notes from the document viewer. Each note gives the file, the revision I was viewing and the page (numbered from 1).",
+        "Review notes from the document viewer. Each file gives the modified time and size of the version I was viewing, then my notes by page (numbered from 1).",
         "",
-        `out/report.pdf, revision ${current} (modified 2026-10-17 14:02 UTC)`,
+        "out/report.pdf (modified 2026-10-17 14:02:31 UTC, 52,000 bytes)",
         "- Page 1: Cover is fine, but add the date",
         "- Page 4: Legend overlaps the axis [image 1]",
         "- Page 7: Move this table",
         "  onto its own page",
         "",
-        `out/report.pdf, older revision ${previous} (modified 2026-10-17 13:02 UTC); the file has changed since these notes`,
+        "out/report.pdf, older version (modified 2026-10-17 13:02:31 UTC, 48,000 bytes); the file has changed since these notes",
         "- Page 2: Title is too long",
         "",
-        "out/appendix.pdf, revision opaque",
+        "out/appendix.pdf",
         "- Page 1: Typo in the heading",
         "",
         "Attached images:",
-        `1. out/report.pdf page 4, revision ${current}`,
+        "1. out/report.pdf page 4 (modified 2026-10-17 14:02:31 UTC, 52,000 bytes)",
       ].join("\n"),
     );
+    expect(message.text).not.toContain(current);
     expect(message.images).toEqual([{ data: image.data, mimeType: image.mimeType }]);
+  });
+
+  it("names a pinned page by its pin label, on one line", () => {
+    const drafts = createReviewDrafts();
+    drafts.addNote("ws", { path: "a.pdf", revision: current, page: 3, text: "Safety looks wrong" });
+    drafts.addNote("ws", { path: "a.pdf", revision: current, page: 4, text: "Fine" });
+    const pins = [{ path: "a.pdf", index: 3, revision: current, label: "Category\nheatmap" }, { path: "a.pdf", index: 4, revision: previous, label: "Stale pin" }];
+    const message = formatReview(drafts.get("ws"), () => current,
+      (note) => pins.find((pin) => pin.path === note.path && pin.index === note.page && pin.revision === note.revision)?.label);
+    expect(message.text).toContain('- Page 4 (pinned as "Category heatmap"): Safety looks wrong');
+    expect(message.text).toContain("- Page 5: Fine");
   });
 
   it("omits the image section when no page is attached", () => {

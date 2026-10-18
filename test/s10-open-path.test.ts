@@ -101,7 +101,7 @@ describe("S10: open a document by path despite the missing Files-tree hook", () 
     const screen = screens.find((candidate) => candidate.id === "document");
     expect(screen, "document screen").toBeDefined();
     const title = typeof screen!.title === "function" ? screen!.title({ workspaceId: "ws-1", path: "report/main.pdf" }) : screen!.title;
-    expect(title).toBe("main.pdf");
+    expect(title).toBe("main.pdf · report");
   });
 
   it("S10: a workspace Command Center item opens the most recently changed document in one tap", async () => {

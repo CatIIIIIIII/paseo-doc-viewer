@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Excel: a formula saved with an empty result (`<v></v>`, as openpyxl writes every formula) counts as having no saved result. The grid shows its formula text, the inspector says None saved and Issues lists it. Before, such cells looked blank.
+- Spreadsheets: a Find or Issues jump keeps column A in view when the target cell fits in the first columns. Records remembers the header row chosen for each sheet until the app reloads, also after the document is closed and reopened.
+- Zoom is remembered per layout class (phone-sized or wide). The page, text mode and sheet window stay shared across clients, but a 1.5x zoom set on desktop no longer opens cropped on a phone. A zoom saved by an earlier version counts as a wide zoom.
+- Bare `/doc` and "Open recent document" open the newest PDF, Word, spreadsheet or slide file instead of the newest file of any type, so a screenshot written after a report no longer wins. Images, video and audio are opened only when the workspace has no such document.
+- The document screen title shows the folder after the file name (`report.pdf · runs/2026-10-17-rag-eval`), so two files with the same name can be told apart. A long folder keeps its last 40 characters.
+- Documents search: when nothing the viewer opens matches but other files do (for example `notebooks/analysis.ipynb`), the panel names up to 3 of them and says their type is not supported, instead of "No files match". `docs.recent` returns them as `unsupported`, only when no document matched. Hidden files are never named.
+- Review message: each file states the modified time (to the second, UTC) and exact size in bytes of the version you reviewed, instead of an opaque revision token, so the agent can check it against the file. A note on a pinned page carries the pin label when the pin belongs to the same version. The most recently active idle agent is preselected as the recipient; busy agents, agents whose last turn failed and unloaded agents are never preselected.
+- A note being typed in the composer is kept in app memory when you leave the document or switch workspace, and the composer reopens with it on the same page. Cancel or Add note clears it.
+- The Documents button, panel and Show documents command use the FileText icon. On phones the button is icon-only, and FileStack looked like a copy button.
+- The Documents header button appears right after an agent's turn ends in a workspace that had no documents, instead of up to 2 minutes later. The client opens one agent-list subscription (pushed updates, no polling) and runs `docs.any` for that workspace again, at most every 10 seconds; the 2-minute poll is unchanged.
+- Documents shows a New pill and filter, next to Needs review, for files that appeared or changed since you last opened Documents in that workspace and were never reviewed. The first visit marks nothing as new. Visits are recorded per workspace in `visits.json` beside the viewer state (keys salted like positions); the app reuses a visit for 30 minutes, so switching workspaces does not reset it. New `docs.visit` RPC; `docs.recent` takes `newSince` and `newOnly` and returns a per-entry `isNew` and a `newCount`.
+
 ## 0.4.0 (2026-10-17)
 
 - PDF page map: a Pages button shows a grid of low-resolution page thumbnails (2 or 3 columns on phones). Thumbnails load visible pages first, at most two at a time per map, on one background render slot that never takes the last slot from page renders. Closing the map stops further requests; a tap opens the page. New `doc.thumbnail` RPC (PDF only, 48 to 320 px wide, under 256 KB).

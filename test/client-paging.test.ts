@@ -8,6 +8,7 @@ import {
   fitSize,
   focalOffset,
   gridReducer,
+  jumpGrid,
   INITIAL_GRID,
   nextZoomStep,
   pageRequests,
@@ -285,5 +286,16 @@ describe("sheet view across revisions", () => {
 
   it("resets to the start of an emptied workbook", () => {
     expect(reconcileGrid({ ...INITIAL_GRID, sheet: 1, rowOffset: 200, rowHistory: [0] }, [])).toEqual(INITIAL_GRID);
+  });
+});
+
+describe("client grid jumps", () => {
+  it("keeps column A in view when the target fits in the first column window", () => {
+    expect(jumpGrid({ sheet: 1, row: 42, column: 1 }, 8)).toEqual({ sheet: 1, rowOffset: 42, columnOffset: 0, rowHistory: [0], columnHistory: [] });
+    expect(jumpGrid({ sheet: 0, row: 0, column: 7 }, 8)).toMatchObject({ rowOffset: 0, columnOffset: 0, rowHistory: [] });
+  });
+
+  it("starts the window at a target past the first columns, with a way back", () => {
+    expect(jumpGrid({ sheet: 0, row: 3, column: 8 }, 8)).toMatchObject({ columnOffset: 8, columnHistory: [0] });
   });
 });

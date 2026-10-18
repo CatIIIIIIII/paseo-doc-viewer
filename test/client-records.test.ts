@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampRecord, firstRecord, headerPreview, recordFields, recordLabel } from "../client/records";
+import { clampRecord, createHeaderMemory, firstRecord, headerPreview, recordFields, recordLabel, sharedHeaderMemory } from "../client/records";
 
 describe("record cards", () => {
   it("labels each field with the chosen header cell, falling back to the column letter", () => {
@@ -41,5 +41,31 @@ describe("record cards", () => {
     expect(headerPreview(["Region", "Q1", "", "Q2", "Total", "Growth", "Updated", "Owner"])).toBe("Region · Q1 · Q2 · Total · Growth · Updated · …");
     expect(headerPreview(["", ""])).toBe("(empty row)");
     expect(headerPreview(["x".repeat(80)])).toBe(`${"x".repeat(47)}…`);
+  });
+});
+
+describe("record header memory", () => {
+  it("remembers the header row per workspace, file and sheet, including no header", () => {
+    const memory = createHeaderMemory();
+    memory.set("w", "a.xlsx", 0, 1);
+    memory.set("w", "a.xlsx", 1, null);
+    expect(memory.get("w", "a.xlsx", 0)).toBe(1);
+    expect(memory.get("w", "a.xlsx", 1)).toBeNull();
+    expect(memory.get("w", "a.xlsx", 2)).toBeUndefined();
+    expect(memory.get("other", "a.xlsx", 0)).toBeUndefined();
+    expect(memory.get("w", "b.xlsx", 0)).toBeUndefined();
+  });
+
+  it("forgets the least recently chosen sheets past 500", () => {
+    const memory = createHeaderMemory();
+    for (let sheet = 0; sheet <= 500; sheet++) memory.set("w", "a.xlsx", sheet, 0);
+    expect(memory.get("w", "a.xlsx", 0)).toBeUndefined();
+    expect(memory.get("w", "a.xlsx", 500)).toBe(0);
+  });
+
+  it("survives the bundle being evaluated again", () => {
+    const global = {};
+    sharedHeaderMemory(global).set("w", "a.xlsx", 0, 3);
+    expect(sharedHeaderMemory(global).get("w", "a.xlsx", 0)).toBe(3);
   });
 });

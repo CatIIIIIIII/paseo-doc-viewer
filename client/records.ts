@@ -51,3 +51,31 @@ export function headerPreview(values: readonly string[]): string {
   const text = filled.slice(0, PREVIEW_CELLS).join(" · ") + (filled.length > PREVIEW_CELLS ? " · …" : "");
   return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS - 1)}…` : text;
 }
+
+// The header row chosen for a sheet, kept in app memory for the session (never stored on disk).
+// Like the review drafts it hangs off the global object, so a bundle re-evaluated on reconnect keeps it.
+const HEADERS_KEY = Symbol.for("paseo-doc-viewer/record-headers/v1");
+const MAX_REMEMBERED_HEADERS = 500;
+
+export function createHeaderMemory() {
+  const headers = new Map<string, number | null>();
+  const key = (workspaceId: string, path: string, sheet: number) => `${workspaceId}\0${path}\0${sheet}`;
+  return {
+    get: (workspaceId: string, path: string, sheet: number): number | null | undefined => headers.get(key(workspaceId, path, sheet)),
+    set(workspaceId: string, path: string, sheet: number, header: number | null) {
+      const id = key(workspaceId, path, sheet);
+      headers.delete(id);
+      headers.set(id, header);
+      if (headers.size > MAX_REMEMBERED_HEADERS) headers.delete(headers.keys().next().value!);
+    },
+  };
+}
+
+export type HeaderMemory = ReturnType<typeof createHeaderMemory>;
+
+export function sharedHeaderMemory(global: object): HeaderMemory {
+  const holder = global as { [HEADERS_KEY]?: HeaderMemory };
+  return (holder[HEADERS_KEY] ??= createHeaderMemory());
+}
+
+export const recordHeaders = sharedHeaderMemory(globalThis);

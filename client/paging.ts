@@ -228,6 +228,13 @@ export function gridReducer(state: GridState, action: GridAction): GridState {
   }
 }
 
+// A jump keeps the first columns in view when the target fits in them, so column A (often the row's id) stays visible.
+export function jumpGrid(target: { sheet: number; row: number; column: number }, columns: number): GridState {
+  const columnOffset = target.column < columns ? 0 : target.column;
+  return { ...INITIAL_GRID, sheet: target.sheet, rowOffset: target.row, columnOffset,
+    rowHistory: target.row > 0 ? [0] : [], columnHistory: columnOffset > 0 ? [0] : [] };
+}
+
 export function reconcileGrid(
   state: GridState,
   sheets: readonly { rowCount: number; columnCount: number; countsApproximate?: boolean }[],

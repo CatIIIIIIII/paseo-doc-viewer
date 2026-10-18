@@ -3,15 +3,16 @@ import { CellInspector } from "./cell-inspector";
 import { Highlight } from "./highlight";
 import { IssuesPanel } from "./issues-panel";
 import { HeaderChooser, RecordCard } from "./record-view";
+import { recordHeaders } from "./records";
 import type { ViewerPosition } from "../shared/viewer-state";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { FlatList } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
-import { memo, useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ActivityIndicator, Platform, ScrollView, Text, useWindowDimensions, View, type TextStyle } from "react-native";
 import { docRowsRpc, type DocOpenOutput } from "../shared/rpc";
-import { columnName, gridReducer, INITIAL_GRID, rangeLabel, reconcileGrid, retryPage, sheetWindow } from "./paging";
+import { columnName, gridReducer, INITIAL_GRID, jumpGrid, rangeLabel, reconcileGrid, retryPage, sheetWindow } from "./paging";
 import { rowsQueryKey } from "./queries";
 import { ErrorState, LoadingState, MessageState, type Styles, ToolbarButton } from "./ui";
 
@@ -46,14 +47,16 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
   const [selected, setSelected] = useState<CellRef | null>(null);
   const onSelect = useCallback((cell: CellRef) => setSelected(cell), []);
   const [mode, setMode] = useState<"grid" | "records">("grid");
-  const [headers, setHeaders] = useState<ReadonlyMap<number, number | null>>(() => new Map());
+  const [, rememberHeader] = useReducer((count: number) => count + 1, 0);
   const [choosingHeader, setChoosingHeader] = useState(false);
   const [recordStart, setRecordStart] = useState(0);
   const [checking, setChecking] = useState(false);
+  // Read through a ref so a resize does not re-run the navigation effect and jump again.
+  const columns = useRef(layout.columns);
+  columns.current = layout.columns;
   const jump = useCallback((target: { sheet: number; row: number; column: number }) => {
     setMode("grid");
-    dispatch({ type: "reconcile", state: { ...INITIAL_GRID, sheet: target.sheet, rowOffset: target.row, columnOffset: target.column,
-      rowHistory: target.row > 0 ? [0] : [], columnHistory: target.column > 0 ? [0] : [] } });
+    dispatch({ type: "reconcile", state: jumpGrid(target, columns.current) });
     setSelected({ row: target.row, column: target.column });
   }, []);
   useEffect(() => {
@@ -106,7 +109,7 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
     </View>
   );
   const recordSheet = { index: grid.sheet, ...sheet };
-  const header = headers.get(grid.sheet);
+  const header = recordHeaders.get(workspaceId, path, grid.sheet);
   const common = { workspaceId, path, revision, sheet: recordSheet, theme, styles, leading: modeSwitch };
   const sheetTabs = sheets.length > 1 ? (
     <ScrollView
@@ -140,7 +143,8 @@ export function SheetViewer({ workspaceId, path, revision, kind, sheets, theme, 
         {sheetTabs}
         {header === undefined || choosingHeader ? (
           <HeaderChooser key={grid.sheet} {...common} onChoose={(chosen) => {
-            setHeaders(new Map(headers).set(grid.sheet, chosen));
+            recordHeaders.set(workspaceId, path, grid.sheet, chosen);
+            rememberHeader();
             setChoosingHeader(false);
           }} />
         ) : (
