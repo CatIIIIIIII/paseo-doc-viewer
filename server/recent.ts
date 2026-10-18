@@ -88,15 +88,16 @@ const scans = new Map<string, { result: Promise<Scan>; expiresAt: number }>();
 export async function recentDocuments(
   root: string,
   { limit = RECENT_MAX_ENTRIES, query, group, needsReview, newOnly, newSince }: BrowseFilter & { limit?: number; newSince?: number } = {},
-  reviewStatus?: (entry: RecentEntry) => ReviewStatus | undefined,
+  marks?: (entry: RecentEntry) => { review?: ReviewStatus; opened: boolean } | undefined,
 ): Promise<{ entries: RecentEntry[]; truncated: boolean; counts: GroupCounts; needsReview: number; newCount: number; unsupported?: string[] }> {
   const scan = await sharedScan(root);
   const cap = Math.max(1, Math.min(limit, RECENT_MAX_ENTRIES));
   const searched = filterEntries(scan.entries, { query });
-  const matched = reviewStatus || newSince !== undefined
+  // New: changed since the previous Documents visit, never reviewed, and not opened at this revision.
+  const matched = marks || newSince !== undefined
     ? searched.map((entry) => {
-        const review = reviewStatus?.(entry);
-        return { ...entry, review, isNew: newSince !== undefined && review === undefined && entry.changedMs > newSince };
+        const { review, opened = false } = marks?.(entry) ?? {};
+        return { ...entry, review, isNew: newSince !== undefined && review === undefined && !opened && entry.changedMs > newSince };
       })
     : searched;
   const shown = filterEntries(matched, { group, needsReview, newOnly });
@@ -114,7 +115,7 @@ export async function recentDocuments(
   };
 }
 
-// Called after a review mark changes, so the list does not show a reused scan's older revision.
+// Called after a review or opened mark changes, so the list does not compare it with a reused scan's older revision.
 export function forgetScan(root: string): void {
   scans.delete(root);
 }

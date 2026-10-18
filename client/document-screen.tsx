@@ -17,7 +17,7 @@ import { SheetViewer } from "./sheet-viewer";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, type Styles, ToolbarButton } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
 import { useViewerPosition } from "./use-viewer-position";
-import { useViewerMarks } from "./use-viewer-marks";
+import { useOpenedMark, useViewerMarks } from "./use-viewer-marks";
 import { type DocumentReview, reviewStatus } from "./review";
 import { MediaViewer } from "./media-viewer";
 import { kindForPath } from "../shared/kinds";
@@ -155,6 +155,7 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
   const shownRevision = useRef(props.document.revision);
   const draft = useReviewDraft(scope);
   const marks = useViewerMarks(props.workspaceId, props.path);
+  useOpenedMark(props.workspaceId, props.path, props.document.revision);
   const review = reviewStatus(marks.review, props.document.revision);
   const [navigation, setNavigation] = useState<SearchNavigation | null>(null);
   const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([]);
@@ -199,7 +200,7 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
   </View></FindScope>;
 }
 
-// Marking is always an explicit press, for the revision on screen; opening or scrolling never marks.
+// Marking reviewed is always an explicit press, for the revision on screen; opening or scrolling never does it.
 function MarkReviewed({ marks, status, revision, compact, theme, styles }: {
   marks: ReturnType<typeof useViewerMarks>; status: DocumentReview; revision: string; compact: boolean; theme: PluginScreenProps["theme"]; styles: Styles;
 }) {

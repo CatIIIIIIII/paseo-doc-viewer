@@ -1,9 +1,9 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorText } from "../shared/errors";
-import { viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, type ViewerStateReadOutput } from "../shared/rpc";
+import { viewerStateOpenedRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, type ViewerStateReadOutput } from "../shared/rpc";
 import { viewerMarksQueryKey } from "./queries";
 
 // Pins and the review mark for one document; positions keep their own read in useViewerPosition.
@@ -51,4 +51,22 @@ export function useViewerMarks(workspaceId: string, path: string) {
         }
       }, "Could not save the review mark"),
   };
+}
+
+// Tells the server once per open which revision is on screen, so Documents stops calling the file
+// New until it changes again. A later revision shown by polling does not count as opening it.
+// Failure is quiet: the label staying is the only effect.
+export function useOpenedMark(workspaceId: string, path: string, revision: string) {
+  const mark = useRpc(viewerStateOpenedRpc);
+  const queryClient = useQueryClient();
+  const sent = useRef<string | null>(null);
+  useEffect(() => {
+    const document = `${workspaceId}\0${path}`;
+    if (sent.current === document) return;
+    sent.current = document;
+    mark({ workspaceId, path, revision }).then(
+      ({ marked }) => { if (marked) void queryClient.invalidateQueries({ queryKey: ["docs.recent", workspaceId] }); },
+      () => {},
+    );
+  }, [mark, queryClient, workspaceId, path, revision]);
 }

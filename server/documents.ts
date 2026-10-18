@@ -462,11 +462,13 @@ export async function readMediaChunk(ref: DocumentRef, request: ChunkRequest): P
 
 // Review status is computed only when some document has been marked reviewed.
 export async function listRecent(root: string, request: Omit<DocsRecentInput, "workspaceId">, store = viewerStateStore): Promise<DocsRecentOutput> {
-  const reviewed = await store.reviewedRevisions();
-  const keyOf = reviewed.size > 0 ? await store.scannedKeys(root) : null;
-  const status = (entry: RecentEntry): ReviewStatus | undefined => {
-    const revision = keyOf ? reviewed.get(keyOf(entry.path)) : undefined;
-    return revision === undefined ? undefined : revision === entry.revision ? "reviewed" : "changed";
+  const marks = await store.marks();
+  const keyOf = marks.size > 0 ? await store.scannedKeys(root) : null;
+  const status = (entry: RecentEntry): { review?: ReviewStatus; opened: boolean } | undefined => {
+    const mark = keyOf ? marks.get(keyOf(entry.path)) : undefined;
+    if (!mark) return undefined;
+    const review = mark.reviewed === undefined ? undefined : mark.reviewed === entry.revision ? "reviewed" : "changed";
+    return { review, opened: mark.opened === entry.revision };
   };
   const listed = await recentDocuments(root, request, keyOf ? status : undefined);
   return {

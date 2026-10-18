@@ -1,10 +1,11 @@
-import { readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createVisitMemory, VISIT_REUSE_MS } from "../client/visits";
 import { listRecent, openDocument } from "../server/documents";
 import { forgetScan } from "../server/recent";
-import { markReviewed, ViewerStateStore } from "../server/viewer-state";
+import { revisionOf } from "../server/revision";
+import { markOpened, markReviewed, ViewerStateStore } from "../server/viewer-state";
 import { VisitStore } from "../server/visits";
 import { filterEntries } from "../shared/browse";
 import { docsRecentRpc, docsVisitRpc } from "../shared/rpc";
@@ -32,6 +33,45 @@ describe("new since the last Documents visit", () => {
     const only = await listRecent(root, { newSince: visit, newOnly: true, group: "excel" }, store);
     expect(only.entries.map((entry) => entry.path)).toEqual(["fresh.csv"]);
     expect(filterEntries(listed.entries, { newOnly: true }).map((entry) => entry.path).sort()).toEqual(["fresh.csv", "old.pdf"]);
+  });
+
+  it("stops calling a file new once it is opened at its current revision, until it changes again", async () => {
+    const visit = Date.now() - 60_000;
+    const root = workspace({ "memo.pdf": "%PDF-1.4", "data.csv": "a\n" });
+    const store = new ViewerStateStore(workspace());
+    const newPaths = async () => {
+      forgetScan(root);
+      const listed = await listRecent(root, { newSince: visit }, store);
+      return { paths: listed.entries.filter((entry) => entry.isNew).map((entry) => entry.path).sort(), count: listed.newCount };
+    };
+    expect(await newPaths()).toEqual({ paths: ["data.csv", "memo.pdf"], count: 2 });
+    const shown = revisionOf(statSync(join(root, "memo.pdf")));
+    expect(await markOpened(store, root, "memo.pdf", shown)).toBe(true);
+    // Opening again at the same revision changes nothing; a revision the file no longer has is ignored.
+    expect(await markOpened(store, root, "memo.pdf", shown)).toBe(false);
+    expect(await markOpened(store, root, "data.csv", "1-2-3")).toBe(false);
+    expect(await newPaths()).toEqual({ paths: ["data.csv"], count: 1 });
+    // Opening is not a review: the entry has no review status.
+    forgetScan(root);
+    expect((await listRecent(root, { newSince: visit }, store)).entries.find((entry) => entry.path === "memo.pdf")).not.toHaveProperty("review");
+    writeFileSync(join(root, "memo.pdf"), "%PDF-1.4\n% rewritten by the agent\n");
+    expect(await newPaths()).toEqual({ paths: ["data.csv", "memo.pdf"], count: 2 });
+  });
+
+  it("keeps the opened mark in the shared viewer state, beside position, pins and review", async () => {
+    const root = workspace({ "memo.pdf": "%PDF-1.4" });
+    const directory = workspace();
+    const store = new ViewerStateStore(directory);
+    const revision = revisionOf(statSync(join(root, "memo.pdf")));
+    await markOpened(store, root, "memo.pdf", revision);
+    const key = await store.key(root, "memo.pdf");
+    // A record holding only the opened mark is kept, and resetting the position leaves it alone.
+    await store.write(key, null);
+    // Another daemon process (or a second app on the same daemon) reads the same file.
+    expect((await new ViewerStateStore(directory).read(key))?.opened?.revision).toBe(revision);
+    await markReviewed(store, root, "memo.pdf", revision);
+    expect(await store.read(key)).toMatchObject({ opened: { revision }, review: { revision } });
+    expect(readFileSync(join(directory, "positions.json"), "utf8")).not.toContain("memo.pdf");
   });
 
   it("counts nothing as new without a previous visit, and works with no review marks at all", async () => {

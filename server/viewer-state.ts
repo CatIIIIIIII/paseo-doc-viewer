@@ -6,12 +6,21 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { PINS_MAX_PER_FILE } from "../shared/limits";
-import { mergeZooms, pagePins, reviewMark, viewerPosition, type PagePin, type ViewerPosition } from "../shared/viewer-state";
+import { documentRevision, mergeZooms, pagePins, reviewMark, viewerPosition, type PagePin, type ViewerPosition } from "../shared/viewer-state";
 import { resolveInside } from "./paths";
 import { revisionOf } from "./revision";
 
-const record = z.object({ position: viewerPosition.optional(), pins: pagePins.optional(), review: reviewMark.optional(), touched: z.number() });
+// `opened` is the revision the viewer last showed when the file was opened: Documents does not call
+// the file New again until it has a different revision.
+const record = z.object({
+  position: viewerPosition.optional(),
+  pins: pagePins.optional(),
+  review: reviewMark.optional(),
+  opened: z.object({ revision: documentRevision, at: z.number() }).optional(),
+  touched: z.number(),
+});
 type Entry = Omit<z.infer<typeof record>, "touched">;
+export type DocumentMarks = { reviewed?: string; opened?: string };
 type Stored = { version: 1; entries: Record<string, z.infer<typeof record>> };
 const MAX_ENTRIES = 500;
 const MAX_BYTES = 1024 * 1024;
@@ -73,11 +82,14 @@ export class ViewerStateStore {
     return this.queue(async () => (await this.load()).entries[key] ?? null);
   }
 
-  reviewedRevisions(): Promise<Map<string, string>> {
+  // The reviewed and last opened revision of every document that has either, for the Documents list.
+  marks(): Promise<Map<string, DocumentMarks>> {
     return this.queue(async () => {
-      const reviewed = new Map<string, string>();
-      for (const [key, entry] of Object.entries((await this.load()).entries)) if (entry.review) reviewed.set(key, entry.review.revision);
-      return reviewed;
+      const marks = new Map<string, DocumentMarks>();
+      for (const [key, { review, opened }] of Object.entries((await this.load()).entries)) {
+        if (review || opened) marks.set(key, { reviewed: review?.revision, opened: opened?.revision });
+      }
+      return marks;
     });
   }
 
@@ -92,7 +104,7 @@ export class ViewerStateStore {
       const existing = data.entries[key];
       const { touched: _touched, ...current } = existing ?? { touched: 0 };
       const next = record.parse({ ...change(existing ? current : null), touched: Date.now() });
-      const empty = next.position === undefined && !next.pins?.length && next.review === undefined;
+      const empty = next.position === undefined && !next.pins?.length && next.review === undefined && next.opened === undefined;
       if (empty) delete data.entries[key];
       else data.entries[key] = next;
       const entries = Object.entries(data.entries).sort((a, b) => b[1].touched - a[1].touched).slice(0, MAX_ENTRIES);
@@ -236,6 +248,16 @@ export async function markReviewed(store: ViewerStateStore, root: string, path: 
   if (revision !== null && revision !== current) return { review: (await store.read(key))?.review ?? null, revision: current };
   const saved = await store.update(key, (existing) => ({ ...existing, review: revision === null ? undefined : { revision, at: Date.now() } }));
   return { review: saved?.review ?? null, revision: current };
+}
+
+// Records the revision the viewer showed on opening, if the file still has it. Returns whether the
+// saved mark changed, so the caller knows the Documents list needs a fresh look.
+export async function markOpened(store: ViewerStateStore, root: string, path: string, revision: string): Promise<boolean> {
+  if (revisionOf(await stat(await resolveInside(root, path))) !== revision) return false;
+  const key = await store.key(root, path);
+  if ((await store.read(key))?.opened?.revision === revision) return false;
+  await store.update(key, (current) => ({ ...current, opened: { revision, at: Date.now() } }));
+  return true;
 }
 
 // Pinning a page that already has a pin replaces its label and revision: that is how a pin is confirmed.

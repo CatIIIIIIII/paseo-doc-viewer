@@ -25,7 +25,8 @@ export interface BrowseEntry {
   kind: DocumentKind;
   mtimeMs: number;
   review?: ReviewStatus;
-  // Appeared or changed since Documents was last opened in this workspace, and never reviewed.
+  // Appeared or changed since Documents was last opened in this workspace, never reviewed, and
+  // not opened in the viewer since it last changed.
   isNew?: boolean;
 }
 

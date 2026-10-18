@@ -505,6 +505,16 @@ try {
   await phone.getByRole("button", { name: "New, 1 document", exact: true }).click();
   await expect(phone.getByRole("button", { name: /^Open / })).toHaveCount(1);
   await phone.screenshot({ path: `${directory}/documents-new.png` });
+  // Opening a new file in the viewer clears its New label, until the file changes again.
+  const openedMark = phone.waitForResponse((response) => response.url().endsWith("/rpc") && response.request().postData()?.includes('"viewer-state.opened"'));
+  await phone.getByRole("button", { name: /^Open fresh\.csv, CSV table, .*, new$/ }).click();
+  expect(await (await openedMark).json()).toEqual({ marked: true });
+  await phone.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(phone.getByRole("button", { name: /^Open fresh\.csv, CSV table, changed [^,]*$/ })).toBeVisible();
+  await expect(phone.getByRole("button", { name: /^New, / })).toHaveCount(0);
+  await writeFile(`${root}/fresh.csv`, "a,b\n1,2\n3,4\n");
+  await expect(phone.getByRole("button", { name: /^Open fresh\.csv, CSV table, .*, new$/ })).toBeVisible({ timeout: 15_000 });
+  await expect(phone.getByRole("button", { name: "New, 1 document", exact: true })).toBeVisible();
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "report.pdf", exact: true }).click();
   // Download sits in the tools row: no row of its own above the toolbar.
@@ -618,6 +628,6 @@ try {
   await page.getByRole("button", { name: settingsLinkName, exact: true }).click();
   await expect(page.getByText("Turn these cards off in Settings, Document viewer.", { exact: true })).toBeVisible();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), review notes (collect, edit, preview, copy, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, review notes (collect, edit, preview, copy, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

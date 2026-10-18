@@ -1,5 +1,5 @@
 import { fileInfo, fileChunk } from "./server/files";
-import { markReviewed, readViewerState, setPin, stateDirectory, viewerStateStore } from "./server/viewer-state";
+import { markOpened, markReviewed, readViewerState, setPin, stateDirectory, viewerStateStore } from "./server/viewer-state";
 import { VisitStore } from "./server/visits";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import type { TurnDocsHost } from "./server/turn-docs";
@@ -9,7 +9,7 @@ import { workspaceRoot } from "./server/paths";
 import { forgetScan, hasDocuments, scannedDocuments } from "./server/recent";
 import { createTurnDocs } from "./server/turn-docs";
 import { viewerSettings } from "./shared/settings";
-import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docCellRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
+import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docCellRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateOpenedRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
 
 // Workspace roots are salted with the viewer-state secret, so the file does not reveal them.
 const visitStore = new VisitStore(stateDirectory(), async (root) => (await viewerStateStore.scannedKeys(root))(""));
@@ -90,6 +90,12 @@ export default function contribute(server: PluginServerContext) {
     const answer = await markReviewed(viewerStateStore, root, path, revision);
     forgetScan(root);
     return answer;
+  });
+  server.handle(viewerStateOpenedRpc, async ({ workspaceId, path, revision }, { paseo }) => {
+    const root = await workspaceRoot(paseo, workspaceId);
+    const marked = await markOpened(viewerStateStore, root, path, revision);
+    if (marked) forgetScan(root);
+    return { marked };
   });
   server.handle(reviewPageImageRpc, async ({ workspaceId, path, password, ...request }, { paseo }) =>
     renderReviewPage({ root: await workspaceRoot(paseo, workspaceId), path, password }, request),

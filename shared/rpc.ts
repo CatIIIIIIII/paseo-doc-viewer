@@ -273,7 +273,8 @@ export const docsRecentRpc = defineRpc({
     query: z.string().max(200).optional(),
     group: z.enum(DOCUMENT_GROUPS).optional(),
     needsReview: z.boolean().optional(),
-    // When Documents was last opened in this workspace (from docs.visit); later, unreviewed files are new.
+    // When Documents was last opened in this workspace (from docs.visit); files changed later are new
+    // unless reviewed, or opened in the viewer at their current revision.
     newSince: z.number().nonnegative().optional(),
     newOnly: z.boolean().optional(),
   }),
@@ -346,6 +347,13 @@ export const viewerStateReviewRpc = defineRpc({
   output: z.object({ review: reviewMark.nullable(), revision: documentRevision }),
 });
 
+// The viewer calls this once per open with the revision it showed; `marked` is false when nothing changed.
+export const viewerStateOpenedRpc = defineRpc({
+  name: "viewer-state.opened",
+  input: z.object({ ...documentRef, revision: documentRevision }),
+  output: z.object({ marked: z.boolean() }),
+});
+
 export const reviewPageImageRpc = defineRpc({
   name: "review.page-image",
   input: z.object({ ...documentRef, password, revision, index: z.number().int().nonnegative() }),
@@ -353,7 +361,7 @@ export const reviewPageImageRpc = defineRpc({
 });
 export type ReviewPageImageOutput = RpcOutput<typeof reviewPageImageRpc>;
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, reviewPageImageRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, viewerStateOpenedRpc, reviewPageImageRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;
