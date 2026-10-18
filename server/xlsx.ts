@@ -4,7 +4,7 @@ import SSF from "ssf";
 import { MAX_RESPONSE_BYTES, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS } from "../shared/limits";
 import { ERROR_MESSAGES } from "../shared/errors";
 import type { CellDetail } from "../shared/rpc";
-import { cellAddress, SharedFormulas, shiftFormula } from "./formulas";
+import { cellAddress, MAX_COLUMN, MAX_ROW, SharedFormulas, shiftFormula } from "./formulas";
 import { decodeEntities } from "./html";
 import { readText, streamEntry, type ZipIndex } from "./zip";
 
@@ -170,12 +170,15 @@ function resumePoint(pending: string): number {
   return tail >= 0 && !pending.includes(">", tail) ? tail : pending.length;
 }
 
+// The zero-based column of a reference like "AB12", or -1 when it has no letters or lies past
+// Excel's last column (XFD): larger values are not safe integers in responses.
 function columnIndex(reference: string): number {
   let column = 0;
   for (const char of reference) {
     const code = char.charCodeAt(0);
     if (code < 65 || code > 90) break;
     column = column * 26 + (code - 64);
+    if (column > MAX_COLUMN) return -1;
   }
   return column - 1;
 }
@@ -237,8 +240,11 @@ async function relationships(index: ZipIndex, part: string): Promise<Map<string,
 function parseRange(reference: string): { rows: number; columns: number } | null {
   const last = reference.split(":").pop() ?? "";
   const match = /^\$?([A-Z]+)\$?(\d+)$/.exec(last);
-  if (!match) return null;
-  return { rows: Number(match[2]), columns: columnIndex(match[1]) + 1 };
+  const rows = Number(match?.[2]);
+  const column = match ? columnIndex(match[1]!) : -1;
+  // A dimension past Excel's limits is bogus; the counts are then found by reading the sheet.
+  if (!(rows >= 1 && rows <= MAX_ROW) || column < 0) return null;
+  return { rows, columns: column + 1 };
 }
 
 async function sheetDimension(index: ZipIndex, part: string): Promise<{ rows: number; columns: number } | null> {
@@ -379,7 +385,7 @@ export async function* sheetRows<T>(workbook: Workbook, sheet: SheetRef, fromRow
     if (token.startsWith("<row")) {
       if (current) yield current;
       const declared = Number(attribute(token, "r"));
-      const row: number = Number.isInteger(declared) && declared > 0 ? declared - 1 : (current?.row ?? -1) + 1;
+      const row: number = Number.isInteger(declared) && declared > 0 && declared <= MAX_ROW ? declared - 1 : (current?.row ?? -1) + 1;
       current = { row, cells: row >= fromRow ? new Map() : null, maxColumn: -1 };
       column = -1;
       if (++seen % 4096 === 0 && Date.now() > deadline) throw new Error(ERROR_MESSAGES.slowWindow());
@@ -388,7 +394,8 @@ export async function* sheetRows<T>(workbook: Workbook, sheet: SheetRef, fromRow
     if (token === "</sheetData>") break;
     if (token === "</row>") continue;
     const reference = attribute(/^<c\b[^>]*>/.exec(token)?.[0] ?? token, "r");
-    column = reference ? columnIndex(reference) : column + 1;
+    const declaredColumn = reference ? columnIndex(reference) : -1;
+    column = declaredColumn >= 0 ? declaredColumn : column + 1;
     if (current) formulas?.observe(token, current.row, column);
     if (!current?.cells) continue;
     current.maxColumn = Math.max(current.maxColumn, column);

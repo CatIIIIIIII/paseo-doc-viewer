@@ -13,19 +13,19 @@ const book = (rows: string, dimension?: string) =>
   workspace({ "book.xlsx": rawZip(xlsxEntries([{ name: "Data", xml: worksheetXml(rows, dimension) }])) });
 
 describe("audit: xlsx dimensions beyond safe integers", () => {
-  it.fails("opens a sheet whose dimension row is absurd (currently fails doc.open output validation)", async () => {
+  it("opens a sheet whose dimension row is absurd", async () => {
     const root = book(`<row r="1"><c r="A1" t="inlineStr"><is><t>ok</t></is></c></row>`, "A1:B99999999999999999999");
     const opened = await openDocument({ root, path: "book.xlsx" });
     expect(docOpenRpc.output.safeParse(opened).success).toBe(true);
   });
 
-  it.fails("opens a sheet whose dimension column letters are absurd", async () => {
+  it("opens a sheet whose dimension column letters are absurd", async () => {
     const root = book(`<row r="1"><c r="A1" t="inlineStr"><is><t>ok</t></is></c></row>`, "A1:ZZZZZZZZZZZZZ1");
     const opened = await openDocument({ root, path: "book.xlsx" });
     expect(docOpenRpc.output.safeParse(opened).success).toBe(true);
   });
 
-  it.fails("reads rows when one cell reference is absurd (currently fails doc.rows output validation)", async () => {
+  it("reads rows when one cell reference is absurd", async () => {
     const root = book(`<row r="1"><c r="A1" t="inlineStr"><is><t>ok</t></is></c></row><row r="99999999999999999999"><c r="A99999999999999999999"><v>1</v></c></row>`);
     const rows = await readRows({ root, path: "book.xlsx" }, { sheet: 0, rowOffset: 0, columnOffset: 0 });
     expect(docRowsRpc.output.safeParse(rows).success).toBe(true);
