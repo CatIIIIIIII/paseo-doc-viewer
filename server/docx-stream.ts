@@ -48,7 +48,9 @@ interface Table {
   bytes: number;
 }
 
-const TOKEN = /<(\/?)([A-Za-z_][\w.:-]*)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>|<[!?][^>]*>|[^<]+/g;
+// A start tag and its quoted values stop at the next "<" (never valid inside a tag), so a run of
+// unclosed tags costs linear time instead of a rescan to the end of the chunk per tag.
+const TOKEN = /<(\/?)([A-Za-z_][\w.:-]*)((?:[^<>"']|"[^"<]*"|'[^'<]*')*?)(\/?)>|<[!?][^<>]*>|[^<]+/g;
 const CONTAINERS = new Set([
   "w:document", "w:body", "w:p", "w:r", "w:t", "w:hyperlink", "w:ins", "w:smartTag", "w:customXml", "w:sdt", "w:sdtContent",
   "w:moveTo", "w:object", "w:drawing", "w:pict", "v:roundrect", "v:shape", "v:textbox", "w:txbxContent", "v:group", "v:rect",
@@ -68,9 +70,47 @@ function attribute(source: string, name: string): string | undefined {
   return match ? decodeEntities(match[1] ?? match[2]) : undefined;
 }
 
+// Index of the ">" ending a start tag whose attributes begin at `from`, or -1 when a "<" or the end
+// comes first. Quoted values may hold ">" but never "<".
+function startTagEnd(xml: string, from: number): number {
+  let quote = "";
+  for (let at = from; at < xml.length; at++) {
+    const char = xml[at];
+    if (char === "<") return -1;
+    if (quote) {
+      if (char === quote) quote = "";
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === ">") return at;
+  }
+  return -1;
+}
+
+// Each `name` element: its attributes and its body up to the first closing tag. indexOf keeps this
+// linear; a lazy regex rescanned to the end of the part once per unclosed element.
 function* elements(xml: string, name: string): Generator<{ attributes: string; body: string }> {
-  const pattern = new RegExp(`<${name}\\b((?:[^>"']|"[^"]*"|'[^']*')*?)(?:/>|>([\\s\\S]*?)</${name}>)`, "g");
-  for (const match of xml.matchAll(pattern)) yield { attributes: match[1], body: match[2] ?? "" };
+  const open = `<${name}`;
+  const close = `</${name}>`;
+  let closes = true;
+  let from = 0;
+  for (let start = xml.indexOf(open); start >= 0; start = xml.indexOf(open, from)) {
+    from = start + open.length;
+    if (/\w/.test(xml[from] ?? "")) continue;
+    const gt = startTagEnd(xml, from);
+    if (gt < 0) continue;
+    if (xml[gt - 1] === "/") {
+      yield { attributes: xml.slice(from, gt - 1), body: "" };
+      from = gt + 1;
+      continue;
+    }
+    // Once one element has no closing tag, no later one can have it either.
+    const end = closes ? xml.indexOf(close, gt + 1) : -1;
+    if (end < 0) {
+      closes = false;
+      continue;
+    }
+    yield { attributes: xml.slice(from, gt), body: xml.slice(gt + 1, end) };
+    from = end + close.length;
+  }
 }
 
 const first = (xml: string, name: string, key = "w:val") => {

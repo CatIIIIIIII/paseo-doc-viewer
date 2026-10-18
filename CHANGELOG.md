@@ -21,6 +21,8 @@
 - A Word file can no longer hide its main document under another name or a second relationship to get past the size limits.
 - PDFs render in a separate worker thread: a PDF that crashes PDFium fails alone, the next PDF opens normally, and a slow page no longer freezes other documents.
 - Find in a wide CSV with blank rows, and Excel sheets with unclosed tags, no longer freeze the viewer.
+- PowerPoint slides, slide lists and relationship parts with unclosed tags no longer freeze the viewer, and a paragraph whose start tag ends in a space keeps its text.
+- Large Word files and Word relationship parts with unclosed tags no longer freeze the viewer.
 - Every request now finishes within 20 s, and work that ran out of time is stopped instead of running beside new work.
 - Find in a spreadsheet no longer skips matches after you open a result.
 - Workbooks whose dimension or cell references go past Excel's limits open instead of failing.
