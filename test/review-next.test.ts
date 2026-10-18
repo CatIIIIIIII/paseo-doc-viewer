@@ -28,7 +28,7 @@ describe("review-next: JSON Lines response budget", () => {
 });
 
 describe("review-next: JSON Lines full value", () => {
-  it.fails("Show full value of a missing key matches the empty grid cell, not an Object.prototype member", async () => {
+  it("Show full value of a missing key matches the empty grid cell, not an Object.prototype member", async () => {
     const root = workspace({ "proto.jsonl": lines(JSON.stringify({ id: 1, constructor: "x" }), JSON.stringify({ id: 2 })) });
     const grid = await readRows({ root, path: "proto.jsonl" }, { sheet: 0, rowOffset: 0, columnOffset: 0 });
     const column = grid.columnNames!.indexOf("constructor");

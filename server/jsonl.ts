@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { CELL_FULL_MAX_CHARS, DATA_SAMPLE_ROWS, MAX_RESPONSE_BYTES, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS } from "../shared/limits";
 import { ERROR_MESSAGES } from "../shared/errors";
 import type { CellDetail } from "../shared/rpc";
-import { boundedJson, clipKey, ColumnCollector, columnName, fullValue, isRecord, recordCells, type FullValue, type KeyPath, type ParsedRecord } from "./data-table";
+import { boundedJson, clipKey, ColumnCollector, columnName, fullValue, isRecord, recordCells, valueAt, type FullValue, type KeyPath, type ParsedRecord } from "./data-table";
 import type { RowWindow } from "./xlsx";
 
 // JSON Lines (.jsonl, .ndjson): one JSON value per line. Blank lines are skipped, so a row is the
@@ -246,7 +246,5 @@ export async function jsonlFullValue(path: string, index: JsonlIndex, row: numbe
   const line = record.line !== undefined ? { line: record.line } : {};
   if (record.error !== undefined) return { ...fullValue(record.text ?? ""), ...line };
   if (column === null) return { ...boundedJson(record.value, CELL_FULL_MAX_CHARS, 2), format: "json", ...line };
-  let value: unknown = record.value;
-  for (const key of index.columns[column]!) value = isRecord(value) ? value[key] : undefined;
-  return { ...fullValue(value), ...line };
+  return { ...fullValue(valueAt(record.value, index.columns[column]!)), ...line };
 }
