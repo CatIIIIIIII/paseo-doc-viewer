@@ -5,7 +5,7 @@ import UTIF from "utif2";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cacheKeys, memo } from "../server/cache";
 import { openDocument, readBlocks, readRows, renderPage } from "../server/documents";
-import { heavy } from "../server/heavy";
+import { ABANDON_GRACE_MS, heavy } from "../server/heavy";
 import { pdfPageCount } from "../server/pdf";
 import { pdfiumStats } from "../server/pdfium";
 import { SLIDE_TEXT_TRUNCATED } from "../server/pptx";
@@ -238,7 +238,7 @@ describe("R1e: heavy work is serialized", () => {
       const hung = [0, 1].map(() => failure(() => heavy(() => new Promise(() => {}))));
       await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS / 2);
       const later = heavy(async () => "done");
-      await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS / 2);
+      await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS / 2 + ABANDON_GRACE_MS);
       for (const error of await Promise.all(hung)) expect(errorCode(error)).toBe("timeout");
       expect(await later).toBe("done");
     } finally {
