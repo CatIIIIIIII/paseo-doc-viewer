@@ -5,6 +5,7 @@ import { resolveInside } from "./paths";
 import { MEDIA_MAX_CHUNK_BYTES } from "../shared/limits";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { kindForPath } from "../shared/kinds";
+import { safeFileName } from "../shared/safe-text";
 
 export const MAX_DOWNLOAD_BYTES = 128 * 1024 * 1024;
 const revision = (info: Awaited<ReturnType<FileHandle["stat"]>>) => `${info.dev}-${info.ino}-${info.size}-${info.mtimeMs}-${info.ctimeMs}`;
@@ -41,7 +42,7 @@ async function file<T>(root: string, path: string, read: (handle: FileHandle, si
 export function fileInfo(root: string, path: string) {
   return file(root, path, async (_handle, size, stamp) => ({
     revision: stamp, size, mimeType: "application/octet-stream",
-    name: basename(path).replace(/[\\/\x00-\x1f\x7f‪-‮⁦-⁩]/g, "_") || "document",
+    name: safeFileName(basename(path)),
   }));
 }
 

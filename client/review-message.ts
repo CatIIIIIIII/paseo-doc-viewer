@@ -1,4 +1,5 @@
 import { revisionModifiedAt } from "../shared/revision";
+import { safeIndentedText, safeLine } from "../shared/safe-text";
 import { pageImageKey, type ReviewDraft, type ReviewNote } from "./review-draft";
 
 export type RevisionStatus = "current" | "older" | "unknown";
@@ -49,7 +50,9 @@ export function formatReview(draft: ReviewDraft, currentRevision: (path: string)
   const imageLines: string[] = [];
   const sections = groupNotes(draft.notes, currentRevision).map((group) => {
     const modified = modifiedLabel(group.revision);
-    const heading = `${group.path}, ${group.older ? "older revision" : "revision"} ${group.revision}${modified ? ` (modified ${modified})` : ""}`;
+    // File names come from the workspace, which agents and cloned repos can write: every value
+    // interpolated into a line goes through safeLine, so none can start a line of its own.
+    const heading = `${safeLine(group.path)}, ${group.older ? "older revision" : "revision"} ${safeLine(group.revision)}${modified ? ` (modified ${modified})` : ""}`;
     const lines = group.notes.map((note) => {
       const key = pageImageKey(note);
       const image = draft.images[key];
@@ -58,11 +61,11 @@ export function formatReview(draft: ReviewDraft, currentRevision: (path: string)
         if (!imageNumbers.has(key)) {
           imageNumbers.set(key, images.length + 1);
           images.push({ data: image.data, mimeType: image.mimeType });
-          imageLines.push(`${images.length}. ${note.path} page ${note.page + 1}, revision ${note.revision}`);
+          imageLines.push(`${images.length}. ${safeLine(note.path)} page ${note.page + 1}, revision ${safeLine(note.revision)}`);
         }
         marker = ` [image ${imageNumbers.get(key)}]`;
       }
-      return `- Page ${note.page + 1}: ${note.text.replace(/\n/g, "\n  ")}${marker}`;
+      return `- Page ${note.page + 1}: ${safeIndentedText(note.text, "  ")}${marker}`;
     });
     return [group.older ? `${heading}; the file has changed since these notes` : heading, ...lines].join("\n");
   });
