@@ -1,6 +1,6 @@
-import { PDFiumLibrary } from "@hyzyla/pdfium/inline";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readPageText, renderPage } from "../server/documents";
+import { pdfiumStats } from "../server/pdfium";
 import { errorCode } from "../shared/errors";
 import { MAX_RESPONSE_BYTES, PDF_MAX_TEXT_CHARS } from "../shared/limits";
 import { docTextRpc } from "../shared/rpc";
@@ -27,11 +27,11 @@ describe("R10: a PDF page's text can be read and copied", () => {
   });
 
   it("shares the loaded document with page renders", async () => {
-    const load = vi.spyOn(PDFiumLibrary.prototype, "loadDocument");
+    const opens = pdfiumStats().opens;
     const root = workspace({ "shared.pdf": await textPdf(["one", "two"]) });
     await renderPage({ root, path: "shared.pdf" }, { index: 0, maxWidth: 200 });
     await readPageText({ root, path: "shared.pdf" }, { index: 1 });
-    expect(load).toHaveBeenCalledTimes(1);
+    expect(pdfiumStats().opens - opens).toBe(1);
   });
 
   it("caps very long page text under the response budget and flags the cut", async () => {

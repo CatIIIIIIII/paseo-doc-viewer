@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
-import { PDFiumLibrary, type PDFiumDocument, type PDFiumPage } from "@hyzyla/pdfium/inline";
 import { fitRendered, type EncodedImage, type Fit } from "./raster";
+import { PdfiumLoadError, pdfium, pdfiumGeneration } from "./pdfium";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { PDF_MAX_TEXT_CHARS } from "../shared/limits";
 import { literalPattern, type SearchBox } from "../shared/search";
+
+export { PDFIUM_IDLE_MS } from "./pdfium";
 
 export interface PdfFile {
   path: string;
@@ -14,59 +16,45 @@ export interface PdfFile {
 }
 
 interface Held {
+  handle: string;
   path: string;
   revision: string;
   bytes: number;
-  document: Promise<PDFiumDocument>;
+  generation: number;
+  opened: Promise<number>;
   users: number;
   evicted: boolean;
 }
 
 const MAX_HELD_DOCUMENTS = 4;
 const MAX_HELD_BYTES = 256 * 1024 * 1024;
-const CERTIFICATE_SECURITY = "/Adobe.PubSec";
-export const PDFIUM_IDLE_MS = 60_000;
+const FPDF_ERR_PASSWORD = 4;
+const FPDF_ERR_SECURITY = 5;
 
-let library: Promise<PDFiumLibrary> | undefined;
 const held = new Map<string, Held>();
-let active = 0;
-let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let serial = 0;
 
-function pdfium(): Promise<PDFiumLibrary> {
-  library ??= PDFiumLibrary.init({ disableBase64Warning: true }).catch((error) => {
-    library = undefined;
-    throw error;
-  });
-  return library;
-}
-
-function loadError(error: unknown, bytes: Buffer, withPassword: boolean): Error {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/password|security/i.test(message)) {
-    if (bytes.includes(CERTIFICATE_SECURITY)) {
-      return new Error(ERROR_MESSAGES.pdfCertificateSecurity());
-    }
-    if (/password/i.test(message)) {
-      return new Error(withPassword ? ERROR_MESSAGES.pdfPasswordIncorrect() : ERROR_MESSAGES.pdfPasswordRequired());
-    }
-    return new Error(ERROR_MESSAGES.pdfUnsupportedSecurity());
-  }
-  console.error("[doc-viewer] PDF load failed:", error);
+function loadError(error: unknown, withPassword: boolean): unknown {
+  if (!(error instanceof PdfiumLoadError)) return error;
+  if (error.certificate) return new Error(ERROR_MESSAGES.pdfCertificateSecurity());
+  if (error.code === FPDF_ERR_PASSWORD) return new Error(withPassword ? ERROR_MESSAGES.pdfPasswordIncorrect() : ERROR_MESSAGES.pdfPasswordRequired());
+  if (error.code === FPDF_ERR_SECURITY) return new Error(ERROR_MESSAGES.pdfUnsupportedSecurity());
+  console.error("[doc-viewer] PDF load failed:", error.message);
   return new Error(ERROR_MESSAGES.pdfDamaged());
 }
 
-async function load(path: string, password: string | undefined): Promise<PDFiumDocument> {
-  const lib = await pdfium();
-  const bytes = await readFile(path);
+async function load(file: PdfFile, handle: string, signal: AbortSignal | undefined): Promise<number> {
+  const bytes = await readFile(file.path);
   try {
-    return await lib.loadDocument(bytes, password);
+    return (await pdfium({ op: "open", key: handle, bytes, password: file.password }, { signal })).pageCount;
   } catch (error) {
-    throw loadError(error, bytes, Boolean(password));
+    throw loadError(error, Boolean(file.password));
   }
 }
 
 function release(entry: Held): void {
-  if (entry.evicted && entry.users === 0) entry.document.then((document) => document.destroy(), () => {});
+  if (!entry.evicted || entry.users > 0 || entry.generation !== pdfiumGeneration()) return;
+  entry.opened.then(() => pdfium({ op: "close", key: entry.handle }), () => {}).catch(() => {});
 }
 
 function evict(key: string, entry: Held): void {
@@ -87,21 +75,14 @@ function trim(keep: string): void {
   }
 }
 
-function recycle(): void {
-  const current = library;
-  const documents = [...held.values()].map((entry) => entry.document);
-  library = undefined;
-  held.clear();
-  void Promise.allSettled(documents.map((document) => document.then((loaded) => loaded.destroy()))).then(() =>
-    current?.then((lib) => lib.destroy(), () => {}),
-  );
-}
-
-async function withDocument<T>(file: PdfFile, use: (document: PDFiumDocument) => Promise<T>): Promise<T> {
-  active++;
-  clearTimeout(idleTimer);
+async function withDocument<T>(file: PdfFile, signal: AbortSignal | undefined, use: (handle: string, pageCount: number) => Promise<T>): Promise<T> {
   const key = `${file.path}\0${file.revision}\0${file.passwordKey}`;
   let entry = held.get(key);
+  // A restarted or recycled worker no longer holds the documents it opened.
+  if (entry && entry.generation !== pdfiumGeneration()) {
+    held.delete(key);
+    entry = undefined;
+  }
   if (entry) {
     held.delete(key);
     held.set(key, entry);
@@ -109,56 +90,48 @@ async function withDocument<T>(file: PdfFile, use: (document: PDFiumDocument) =>
     for (const [other, candidate] of held) {
       if (candidate.path === file.path && candidate.revision !== file.revision) evict(other, candidate);
     }
+    const handle = String(++serial);
     const created: Held = {
+      handle,
       path: file.path,
       revision: file.revision,
       bytes: file.size,
-      document: load(file.path, file.password),
+      generation: pdfiumGeneration(),
+      opened: load(file, handle, signal),
       users: 0,
       evicted: false,
     };
-    created.document.catch(() => evict(key, created));
+    created.opened.catch(() => evict(key, created));
     held.set(key, created);
     trim(key);
     entry = created;
   }
   entry.users++;
   try {
-    return await use(await entry.document);
+    return await use(entry.handle, await entry.opened);
   } finally {
     entry.users--;
     release(entry);
-    if (--active === 0) {
-      idleTimer = setTimeout(recycle, PDFIUM_IDLE_MS);
-      // React Native's global typings shadow Node's, so setTimeout is typed as returning a number.
-      (idleTimer as unknown as NodeJS.Timeout).unref();
-    }
   }
 }
 
-export function pdfPageCount(file: PdfFile): Promise<number> {
-  return withDocument(file, async (document) => document.getPageCount());
+export function pdfPageCount(file: PdfFile, signal?: AbortSignal): Promise<number> {
+  return withDocument(file, signal, async (_, pageCount) => pageCount);
 }
 
-function withPage<T>(file: PdfFile, index: number, use: (page: PDFiumPage, pageCount: number) => Promise<T>): Promise<T> {
-  return withDocument(file, async (document) => {
-    const pageCount = document.getPageCount();
+function withPage<T>(file: PdfFile, index: number, signal: AbortSignal | undefined, use: (handle: string, pageCount: number) => Promise<T>): Promise<T> {
+  return withDocument(file, signal, async (handle, pageCount) => {
     if (index >= pageCount) throw new Error(ERROR_MESSAGES.outOfRange("Page", index, pageCount));
-    const page = document.getPage(index);
-    try {
-      return await use(page, pageCount);
-    } finally {
-      page.close();
-    }
+    return use(handle, pageCount);
   });
 }
 
-export function renderPdfPage(file: PdfFile, index: number, fit: Fit): Promise<{ pageCount: number; image: EncodedImage }> {
-  return withPage(file, index, async (page, pageCount) => {
-    const { originalWidth, originalHeight } = page.getOriginalSize();
+export function renderPdfPage(file: PdfFile, index: number, fit: Fit, signal?: AbortSignal): Promise<{ pageCount: number; image: EncodedImage }> {
+  return withPage(file, index, signal, async (key, pageCount) => {
+    const size = await pdfium({ op: "size", key, index }, { signal });
     const image = await fitRendered(
-      { width: originalWidth, height: originalHeight },
-      async (width, height) => page.render({ width, height, scale: 1, render: "bitmap", colorSpace: "RGBA" }),
+      size,
+      async (width, height) => ({ width, height, data: (await pdfium({ op: "render", key, index, width, height }, { signal })).data }),
       fit,
     );
     return { pageCount, image };
@@ -175,8 +148,11 @@ function normalizeBreaks(text: string): string {
   return text.replace(/\r\n?/g, "\n");
 }
 
-export function readPdfPageText(file: PdfFile, index: number): Promise<{ pageCount: number; text: string; truncated: boolean }> {
-  return withPage(file, index, async (page, pageCount) => ({ pageCount, ...capText(normalizeBreaks(page.getText())) }));
+export function readPdfPageText(file: PdfFile, index: number, signal?: AbortSignal): Promise<{ pageCount: number; text: string; truncated: boolean }> {
+  return withPage(file, index, signal, async (key, pageCount) => {
+    const { text } = await pdfium({ op: "text", key, index }, { signal });
+    return { pageCount, ...capText(normalizeBreaks(text)) };
+  });
 }
 
 // Normalizes line breaks like readPdfPageText and keeps the raw index of every normalized
@@ -198,15 +174,6 @@ function normalizeWithMap(raw: string): { text: string; rawIndex: number[] } {
   return { text, rawIndex };
 }
 
-// The wrapper keeps the raw PDFium module private; these are the stable wasm exports the search uses.
-interface PdfiumTextModule {
-  _FPDFText_CountRects(textPage: number, start: number, count: number): number;
-  _FPDFText_GetRect(textPage: number, index: number, left: number, top: number, right: number, bottom: number): number;
-  wasmExports: { malloc(size: number): number; free(ptr: number): void };
-  HEAPU8: Uint8Array;
-}
-type TextPageSource = { loadTextPage(): number };
-
 export interface PdfPageMatch {
   start: number;
   count: number;
@@ -214,40 +181,16 @@ export interface PdfPageMatch {
   boxes: SearchBox[];
 }
 
-const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
-
-// PDFium merges the match's characters into one rectangle per line (FPDFText_CountRects),
-// measured in PDF user space with the origin at the bottom left. Boxes are normalized
-// to the page with a top-left origin for the client.
-function matchBoxes(module: PdfiumTextModule, textPage: number, start: number, count: number, width: number, height: number): SearchBox[] {
-  if (width <= 0 || height <= 0) return [];
-  const rectCount = module._FPDFText_CountRects(textPage, start, count);
-  if (rectCount <= 0) return [];
-  const ptr = module.wasmExports.malloc(32);
-  try {
-    const view = new Float64Array(module.HEAPU8.buffer, ptr, 4);
-    const boxes: SearchBox[] = [];
-    for (let index = 0; index < rectCount; index++) {
-      if (!module._FPDFText_GetRect(textPage, index, ptr, ptr + 8, ptr + 16, ptr + 24)) continue;
-      const [left, top, right, bottom] = [view[0]!, view[1]!, view[2]!, view[3]!];
-      boxes.push({
-        x: clamp01(left / width),
-        y: clamp01(1 - top / height),
-        width: clamp01((right - left) / width),
-        height: clamp01((top - bottom) / height),
-      });
-    }
-    return boxes;
-  } finally {
-    module.wasmExports.free(ptr);
-  }
-}
-
 // Searches one page with the same pattern as the other kinds, then locates each match on the page.
 // Match start/count use the normalized text the text RPC shows; boxes use raw character indices.
-export function searchPdfPage(file: PdfFile, index: number, query: string): Promise<{ pageCount: number; truncated: boolean; matches: PdfPageMatch[] }> {
-  return withPage(file, index, async (page, pageCount) => {
-    const capped = capText(page.getText());
+export function searchPdfPage(
+  file: PdfFile,
+  index: number,
+  query: string,
+  signal?: AbortSignal,
+): Promise<{ pageCount: number; truncated: boolean; matches: PdfPageMatch[] }> {
+  return withPage(file, index, signal, async (key, pageCount) => {
+    const capped = capText((await pdfium({ op: "text", key, index }, { signal })).text);
     const { text, rawIndex } = normalizeWithMap(capped.text);
     const pattern = literalPattern(query);
     const matches: PdfPageMatch[] = [];
@@ -260,14 +203,13 @@ export function searchPdfPage(file: PdfFile, index: number, query: string): Prom
       });
     }
     if (matches.length === 0) return { pageCount, truncated: capped.truncated, matches };
-    const module = (page as unknown as { module: PdfiumTextModule }).module;
-    const { originalWidth, originalHeight } = page.getOriginalSize();
-    const textPage = (page as unknown as TextPageSource).loadTextPage();
-    for (const match of matches) {
+    const ranges = matches.map((match): [number, number] => {
       const rawStart = rawIndex[match.start]!;
       const rawEnd = match.start + match.count < rawIndex.length ? rawIndex[match.start + match.count]! : capped.text.length;
-      match.boxes = matchBoxes(module, textPage, rawStart, rawEnd - rawStart, originalWidth, originalHeight);
-    }
+      return [rawStart, rawEnd - rawStart];
+    });
+    const { boxes } = await pdfium({ op: "boxes", key, index, ranges }, { signal });
+    matches.forEach((match, i) => (match.boxes = boxes[i] ?? []));
     return { pageCount, truncated: capped.truncated, matches };
   });
 }

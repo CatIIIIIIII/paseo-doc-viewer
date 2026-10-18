@@ -1,8 +1,9 @@
 import { join } from "node:path";
-import { PDFiumDocument, PDFiumLibrary } from "@hyzyla/pdfium/inline";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFIUM_IDLE_MS, pdfPageCount, readPdfPageText } from "../server/pdf";
+import { pdfium, pdfiumStats } from "../server/pdfium";
 import { textPdf } from "./fixtures/generators.ts";
+import { nestedFormPdf } from "./fixtures/hostile";
 import { workspace } from "./helpers";
 
 beforeEach(() => {
@@ -11,7 +12,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  vi.restoreAllMocks();
 });
 
 async function pdf(name: string, pages: string[]) {
@@ -20,50 +20,34 @@ async function pdf(name: string, pages: string[]) {
 }
 
 describe("R11: PDFium is released after a minute without PDF work", () => {
-  it("destroys held documents and the library once idle, then reloads on the next request", async () => {
-    const init = vi.spyOn(PDFiumLibrary, "init");
-    const destroyLibrary = vi.spyOn(PDFiumLibrary.prototype, "destroy");
-    const destroyDocument = vi.spyOn(PDFiumDocument.prototype, "destroy");
+  it("stops the PDFium worker once idle, then starts a new one on the next request", async () => {
     const file = await pdf("idle.pdf", ["one", "two"]);
 
     expect(await pdfPageCount(file)).toBe(2);
     await vi.advanceTimersByTimeAsync(PDFIUM_IDLE_MS - 1);
     expect(await readPdfPageText(file, 1)).toMatchObject({ text: "two" });
     await vi.advanceTimersByTimeAsync(PDFIUM_IDLE_MS - 1);
-    expect(destroyDocument).not.toHaveBeenCalled();
-    expect(destroyLibrary).not.toHaveBeenCalled();
+    expect(pdfiumStats().alive).toBe(true);
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(destroyDocument).toHaveBeenCalledTimes(1);
-    expect(destroyLibrary).toHaveBeenCalledTimes(1);
-    expect(destroyDocument.mock.invocationCallOrder[0]).toBeLessThan(destroyLibrary.mock.invocationCallOrder[0]!);
+    expect(pdfiumStats().alive).toBe(false);
 
-    const initsBefore = init.mock.calls.length;
+    const spawns = pdfiumStats().spawns;
     expect(await readPdfPageText(file, 0)).toMatchObject({ text: "one" });
-    expect(init).toHaveBeenCalledTimes(initsBefore + 1);
+    expect(pdfiumStats().spawns).toBe(spawns + 1);
   });
 
   it("does not recycle while a request is still running", async () => {
-    const destroyLibrary = vi.spyOn(PDFiumLibrary.prototype, "destroy");
-    const file = await pdf("busy.pdf", ["busy"]);
-    await pdfPageCount(file);
-
-    let finish!: () => void;
-    const blocked = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    const original = PDFiumLibrary.prototype.loadDocument;
-    vi.spyOn(PDFiumLibrary.prototype, "loadDocument").mockImplementationOnce(async function (this: PDFiumLibrary, ...args) {
-      await blocked;
-      return original.apply(this, args);
-    });
-    const slow = await pdf("slow.pdf", ["slow"]);
-    const pending = pdfPageCount(slow);
+    await pdfPageCount(await pdf("busy.pdf", ["busy"]));
+    // A nested-form page takes about a second of real time to render.
+    await pdfium({ op: "open", key: "r11-slow", bytes: nestedFormPdf(9) });
+    const spawns = pdfiumStats().spawns;
+    const pending = pdfium({ op: "render", key: "r11-slow", index: 0, width: 800, height: 800 }, { timeoutMs: PDFIUM_IDLE_MS * 10 });
     await vi.advanceTimersByTimeAsync(PDFIUM_IDLE_MS * 2);
-    expect(destroyLibrary).not.toHaveBeenCalled();
-    finish();
-    expect(await pending).toBe(1);
+    expect(pdfiumStats()).toMatchObject({ alive: true, spawns });
+    expect((await pending).data.length).toBe(800 * 800 * 4);
+    await pdfium({ op: "close", key: "r11-slow" });
     await vi.advanceTimersByTimeAsync(PDFIUM_IDLE_MS);
-    expect(destroyLibrary).toHaveBeenCalledTimes(1);
-  });
+    expect(pdfiumStats().alive).toBe(false);
+  }, 30_000);
 });
