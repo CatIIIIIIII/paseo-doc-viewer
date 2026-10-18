@@ -1,5 +1,5 @@
-// Repro tests from the review-next lane, second pass over fix/hardening. Each `it.fails` documents a
-// confirmed bug and passes while it exists.
+// Repro tests from the review-next lane, second pass over fix/hardening. Each was an `it.fails`
+// for a confirmed bug and now passes with its fix.
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
