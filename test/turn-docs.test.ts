@@ -76,9 +76,9 @@ describe("turnDocsRow", () => {
 
   it("has a stable id per turn and a kind the host accepts", () => {
     const row = turnDocsRow({ ...base, files: files(1) })!;
-    expect(row).toMatchObject({ type: "plugin", id: "turn-docs:turn-7", kind: TURN_DOCS_KIND, version: 1 });
+    expect(row).toMatchObject({ type: "plugin", id: `turn-docs:turn-7:${T0}`, kind: TURN_DOCS_KIND, version: 1 });
     expect(TURN_DOCS_KIND).toMatch(/^[a-z][a-z0-9-]*$/);
-    expect(turnDocsRowId("wks_1", null, T0)).toBe(`turn-docs:wks_1:${T0}`);
+    expect(turnDocsRowId(null, T0)).toBe(`turn-docs:turn:${T0}`);
   });
 });
 

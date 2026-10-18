@@ -81,12 +81,13 @@ export function turnDocsRow(
     shown = shown.slice(0, -1);
     data = { ...rest, files: shown, moreCount: files.length - shown.length };
   }
-  return { type: "plugin", id: turnDocsRowId(input.workspaceId, turnId, input.startedAt), kind: TURN_DOCS_KIND, version: TURN_DOCS_VERSION, data };
+  return { type: "plugin", id: turnDocsRowId(turnId, input.startedAt), kind: TURN_DOCS_KIND, version: TURN_DOCS_VERSION, data };
 }
 
-// Stable per turn: a retried append replaces the row instead of adding a second card.
-export function turnDocsRowId(workspaceId: string, turnId: string | null, startedAt: number): string {
-  return `turn-docs:${turnId ?? `${workspaceId}:${startedAt}`}`;
+// Stable per turn: a retried append replaces the row instead of adding a second card. The start time
+// keeps ids apart when a provider reuses turn ids, for example after a resume.
+export function turnDocsRowId(turnId: string | null, startedAt: number): string {
+  return `turn-docs:${turnId ?? "turn"}:${startedAt}`;
 }
 
 function byteLength(text: string): number {
