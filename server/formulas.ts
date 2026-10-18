@@ -91,7 +91,7 @@ export class SharedFormulas {
 
   observe(cell: string, row: number, column: number): void {
     if (!cell.includes('t="shared"')) return;
-    const formula = /<f\b([^>]*)>([^<]+)<\/f>/.exec(cell);
+    const formula = /<f\b([^<>]*)>([^<]+)<\/f>/.exec(cell);
     const group = formula && /\ssi="(\d+)"/.exec(formula[1]!)?.[1];
     const range = formula && /\sref="([^"]+)"/.exec(formula[1]!)?.[1];
     if (!formula || !group || !range || this.masters.has(group)) return;

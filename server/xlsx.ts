@@ -47,13 +47,30 @@ const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 27, 28, 29, 30, 31, 32, 33
 const BUILTIN_NUMBER_FORMATS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 18, 19, 20, 21, 22, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48]);
 const SHEET = /<sheet\b[^>]*>/g;
 const RELATIONSHIP = /<Relationship\b[^>]*>/g;
-const TEXT_RUN = /<t\b[^>]*>([^<]*)<\/t>/g;
-const PHONETIC = /<rPh\b[\s\S]*?<\/rPh>/g;
+// Cell and shared-string tokens can reach 4 MiB, so their patterns stop at the next "<" (never
+// valid inside a tag) instead of scanning to the end of the token once per candidate.
+const TEXT_RUN = /<t\b[^<>]*>([^<]*)<\/t>/g;
+const V_VALUE = /<v\b[^<>]*>([^<]*)<\/v>/;
 
 const attribute = (tag: string, name: string) => {
   const value = new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1];
   return value === undefined ? undefined : decodeEntities(value);
 };
+// Removes <rPh> phonetic runs with indexOf; a lazy regex rescans to the end once per unclosed run.
+function withoutPhonetic(text: string): string {
+  let out = "";
+  let at = 0;
+  for (let from = 0, start = text.indexOf("<rPh", from); start >= 0; start = text.indexOf("<rPh", from)) {
+    from = start + 4;
+    if (isNameChar(text.charCodeAt(from))) continue;
+    const end = text.indexOf("</rPh>", from);
+    if (end < 0) break;
+    out += text.slice(at, start);
+    at = from = end + 6;
+  }
+  return at === 0 ? text : out + text.slice(at);
+}
+
 const clip = (text: string) => (text.length > XLSX_MAX_CELL_CHARS ? text.slice(0, XLSX_MAX_CELL_CHARS) : text);
 
 // What scan() yields: the start tag of an `open` element, a whole `element` up to its first
@@ -276,7 +293,7 @@ export async function loadSharedStrings(workbook: Workbook): Promise<string[]> {
   if (!workbook.sharedStringsPart) return strings;
   for await (const item of scan(streamEntry(workbook.index, workbook.sharedStringsPart, "xlsx"), SHARED_STRING_TOKENS)) {
     let text = "";
-    for (const run of item.replace(PHONETIC, "").matchAll(TEXT_RUN)) {
+    for (const run of withoutPhonetic(item).matchAll(TEXT_RUN)) {
       text += run[1];
       if (text.length > XLSX_MAX_CELL_CHARS * 2) break;
     }
@@ -306,12 +323,12 @@ function cellText(cell: string, workbook: Workbook, strings: string[]): string {
   const type = attribute(open, "t");
   if (type === "inlineStr") {
     let text = "";
-    for (const run of cell.replace(PHONETIC, "").matchAll(TEXT_RUN)) text += run[1];
+    for (const run of withoutPhonetic(cell).matchAll(TEXT_RUN)) text += run[1];
     return clip(decodeEntities(text));
   }
-  const raw = /<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1];
+  const raw = V_VALUE.exec(cell)?.[1];
   if (raw === undefined) {
-    const formula = /<f\b[^>]*>([^<]*)<\/f>/.exec(cell)?.[1];
+    const formula = /<f\b[^<>]*>([^<]*)<\/f>/.exec(cell)?.[1];
     return formula ? clip(`=${decodeEntities(formula)}`) : "";
   }
   const value = decodeEntities(raw);
@@ -389,7 +406,7 @@ export function textDecoder(workbook: Workbook, strings: string[], sharedMatches
 
 function keepsSharedString(cell: string, matches: ReadonlySet<number>): boolean {
   if (attribute(/^<c\b[^>]*>/.exec(cell)?.[0] ?? cell, "t") !== "s") return true;
-  return matches.has(Number(/<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1]));
+  return matches.has(Number(V_VALUE.exec(cell)?.[1]));
 }
 
 const CELL_TYPES = new Set(["n", "s", "b", "e", "d", "str", "inlineStr"]);
@@ -397,7 +414,7 @@ const FORMULA_KINDS = new Set(["normal", "shared", "array", "dataTable"]);
 const MAX_FORMULA_CHARS = 8192;
 
 function formulaDetail(cell: string, row: number, column: number, cached: boolean, formulas?: SharedFormulas): CellDetail["formula"] {
-  const formula = /<f\b([^>]*?)(?:\/>|>([^<]*)<\/f>)/.exec(cell);
+  const formula = /<f\b([^<>]*?)(?:\/>|>([^<]*)<\/f>)/.exec(cell);
   if (!formula) return undefined;
   const tag = formula[1]!;
   const declared = attribute(tag, "t") ?? "normal";
@@ -430,10 +447,10 @@ export function cellDetail(cell: string, row: number, column: number, workbook: 
   let raw: string | null = null;
   if (type === "inlineStr") {
     let text = "";
-    for (const run of cell.replace(PHONETIC, "").matchAll(TEXT_RUN)) text += run[1];
+    for (const run of withoutPhonetic(cell).matchAll(TEXT_RUN)) text += run[1];
     raw = clip(decodeEntities(text));
   } else {
-    const stored = /<v\b[^>]*>([^<]*)<\/v>/.exec(cell)?.[1];
+    const stored = V_VALUE.exec(cell)?.[1];
     if (stored !== undefined) raw = type === "s" ? (strings[Number(decodeEntities(stored))] ?? null) : clip(decodeEntities(stored));
   }
   const formula = formulaDetail(cell, row, column, raw !== null, formulas);

@@ -14,8 +14,8 @@ import { xlsxEntries, worksheetXml } from "./zip-builder";
 
 const openCells = (bytes: number) => "<c>".repeat(Math.floor(bytes / 3));
 
-async function stall(rows: string): Promise<number> {
-  const entries = xlsxEntries([{ name: "Data", xml: worksheetXml(rows) }]);
+async function stall(rows: string, sharedStrings?: string): Promise<number> {
+  const entries = xlsxEntries([{ name: "Data", xml: worksheetXml(rows) }], sharedStrings ? [{ name: "xl/sharedStrings.xml", data: sharedStrings }] : []);
   const zip = storedZip(entries.map((entry) => ({ name: entry.name, data: entry.data ?? "" })));
   const root = workspace({ "book.xlsx": zip });
   await openDocument({ root, path: "book.xlsx" });
@@ -46,5 +46,16 @@ describe("audit: xlsx tokenizer is quadratic on unclosed cells", () => {
 
   it("reads a sheet of start tags that never close without a long stall", async () => {
     expect(await stall(`<row r="1">${"<c ".repeat(1024 * 1024)}`)).toBeLessThan(500);
+  }, 30_000);
+
+  // Found while fixing the above: the per-cell patterns rescanned a cell token to its end once per
+  // unclosed child tag (a 3 MB cell of "<v " ran past 100 s; 800 KB of "<rPh " blocked 20 s).
+  it("reads a cell full of unclosed value and formula tags without a long stall", async () => {
+    expect(await stall(`<row r="1"><c>${"<v ".repeat(512 * 1024)}</c><c>${"<f ".repeat(512 * 1024)}</c></row>`)).toBeLessThan(500);
+  }, 30_000);
+
+  it("reads inline and shared strings full of unclosed runs without a long stall", async () => {
+    const inline = `<row r="1"><c t="inlineStr"><is>${"<t ".repeat(512 * 1024)}</is></c><c r="B1" t="s"><v>0</v></c></row>`;
+    expect(await stall(inline, `<sst><si>${"<rPh ".repeat(160_000)}<t>x</t></si></sst>`)).toBeLessThan(500);
   }, 30_000);
 });
