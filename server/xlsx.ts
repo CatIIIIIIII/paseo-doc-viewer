@@ -47,8 +47,6 @@ const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 27, 28, 29, 30, 31, 32, 33
 const BUILTIN_NUMBER_FORMATS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 18, 19, 20, 21, 22, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48]);
 const SHEET = /<sheet\b[^>]*>/g;
 const RELATIONSHIP = /<Relationship\b[^>]*>/g;
-const SHEET_TOKEN = /<row\b[^>]*?(\/?)>|<\/row>|<c\b[^>]*?\/>|<c\b[^>]*>[\s\S]*?<\/c>|<\/sheetData>/g;
-const SHARED_STRING = /<si\b[^>]*>[\s\S]*?<\/si>|<si\s*\/>/g;
 const TEXT_RUN = /<t\b[^>]*>([^<]*)<\/t>/g;
 const PHONETIC = /<rPh\b[\s\S]*?<\/rPh>/g;
 
@@ -58,26 +56,91 @@ const attribute = (tag: string, name: string) => {
 };
 const clip = (text: string) => (text.length > XLSX_MAX_CELL_CHARS ? text.slice(0, XLSX_MAX_CELL_CHARS) : text);
 
-async function* scan(chunks: AsyncIterable<Buffer>, shared: RegExp): AsyncGenerator<RegExpExecArray> {
-  // Scans pause between yields (a parked Find stream for minutes), so each needs its own lastIndex.
-  const token = new RegExp(shared.source, shared.flags);
+// What scan() yields: the start tag of an `open` element, a whole `element` up to its first
+// closing tag (or the start tag alone when self-closing), and the listed closing tags.
+interface Tokens {
+  open: readonly string[];
+  element: readonly string[];
+  close: readonly string[];
+}
+
+const SHEET_TOKENS: Tokens = { open: ["row"], element: ["c"], close: ["</row>", "</sheetData>"] };
+const SHARED_STRING_TOKENS: Tokens = { open: [], element: ["si"], close: [] };
+// A "<" closer than this to the end of a chunk waits for the next one, so a tag split across
+// chunks is never misread.
+const TOKEN_LOOKAHEAD = 16;
+const SLASH = 0x2f;
+
+const isNameChar = (code: number) => (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95;
+
+// Tokenizes a streamed part with indexOf. A token left unfinished at the end of a chunk keeps how
+// far its search got, so a tag or element that never closes costs time linear in the part's size
+// (re-running a regex over the buffer per chunk was quadratic on "<c>" repeated).
+async function* scan(chunks: AsyncIterable<Buffer>, tokens: Tokens): AsyncGenerator<string> {
   const decoder = new StringDecoder("utf8");
+  const names = [...tokens.open.map((name) => ({ name, element: false })), ...tokens.element.map((name) => ({ name, element: true }))];
   let pending = "";
+  // Progress on the unfinished token at pending[0]: its start tag's ">" (or -1) and where to resume.
+  let resume: { gt: number; from: number } | null = null;
+
+  function* drain(final: boolean): Generator<string> {
+    let carried = resume;
+    resume = null;
+    let at = 0;
+    for (;;) {
+      const lt = pending.indexOf("<", at);
+      if (lt < 0) {
+        at = pending.length;
+        break;
+      }
+      if (!final && pending.length - lt < TOKEN_LOOKAHEAD) {
+        at = lt;
+        break;
+      }
+      const hint = lt === 0 ? carried : null;
+      carried = null;
+      const close = tokens.close.find((tag) => pending.startsWith(tag, lt));
+      if (close) {
+        yield close;
+        at = lt + close.length;
+        continue;
+      }
+      const tag = names.find(({ name }) => pending.startsWith(name, lt + 1) && !isNameChar(pending.charCodeAt(lt + 1 + name.length)));
+      if (!tag) {
+        at = lt + 1;
+        continue;
+      }
+      const gt = hint && hint.gt >= 0 ? lt + hint.gt : pending.indexOf(">", hint ? lt + hint.from : lt);
+      if (gt < 0) {
+        resume = { gt: -1, from: pending.length - lt };
+        at = lt;
+        break;
+      }
+      if (!tag.element || pending.charCodeAt(gt - 1) === SLASH) {
+        yield pending.slice(lt, gt + 1);
+        at = gt + 1;
+        continue;
+      }
+      const closing = `</${tag.name}>`;
+      const end = pending.indexOf(closing, hint && hint.gt >= 0 ? lt + hint.from : gt + 1);
+      if (end < 0) {
+        resume = { gt: gt - lt, from: Math.max(gt + 1, pending.length - closing.length + 1) - lt };
+        at = lt;
+        break;
+      }
+      yield pending.slice(lt, end + closing.length);
+      at = end + closing.length;
+    }
+    pending = pending.slice(at);
+  }
+
   for await (const chunk of chunks) {
     pending += decoder.write(chunk);
-    token.lastIndex = 0;
-    let end = -1;
-    for (let match = token.exec(pending); match; match = token.exec(pending)) {
-      end = token.lastIndex;
-      yield match;
-    }
-    if (end >= 0) pending = pending.slice(end);
-    else {
-      const resume = Math.max(pending.lastIndexOf("<c"), pending.lastIndexOf("<row"), pending.lastIndexOf("</"), pending.lastIndexOf("<si"));
-      pending = resume >= 0 ? pending.slice(resume) : "";
-    }
+    yield* drain(false);
     if (pending.length > MAX_PENDING_CHARS) throw new Error(ERROR_MESSAGES.archiveTooLarge("a single cell is larger than 4 MiB"));
   }
+  pending += decoder.end();
+  yield* drain(true);
 }
 
 const TOKEN_START = /<(?:c|row|si)[\s>/]|<\/sheetData/g;
@@ -211,7 +274,7 @@ export async function loadWorkbook(index: ZipIndex): Promise<Workbook> {
 export async function loadSharedStrings(workbook: Workbook): Promise<string[]> {
   const strings: string[] = [];
   if (!workbook.sharedStringsPart) return strings;
-  for await (const [item] of scan(streamEntry(workbook.index, workbook.sharedStringsPart, "xlsx"), SHARED_STRING)) {
+  for await (const item of scan(streamEntry(workbook.index, workbook.sharedStringsPart, "xlsx"), SHARED_STRING_TOKENS)) {
     let text = "";
     for (const run of item.replace(PHONETIC, "").matchAll(TEXT_RUN)) {
       text += run[1];
@@ -295,8 +358,7 @@ export async function* sheetRows<T>(workbook: Workbook, sheet: SheetRef, fromRow
   let current: SheetRow<T> | null = null;
   let column = -1;
   let seen = 0;
-  for await (const match of scan(streamEntry(workbook.index, sheet.part, "xlsx"), SHEET_TOKEN)) {
-    const token = match[0];
+  for await (const token of scan(streamEntry(workbook.index, sheet.part, "xlsx"), SHEET_TOKENS)) {
     if (token.startsWith("<row")) {
       if (current) yield current;
       const declared = Number(attribute(token, "r"));
