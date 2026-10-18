@@ -9,7 +9,16 @@ export type KeyPath = readonly string[];
 // The column of a line that is not a JSON object, such as a bare number or array.
 export const VALUE_COLUMN_NAME = "(value)";
 
-export const columnName = (path: KeyPath) => (path.length === 0 ? VALUE_COLUMN_NAME : path.join("."));
+// Key names are shown clipped, so a hostile key cannot fill a response; lookups always use the full key.
+export const KEY_MAX_CHARS = 200;
+
+export function clipKey(key: string): string {
+  if (key.length <= KEY_MAX_CHARS) return key;
+  const end = /[\uD800-\uDBFF]/.test(key[KEY_MAX_CHARS - 1]!) ? KEY_MAX_CHARS - 1 : KEY_MAX_CHARS;
+  return `${key.slice(0, end)}…`;
+}
+
+export const columnName = (path: KeyPath) => (path.length === 0 ? VALUE_COLUMN_NAME : path.map(clipKey).join("."));
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) && !ArrayBuffer.isView(value) && !(value instanceof Date);

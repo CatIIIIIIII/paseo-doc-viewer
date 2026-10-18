@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { CELL_FULL_MAX_CHARS, DATA_SAMPLE_ROWS, MAX_RESPONSE_BYTES, XLSX_MAX_COLUMNS, XLSX_MAX_ROWS } from "../shared/limits";
 import { ERROR_MESSAGES } from "../shared/errors";
 import type { CellDetail } from "../shared/rpc";
-import { boundedJson, ColumnCollector, columnName, fullValue, isRecord, recordCells, type FullValue, type KeyPath, type ParsedRecord } from "./data-table";
+import { boundedJson, clipKey, ColumnCollector, columnName, fullValue, isRecord, recordCells, type FullValue, type KeyPath, type ParsedRecord } from "./data-table";
 import type { RowWindow } from "./xlsx";
 
 // JSON Lines (.jsonl, .ndjson): one JSON value per line. Blank lines are skipped, so a row is the
@@ -36,6 +36,8 @@ const CHECKPOINT_ROWS = XLSX_MAX_ROWS;
 const READ_CHUNK_BYTES = 1024 * 1024;
 export const JSONL_MAX_LINE_BYTES = 16 * 1024 * 1024;
 export const JSONL_MAX_ISSUES = 1000;
+// Total message bytes the issue list keeps, so doc.issues stays far inside the response budget.
+export const JSONL_MAX_ISSUE_BYTES = 1024 * 1024;
 const MAX_UNLISTED_KEYS = 50;
 const INDEX_DEADLINE_MS = 18_000;
 const WINDOW_DEADLINE_MS = 18_000;
@@ -135,9 +137,13 @@ export async function indexJsonl(path: string, deadline = Date.now() + INDEX_DEA
   const collector = new ColumnCollector();
   const index: JsonlIndex = { rowCount: 0, columns: [], columnsTruncated: false, checkpoints: [{ offset: 0, line: 1 }], issues: [], omittedIssues: 0 };
   const unlisted = new Set<string>();
+  let issueBytes = 0;
   const issue = (found: JsonlIssue) => {
-    if (index.issues.length < JSONL_MAX_ISSUES) index.issues.push(found);
-    else index.omittedIssues++;
+    const bytes = Buffer.byteLength(found.message, "utf8") + 64;
+    if (index.issues.length < JSONL_MAX_ISSUES && issueBytes + bytes <= JSONL_MAX_ISSUE_BYTES) {
+      index.issues.push(found);
+      issueBytes += bytes;
+    } else index.omittedIssues++;
   };
   await scanLines(path, index.checkpoints[0]!, 0, (line) => {
     if (line.row > 0 && line.row % CHECKPOINT_ROWS === 0) index.checkpoints.push({ offset: line.offset, line: line.line });
@@ -153,7 +159,7 @@ export async function indexJsonl(path: string, deadline = Date.now() + INDEX_DEA
       for (const key in parsed.value) {
         if (collector.hasTopLevelKey(key) || unlisted.has(key) || unlisted.size >= MAX_UNLISTED_KEYS) continue;
         unlisted.add(key);
-        issue({ row: line.row, line: line.line, kind: "unlisted-key", message: `Key "${key}" first appears after the first ${DATA_SAMPLE_ROWS.toLocaleString("en-US")} records and has no column` });
+        issue({ row: line.row, line: line.line, kind: "unlisted-key", message: `Key "${clipKey(key)}" first appears after the first ${DATA_SAMPLE_ROWS.toLocaleString("en-US")} records and has no column` });
       }
     }
     return true;
@@ -194,9 +200,10 @@ export async function jsonlWindow(
   const rowEnd = Math.min(rowCount, rowOffset + maxRows);
   const columnEnd = Math.min(columnCount, columnOffset + maxColumns);
   const columns: KeyPath[] = index.columns.slice(columnOffset, columnEnd);
+  const columnNames = columns.map(columnName);
   const rows: string[][] = [];
   const details: (CellDetail | null)[][] = [];
-  let bytes = 0;
+  let bytes = Buffer.byteLength(JSON.stringify(columnNames), "utf8");
   if (rowOffset < rowEnd && columns.length > 0) {
     await jsonlRecords(path, index, rowOffset, Date.now() + WINDOW_DEADLINE_MS, (row, record) => {
       const { cells, details: rowDetails } = recordCells(record, columns, detail);
@@ -215,7 +222,7 @@ export async function jsonlWindow(
     countsApproximate: false,
     rows,
     ...(detail ? { details } : {}),
-    columnNames: columns.map(columnName),
+    columnNames,
     nextRowOffset: next < rowCount ? next : null,
     nextColumnOffset: columnEnd < columnCount ? columnEnd : null,
   };

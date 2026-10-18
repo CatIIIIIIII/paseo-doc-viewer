@@ -10,14 +10,14 @@ import { responseBytes, workspace } from "./helpers";
 const lines = (...values: string[]) => `${values.join("\n")}\n`;
 
 describe("review-next: JSON Lines response budget", () => {
-  it.fails("doc.rows stays under the 8 MB response budget when a key is huge (columnNames is not counted)", async () => {
+  it("doc.rows stays under the 8 MB response budget when a key is huge (columnNames is not counted)", async () => {
     const key = "k".repeat(9 * 1024 * 1024);
     const root = workspace({ "wide.jsonl": lines(`{"${key}": 1}`) });
     const result = await readRows({ root, path: "wide.jsonl" }, { sheet: 0, rowOffset: 0, columnOffset: 0 });
     expect(responseBytes(result)).toBeLessThanOrEqual(MAX_RESPONSE_BYTES);
   }, 30_000);
 
-  it.fails("doc.issues stays under the 8 MB response budget when unlisted keys are huge", async () => {
+  it("doc.issues stays under the 8 MB response budget when unlisted keys are huge", async () => {
     const sample = Array.from({ length: DATA_SAMPLE_ROWS }, (_, i) => JSON.stringify({ id: i }));
     const big = (tag: string) => `{"${tag}${"x".repeat(5 * 1024 * 1024)}": 1}`;
     const root = workspace({ "late.jsonl": lines(...sample, big("a"), big("b")) });

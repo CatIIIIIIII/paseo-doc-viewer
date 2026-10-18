@@ -167,7 +167,7 @@ const csvIndex = (file: DocumentFile) => heavyCached(file, "csv-index", () => in
 const parquetModel = (file: DocumentFile) => heavyCached(file, "parquet", () => openParquet(file.path, file.size), parquetModelBytes);
 const jsonlIndex = (file: DocumentFile) =>
   heavyCached(file, "jsonl-index", () => indexJsonl(file.path), (index) =>
-    index.checkpoints.length * 48 + index.issues.length * 160 + index.columns.reduce((total, path) => total + 64 + path.join(".").length * 2, 0));
+    index.checkpoints.length * 48 + index.issues.reduce((total, issue) => total + 96 + issue.message.length * 2, 0) + index.columns.reduce((total, path) => total + 64 + path.join(".").length * 2, 0));
 const deck = (file: DocumentFile) =>
   heavyCached(
     file,
