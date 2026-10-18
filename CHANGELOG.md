@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Agent turns: when a turn ends, the agent timeline gets one card listing the supported documents whose modified time falls inside the turn (New or Changed, up to 12, then "+N more in Documents"), each with Open into the viewer. Files written by shell scripts count. No card when nothing changed. Turn it off in Settings, Document viewer.
 - Excel: a formula saved with an empty result (`<v></v>`, as openpyxl writes every formula) counts as having no saved result. The grid shows its formula text, the inspector says None saved and Issues lists it. Before, such cells looked blank.
 - Spreadsheets: a Find or Issues jump keeps column A in view when the target cell fits in the first columns. Records remembers the header row chosen for each sheet until the app reloads, also after the document is closed and reopened.
 - Zoom is remembered per layout class (phone-sized or wide). The page, text mode and sheet window stay shared across clients, but a 1.5x zoom set on desktop no longer opens cropped on a phone. A zoom saved by an earlier version counts as a wide zoom.
