@@ -58,7 +58,7 @@ interface DocumentFile {
 }
 
 type PageRequest = { index: number; maxWidth?: number };
-type ThumbnailRequest = { index: number; width: number };
+type ThumbnailRequest = { index: number; width: number; keepOpen?: boolean };
 type TextRequest = { index: number };
 type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number; maxRows?: number; detail?: boolean };
 type BlocksRequest = { cursor: number };
@@ -216,7 +216,7 @@ function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamil
     thumbnail: async (file, { index, width }) => {
       inRange(index, 1, "Page");
       const edge = Math.min(width, THUMBNAIL_MAX_WIDTH_PX);
-      const fit = { maxWidth: edge, maxEdge: edge, maxBytes: THUMBNAIL_MAX_BYTES };
+      const fit = { maxWidth: edge, maxEdge: edge, maxBytes: THUMBNAIL_MAX_BYTES, jpeg: true };
       const image = await heavy(async () => renderImage(await readFile(file.path), family, fit), { background: true });
       return { kind, revision: file.revision, image };
     },
@@ -244,9 +244,9 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
     // Thumbnails skip the shared cache so a grid cannot evict the pages being read; the client keeps them.
-    thumbnail: async (file, { index, width }) => {
+    thumbnail: async (file, { index, width, keepOpen }) => {
       const fit = { maxWidth: Math.min(width, THUMBNAIL_MAX_WIDTH_PX), maxBytes: THUMBNAIL_MAX_BYTES };
-      const { pageCount, image } = await heavy((signal) => renderPdfPage(file, index, fit, signal), { background: true });
+      const { pageCount, image } = await heavy((signal) => renderPdfPage(file, index, fit, signal, { hold: keepOpen !== false }), { background: true });
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
     text: async (file, { index }) => ({

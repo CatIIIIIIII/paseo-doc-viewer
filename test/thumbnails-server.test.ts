@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { cacheKeys } from "../server/cache";
-import { renderThumbnail } from "../server/documents";
+import { renderPage, renderThumbnail } from "../server/documents";
+import { pdfiumStats } from "../server/pdfium";
 import { heavy } from "../server/heavy";
 import { docThumbnailRpc } from "../shared/rpc";
 import { THUMBNAIL_MAX_WIDTH_PX } from "../shared/limits";
-import { noisePng, textPdf } from "./fixtures/generators";
+import { decode, type Image } from "imagescript";
+import { alphaRampPng, noisePng, textPdf } from "./fixtures/generators";
 import { decodePng, workspace, workspaceWithFixtures } from "./helpers";
 
 const deferred = () => {
@@ -70,6 +72,23 @@ describe("PDF thumbnails", () => {
     await expect(renderThumbnail({ root, path: "statement.pdf" }, { index: 999, width: 160 })).rejects.toThrow(/out of range|999/i);
   });
 
+  it("opens a PDF for one call when not kept open, so the document being read stays held", async () => {
+    const files = Object.fromEntries(await Promise.all(["viewer", "a", "b", "c", "d", "e"].map(async (name) => [`${name}.pdf`, await textPdf([name])] as const)));
+    const root = workspace(files);
+    const opens = () => pdfiumStats().opens;
+    await renderPage({ root, path: "viewer.pdf" }, { index: 0 });
+    const before = opens();
+    await renderThumbnail({ root, path: "viewer.pdf" }, { index: 0, width: 80, keepOpen: false });
+    expect(opens()).toBe(before);
+    for (const name of "abcde") await renderThumbnail({ root, path: `${name}.pdf` }, { index: 0, width: 80, keepOpen: false });
+    expect(opens()).toBe(before + 5);
+    await renderPage({ root, path: "viewer.pdf" }, { index: 0, maxWidth: 640 });
+    expect(opens()).toBe(before + 5);
+    for (const name of "abcde") await renderThumbnail({ root, path: `${name}.pdf` }, { index: 0, width: 80 });
+    await renderPage({ root, path: "viewer.pdf" }, { index: 0, maxWidth: 480 });
+    expect(opens()).toBe(before + 11);
+  });
+
   it("bounds the requested width in the RPC schema", () => {
     const input = { workspaceId: "w", path: "a.pdf", index: 0 };
     expect(docThumbnailRpc.input.safeParse({ ...input, width: 160 }).success).toBe(true);
@@ -88,12 +107,21 @@ describe("image thumbnails", () => {
     }
   });
 
+  it("sends opaque images as JPEG and keeps PNG where there is transparency", async () => {
+    const root = workspace({ "photo.png": noisePng(400, 300), "overlay.png": alphaRampPng(noisePng(400, 300)) });
+    const photo = await renderThumbnail({ root, path: "photo.png" }, { index: 0, width: 80 });
+    const overlay = await renderThumbnail({ root, path: "overlay.png" }, { index: 0, width: 80 });
+    expect(photo.image).toMatchObject({ mimeType: "image/jpeg", width: 80, height: 60 });
+    expect(overlay.image).toMatchObject({ mimeType: "image/png", width: 80, height: 60 });
+    expect(decodePng(overlay.image.data).width).toBe(80);
+  });
+
   it("bounds the height of a tall image too, and sends a small image as it is", async () => {
     const small = noisePng(40, 30);
     const root = workspace({ "tall.png": noisePng(60, 600), "small.png": small });
     const tall = await renderThumbnail({ root, path: "tall.png" }, { index: 0, width: 80 });
     expect(tall.image).toMatchObject({ width: 8, height: 80 });
-    expect(decodePng(tall.image.data).height).toBe(80);
+    expect((await decode(Buffer.from(tall.image.data, "base64"))) as Image).toMatchObject({ width: 8, height: 80 });
     const kept = await renderThumbnail({ root, path: "small.png" }, { index: 0, width: 80 });
     expect(kept.image).toMatchObject({ mimeType: "image/png", width: 40, height: 30, data: small.toString("base64") });
     await expect(renderThumbnail({ root, path: "small.png" }, { index: 1, width: 80 })).rejects.toThrow(/out of range|1/i);

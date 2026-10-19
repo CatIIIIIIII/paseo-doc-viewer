@@ -82,16 +82,29 @@ function trim(keep: string): void {
   }
 }
 
-async function withDocument<T>(file: PdfFile, signal: AbortSignal | undefined, use: (handle: string, pageCount: number) => Promise<T>): Promise<T> {
+async function withTransientDocument<T>(file: PdfFile, signal: AbortSignal | undefined, use: (handle: string, pageCount: number) => Promise<T>): Promise<T> {
+  const handle = String(++serial);
+  const { pageCount, generation } = await load(file, handle, signal);
+  try {
+    return await use(handle, pageCount);
+  } finally {
+    if (generation === pdfiumGeneration()) pdfium({ op: "close", key: handle }).catch(() => {});
+  }
+}
+
+async function withDocument<T>(file: PdfFile, signal: AbortSignal | undefined, use: (handle: string, pageCount: number) => Promise<T>, { hold = true } = {}): Promise<T> {
   const key = `${file.path}\0${file.revision}\0${file.passwordKey}`;
   let entry = held.get(key);
   if (entry && stale(entry)) {
     held.delete(key);
     entry = undefined;
   }
+  if (!entry && !hold) return withTransientDocument(file, signal, use);
   if (entry) {
-    held.delete(key);
-    held.set(key, entry);
+    if (hold) {
+      held.delete(key);
+      held.set(key, entry);
+    }
   } else {
     for (const [other, candidate] of held) {
       if (candidate.path === file.path && candidate.revision !== file.revision) evict(other, candidate);
@@ -127,14 +140,14 @@ export function pdfPageCount(file: PdfFile, signal?: AbortSignal): Promise<numbe
   return withDocument(file, signal, async (_, pageCount) => pageCount);
 }
 
-function withPage<T>(file: PdfFile, index: number, signal: AbortSignal | undefined, use: (handle: string, pageCount: number) => Promise<T>): Promise<T> {
+function withPage<T>(file: PdfFile, index: number, signal: AbortSignal | undefined, use: (handle: string, pageCount: number) => Promise<T>, options?: { hold?: boolean }): Promise<T> {
   return withDocument(file, signal, async (handle, pageCount) => {
     if (index >= pageCount) throw new Error(ERROR_MESSAGES.outOfRange("Page", index, pageCount));
     return use(handle, pageCount);
-  });
+  }, options);
 }
 
-export function renderPdfPage(file: PdfFile, index: number, fit: Fit, signal?: AbortSignal): Promise<{ pageCount: number; image: EncodedImage }> {
+export function renderPdfPage(file: PdfFile, index: number, fit: Fit, signal?: AbortSignal, options?: { hold?: boolean }): Promise<{ pageCount: number; image: EncodedImage }> {
   return withPage(file, index, signal, async (key, pageCount) => {
     const size = await pdfium({ op: "size", key, index }, { signal });
     const image = await fitRendered(
@@ -143,7 +156,7 @@ export function renderPdfPage(file: PdfFile, index: number, fit: Fit, signal?: A
       fit,
     );
     return { pageCount, image };
-  });
+  }, options);
 }
 
 function capText(text: string): { text: string; truncated: boolean } {
