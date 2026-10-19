@@ -9,13 +9,19 @@ import { documentRevision } from "../shared/revision";
 import { workspace } from "./helpers";
 import {
   changedDuringTurn,
+  groupChanges,
   TIMELINE_DATA_MAX_BYTES,
   TURN_DOCS_KIND,
   turnDocsRow,
   turnDocsRowId,
   turnDocsSchema,
+  turnDocsV1Schema,
+  upgradeTurnDocs,
+  type Baseline,
   type ScannedFile,
+  type ScannedFolders,
   type TurnDocsFile,
+  type TurnDocsGroup,
 } from "../shared/turn-docs";
 
 const T0 = 1_000_000;
@@ -28,9 +34,13 @@ const file = (path: string, changedMs: number, revision = `r-${path}-${changedMs
   ...extra,
 });
 
+const NO_FOLDERS = { dirs: new Map<string, number>(), repos: new Set<string>() };
+const known = (revisions: [string, string][], complete = true, { dirs = [] as string[], repos = [] as string[] } = {}): Baseline =>
+  ({ revisions: new Map(revisions), dirs: new Set(dirs), repos: new Set(repos), complete });
+
 describe("changedDuringTurn", () => {
   it("tells new from changed against the baseline and skips untouched files", () => {
-    const baseline = { revisions: new Map([["report.pdf", "old"], ["same.pdf", "same"]]), complete: true };
+    const baseline = known([["report.pdf", "old"], ["same.pdf", "same"]]);
     const after = [
       file("report.pdf", T0 + 500, "new-rev"),
       file("out/data.xlsx", T0 + 900),
@@ -46,13 +56,72 @@ describe("changedDuringTurn", () => {
   it("falls back to birth time when the baseline is incomplete or missing", () => {
     const after = [file("a.pdf", T0 + 10, "x", { birthtimeMs: T0 + 5 }), file("b.pdf", T0 + 10, "y", { birthtimeMs: T0 - 99_000 }), file("c.pdf", T0 + 10, "z", { birthtimeMs: 0 })];
     const statuses = (baseline: Parameters<typeof changedDuringTurn>[1]) => changedDuringTurn(after, baseline, T0).map((entry) => entry.status);
-    expect(statuses({ revisions: new Map(), complete: false })).toEqual(["new", "changed", "changed"]);
+    expect(statuses(known([], false))).toEqual(["new", "changed", "changed"]);
     expect(statuses(null)).toEqual(["new", "changed", "changed"]);
   });
 
   it("keeps files inside the slack before the start but not older ones", () => {
     const after = [file("edge.pdf", T0 - 500), file("before.pdf", T0 - 1_500)];
-    expect(changedDuringTurn(after, { revisions: new Map(), complete: true }, T0).map((entry) => entry.path)).toEqual(["edge.pdf"]);
+    expect(changedDuringTurn(after, known([]), T0).map((entry) => entry.path)).toEqual(["edge.pdf"]);
+  });
+});
+
+describe("groupChanges", () => {
+  const changed = (...paths: string[]): TurnDocsFile[] => paths.map((path) => ({ path, kind: "pdf", size: 1, revision: "r", status: "new" }));
+  const many = (dir: string, count: number) => Array.from({ length: count }, (_, index) => `${dir}/page-${index}.pdf`);
+  const folders = (dirs: Record<string, number>, repos: string[] = []): ScannedFolders => ({ dirs: new Map(Object.entries(dirs)), repos: new Set(repos) });
+  const summary = ({ files, groups }: ReturnType<typeof groupChanges>) =>
+    ({ files: files.map((entry) => entry.path), groups: groups.map((group) => `${group.reason}:${group.path}:${group.count}`) });
+  const born = T0 + 100;
+  const old = T0 - 60_000;
+
+  it("folds a new worktree, whose .git is a file, into one row and lists the rest", () => {
+    const files = changed("docs/report.pdf", ...many("gallery", 40), "gallery/assets/shot.pdf", "metrics.pdf");
+    const after = folders({ docs: old, gallery: born, "gallery/assets": born }, ["", "gallery"]);
+    expect(summary(groupChanges(files, after, known([], true, { dirs: ["docs"], repos: [""] }), T0))).toEqual({
+      files: ["docs/report.pdf", "metrics.pdf"],
+      groups: ["checkout:gallery:41"],
+    });
+  });
+
+  it("keeps listing new files of nested repos that existed, and never folds the workspace root", () => {
+    const files = changed("proj/report.pdf", "proj/out/a.pdf", "root.pdf");
+    const after = folders({ proj: 0, "proj/out": born }, ["", "proj"]);
+    const result = groupChanges(files, after, known([], true, { dirs: ["proj"], repos: ["", "proj"] }), T0);
+    expect(summary(result)).toEqual({ files: ["proj/report.pdf", "proj/out/a.pdf", "root.pdf"], groups: [] });
+  });
+
+  it("folds a new submodule of an existing repo, and a new checkout with its submodules as one row", () => {
+    const files = changed("proj/lib/a.pdf", "proj/b.pdf", "clone/c.pdf", "clone/deps/sub/d.pdf");
+    const after = folders({ proj: old, "proj/lib": born, clone: born, "clone/deps": born, "clone/deps/sub": born }, ["proj", "proj/lib", "clone", "clone/deps/sub"]);
+    const baseline = known([], true, { dirs: ["proj"], repos: ["proj"] });
+    expect(summary(groupChanges(files, after, baseline, T0))).toEqual({ files: ["proj/b.pdf"], groups: ["checkout:proj/lib:1", "checkout:clone:2"] });
+  });
+
+  it("folds a new folder past 12 changed files, counting its subfolders, and lists one with 12", () => {
+    const files = changed(...many("twelve", 12), ...many("thirteen", 6), ...many("thirteen/deep", 7));
+    const after = folders({ twelve: born, thirteen: born, "thirteen/deep": born });
+    expect(summary(groupChanges(files, after, known([]), T0))).toEqual({ files: many("twelve", 12), groups: ["folder:thirteen:13"] });
+  });
+
+  it("with a partial baseline, trusts only birth times", () => {
+    const files = changed("wt/a.pdf", "unknown/b.pdf");
+    const after = folders({ wt: born, unknown: 0 }, ["wt", "unknown"]);
+    expect(summary(groupChanges(files, after, known([], false), T0))).toEqual({ files: ["unknown/b.pdf"], groups: ["checkout:wt:1"] });
+    expect(summary(groupChanges(files, after, null, T0))).toEqual({ files: ["unknown/b.pdf"], groups: ["checkout:wt:1"] });
+  });
+
+  it("treats a repo that was deleted and checked out again, or initialized in an existing folder, as new", () => {
+    const files = changed("again/a.pdf", "init/b.pdf");
+    const after = folders({ again: born, init: old }, ["again", "init"]);
+    const baseline = known([], true, { dirs: ["again", "init", "gone"], repos: ["again", "gone"] });
+    expect(summary(groupChanges(files, after, baseline, T0))).toEqual({ files: [], groups: ["checkout:again:1", "checkout:init:1"] });
+  });
+
+  it("adds nothing for a repo the turn deleted", () => {
+    const files = changed("kept.pdf");
+    const baseline = known([["gone/a.pdf", "r"]], true, { dirs: ["gone"], repos: ["gone"] });
+    expect(summary(groupChanges(files, folders({}), baseline, T0))).toEqual({ files: ["kept.pdf"], groups: [] });
   });
 });
 
@@ -80,9 +149,47 @@ describe("turnDocsRow", () => {
     expect(row.data.files.length + row.data.moreCount).toBe(12);
   });
 
+  const group = (path: string, count: number, pathLength = 10): TurnDocsGroup =>
+    ({ reason: "checkout", path, count, files: files(count, pathLength).map((entry) => ({ ...entry, path: `${path}/${entry.path}` })) });
+
+  it("shows folder rows with the first 12 of their files, and keeps every file in the title count", () => {
+    const row = turnDocsRow({ ...base, files: files(2), groups: [group("gallery", 65)] })!;
+    expect(row.data.files).toHaveLength(2);
+    expect(row.data.groups).toMatchObject([{ path: "gallery", count: 65 }]);
+    expect(row.data.groups[0]!.files).toHaveLength(12);
+    expect(row.data.moreCount).toBe(0);
+    expect(turnDocsTitle(row.data)).toBe("67 documents changed while this turn ran");
+    expect(turnDocsSchema.parse(row.data)).toEqual(row.data);
+    expect(turnDocsRow({ ...base, files: [], groups: [group("gallery", 3)] })!.data.files).toEqual([]);
+  });
+
+  it("shares the 12 rows between folder rows and files", () => {
+    const row = turnDocsRow({ ...base, files: files(15), groups: [group("a", 20), group("b", 13), group("c", 1)] })!;
+    expect(row.data.groups.map((entry) => entry.path)).toEqual(["a", "b", "c"]);
+    expect(row.data.files).toHaveLength(9);
+    expect(row.data.moreCount).toBe(6);
+    expect(turnDocsTitle(row.data)).toBe("49 documents changed while this turn ran");
+  });
+
+  it("past 64 KiB drops a folder row's expanded files before listed files", () => {
+    const row = turnDocsRow({ ...base, files: files(3, 3_000), groups: [group("a", 30, 3_000), group("b", 30, 3_000)] })!;
+    expect(new TextEncoder().encode(JSON.stringify(row.data)).length).toBeLessThanOrEqual(TIMELINE_DATA_MAX_BYTES);
+    expect(row.data.files).toHaveLength(3);
+    expect(row.data.groups.map((entry) => entry.count)).toEqual([30, 30]);
+    expect(row.data.groups[0]!.files.length + row.data.groups[1]!.files.length).toBeLessThan(24);
+    expect(Math.abs(row.data.groups[0]!.files.length - row.data.groups[1]!.files.length)).toBeLessThanOrEqual(1);
+    expect(turnDocsTitle(row.data)).toBe("63 documents changed while this turn ran");
+  });
+
+  it("keeps rows stored as version 1 readable", () => {
+    const stored = { workspaceId: "wks_1", startedAt: T0, endedAt: T0 + 1, outcome: "completed", files: files(1), moreCount: 0, partial: false };
+    expect(turnDocsSchema.safeParse(stored).success).toBe(false);
+    expect(upgradeTurnDocs(turnDocsV1Schema.parse(stored))).toEqual({ ...stored, groups: [] });
+  });
+
   it("has a stable id per turn and a kind the host accepts", () => {
     const row = turnDocsRow({ ...base, files: files(1) })!;
-    expect(row).toMatchObject({ type: "plugin", id: `turn-docs:turn-7:${T0}`, kind: TURN_DOCS_KIND, version: 1 });
+    expect(row).toMatchObject({ type: "plugin", id: `turn-docs:turn-7:${T0}`, kind: TURN_DOCS_KIND, version: 2 });
     expect(TURN_DOCS_KIND).toMatch(/^[a-z][a-z0-9-]*$/);
     expect(turnDocsRowId(null, T0)).toBe(`turn-docs:turn:${T0}`);
   });
@@ -90,8 +197,10 @@ describe("turnDocsRow", () => {
 
 describe("card labels", () => {
   it("says changed while the turn ran, not written by the agent", () => {
-    expect(turnDocsTitle({ files: [{} as TurnDocsFile], moreCount: 0 })).toBe("1 document changed while this turn ran");
-    expect(turnDocsTitle({ files: [{} as TurnDocsFile, {} as TurnDocsFile], moreCount: 3 })).toBe("5 documents changed while this turn ran");
+    expect(turnDocsTitle({ files: [{} as TurnDocsFile], groups: [], moreCount: 0 })).toBe("1 document changed while this turn ran");
+    expect(turnDocsTitle({ files: [{} as TurnDocsFile, {} as TurnDocsFile], groups: [], moreCount: 3 })).toBe("5 documents changed while this turn ran");
+    expect(turnDocsTitle({ files: [{} as TurnDocsFile], groups: [{ reason: "checkout", path: "wt", count: 65, files: [] }], moreCount: 1 }))
+      .toBe("67 documents changed while this turn ran");
     expect(turnDocsNote({ outcome: "completed", partial: false })).toBeNull();
     expect(turnDocsNote({ outcome: "canceled", partial: true })).toBe("Turn was stopped · Large workspace: only part of it was scanned");
   });
@@ -132,7 +241,7 @@ describe("card row pill", () => {
     utimesSync(join(root, "backup.pdf"), past, past);
     const opened = revisionOf(statSync(report));
     const startedAt = Date.now();
-    const baseline = { revisions: new Map([["report.pdf", opened]]), complete: true };
+    const baseline = known([["report.pdf", opened]]);
     copyFileSync(join(root, "backup.pdf"), report);
     utimesSync(report, past, past);
     const info = statSync(report);
@@ -163,7 +272,7 @@ describe("createTurnDocs", () => {
     let clock = T0;
     const appended: unknown[] = [];
     const service = createTurnDocs({
-      scan: async (_root, { fresh }) => ({ entries: fresh ? after : before, complete: true }),
+      scan: async (_root, { fresh }) => ({ entries: fresh ? after : before, complete: true, ...NO_FOLDERS }),
       enabled: async () => enabled,
       now: () => clock,
       log: () => {},
@@ -203,7 +312,7 @@ describe("createTurnDocs", () => {
   it("respects the setting and needs a recorded start", async () => {
     const h = harness({ before: [], after: [file("a.pdf", T0 + 1_000)], enabled: false });
     expect(await h.turn()).toBeNull();
-    const service = createTurnDocs({ scan: async () => ({ entries: [file("a.pdf", T0 + 1)], complete: true }), enabled: async () => true, log: () => {} });
+    const service = createTurnDocs({ scan: async () => ({ entries: [file("a.pdf", T0 + 1)], complete: true, ...NO_FOLDERS }), enabled: async () => true, log: () => {} });
     expect(await service.turnEnded({ agent, turnId: "x", outcome: { kind: "completed" }, timeline: [] }, { resolveRoot: async () => "/ws", append: async () => {} })).toBeNull();
   });
 });

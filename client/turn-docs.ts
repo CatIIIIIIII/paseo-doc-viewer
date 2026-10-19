@@ -5,8 +5,8 @@ import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
 
 // "Changed while this turn ran", never "written by this agent": the card comes from file times,
 // so another agent or the user editing the same workspace shows up here too.
-export function turnDocsTitle(data: Pick<TurnDocs, "files" | "moreCount">): string {
-  const total = data.files.length + data.moreCount;
+export function turnDocsTitle(data: Pick<TurnDocs, "files" | "groups" | "moreCount">): string {
+  const total = data.files.length + data.groups.reduce((sum, group) => sum + group.count, 0) + data.moreCount;
   return `${total} ${total === 1 ? "document" : "documents"} changed while this turn ran`;
 }
 

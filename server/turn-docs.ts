@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { PluginLifecycleEvents } from "@getpaseo/plugin/server";
-import { changedDuringTurn, TURN_WINDOW_SLACK_MS, turnDocsRow, type Baseline, type ScannedFile } from "../shared/turn-docs";
+import { changedDuringTurn, groupChanges, TURN_WINDOW_SLACK_MS, turnDocsRow, type Baseline, type ScannedFile, type ScannedFolders } from "../shared/turn-docs";
 
 type TurnStarted = PluginLifecycleEvents["agent.turn_started"];
 type TurnEnded = PluginLifecycleEvents["agent.turn_ended"];
@@ -14,7 +14,7 @@ export interface TurnDocsHost {
 }
 
 export interface TurnDocsDeps {
-  scan(root: string, options: { fresh: boolean }): Promise<{ entries: readonly ScannedFile[]; complete: boolean }>;
+  scan(root: string, options: { fresh: boolean }): Promise<{ entries: readonly ScannedFile[]; complete: boolean } & ScannedFolders>;
   enabled(): Promise<boolean>;
   now?: () => number;
   log?: (message: string) => void;
@@ -45,8 +45,10 @@ export function createTurnDocs(deps: TurnDocsDeps) {
       // scan alone; so is a file the agent wrote before the baseline scan reached it.
       const baseline = root
         .then((dir) => deps.scan(dir, { fresh: false }))
-        .then(({ entries, complete }): Baseline => ({
+        .then(({ entries, complete, dirs, repos }): Baseline => ({
           revisions: new Map(entries.filter((entry) => entry.changedMs < startedAt - TURN_WINDOW_SLACK_MS).map((entry) => [entry.path, entry.revision])),
+          dirs: new Set(dirs.keys()),
+          repos,
           complete,
         }))
         .catch(() => null);
@@ -63,7 +65,8 @@ export function createTurnDocs(deps: TurnDocsDeps) {
       const root = await turn.root;
       const [baseline, after] = await Promise.all([turn.baseline, deps.scan(root, { fresh: true })]);
       const candidates = after.entries.filter((entry) => entry.changedMs >= turn.startedAt - TURN_WINDOW_SLACK_MS);
-      const files = changedDuringTurn(baseline?.complete ? candidates : await withBirthtimes(root, candidates), baseline, turn.startedAt);
+      const changed = changedDuringTurn(baseline?.complete ? candidates : await withBirthtimes(root, candidates), baseline, turn.startedAt);
+      const { files, groups } = groupChanges(changed, after, baseline, turn.startedAt);
       const row = turnDocsRow({
         workspaceId: turn.workspaceId,
         turnId,
@@ -71,9 +74,11 @@ export function createTurnDocs(deps: TurnDocsDeps) {
         endedAt: began,
         outcome: outcome.kind,
         files,
+        groups,
         partial: !after.complete,
       });
-      log(`turn ${turnId ?? "?"} of ${agent.id.slice(0, 8)}: ${files.length} changed document(s), scan ${now() - began} ms${after.complete ? "" : " (partial)"}`);
+      const folded = groups.length > 0 ? ` (${changed.length - files.length} in ${groups.length} folder row(s))` : "";
+      log(`turn ${turnId ?? "?"} of ${agent.id.slice(0, 8)}: ${changed.length} changed document(s)${folded}, scan ${now() - began} ms${after.complete ? "" : " (partial)"}`);
       if (row) await host.append(agent.id, row);
       return row;
     },

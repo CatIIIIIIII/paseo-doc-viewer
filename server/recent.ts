@@ -3,6 +3,7 @@ import { join, relative, sep } from "node:path";
 import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, matchesQuery, newestFirst, queryTerms, type ReviewStatus } from "../shared/browse";
 import { RECENT_MAX_ENTRIES, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { kindForPath, type DocumentKind } from "../shared/kinds";
+import type { ScannedFolders } from "../shared/turn-docs";
 import { revisionOf } from "./revision";
 
 export interface RecentEntry {
@@ -73,7 +74,7 @@ class Queue {
   }
 }
 
-interface Scan {
+interface Scan extends ScannedFolders {
   entries: RecentEntry[];
   // Other files, so a search can say a file exists but is not a supported type.
   unsupported: string[];
@@ -147,6 +148,8 @@ function sharedScan(root: string): Promise<Scan> {
 async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY): Promise<Scan> {
   const found: RecentEntry[] = [];
   const unsupported: string[] = [];
+  const dirs = new Map<string, number | null>();
+  const repos = new Set<string>();
   const queue = new Queue();
   queue.push({ path: root, depth: 0, mtimeMs: Number.POSITIVE_INFINITY, deferred: false });
   let visited = 0;
@@ -167,6 +170,8 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
         break;
       }
       const full = join(directory, item.name);
+      // A worktree or submodule has a .git file, a clone a .git folder.
+      if (item.name === ".git") repos.add(relativePath(root, directory));
       if (item.isDirectory()) {
         if (item.name.startsWith(".") || SKIPPED_DIRECTORIES.has(item.name)) continue;
         if (depth >= MAX_DEPTH) {
@@ -174,12 +179,11 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
           continue;
         }
         try {
-          queue.push({
-            path: full,
-            depth: depth + 1,
-            mtimeMs: (await stat(full)).mtimeMs,
-            deferred: deferred || DEFERRED_DIRECTORIES.has(item.name),
-          });
+          const info = await stat(full);
+          // Where the filesystem has no birth time, Node may report the change time instead, which moves
+          // whenever the folder gains a file; only a birth time before it is a real one.
+          dirs.set(relativePath(root, full), info.birthtimeMs > 0 && info.birthtimeMs < info.ctimeMs ? info.birthtimeMs : null);
+          queue.push({ path: full, depth: depth + 1, mtimeMs: info.mtimeMs, deferred: deferred || DEFERRED_DIRECTORIES.has(item.name) });
         } catch {
           continue;
         }
@@ -188,26 +192,30 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
       if (!item.isFile() || SKIPPED_FILE_PREFIXES.some((prefix) => item.name.startsWith(prefix))) continue;
       const kind = kindForPath(item.name);
       if (!kind) {
-        if (!item.name.startsWith(".") && unsupported.length < MAX_UNSUPPORTED_NAMES) unsupported.push(relative(root, full).split(sep).join("/"));
+        if (!item.name.startsWith(".") && unsupported.length < MAX_UNSUPPORTED_NAMES) unsupported.push(relativePath(root, full));
         continue;
       }
       try {
         const info = await stat(full);
-        found.push({ path: relative(root, full).split(sep).join("/"), kind, mtimeMs: info.mtimeMs, size: info.size, revision: revisionOf(info), changedMs: Math.max(info.mtimeMs, info.ctimeMs) });
-        if (found.length >= stopAfter) return { entries: found, unsupported, complete: false };
+        found.push({ path: relativePath(root, full), kind, mtimeMs: info.mtimeMs, size: info.size, revision: revisionOf(info), changedMs: Math.max(info.mtimeMs, info.ctimeMs) });
+        if (found.length >= stopAfter) return { entries: found, unsupported, complete: false, dirs, repos };
       } catch {
         continue;
       }
     }
   }
   if (queue.size > 0) complete = false;
-  return { entries: newestFirst(found), unsupported, complete };
+  return { entries: newestFirst(found), unsupported, complete, dirs, repos };
 }
 
-// Supported documents as the shared scan sees them: cached when fresh, so a turn start costs nothing
-// after a recent list. `fresh` drops the cache first, for the scan at a turn's end.
-export async function scannedDocuments(root: string, { fresh = false } = {}): Promise<{ entries: readonly RecentEntry[]; complete: boolean }> {
+function relativePath(root: string, full: string): string {
+  return relative(root, full).split(sep).join("/");
+}
+
+// Supported documents and the folders the shared scan walked: cached when fresh, so a turn start costs
+// nothing after a recent list. `fresh` drops the cache first, for the scan at a turn's end.
+export async function scannedDocuments(root: string, { fresh = false } = {}): Promise<{ entries: readonly RecentEntry[]; complete: boolean } & ScannedFolders> {
   if (fresh) forgetScan(root);
-  const scan = await sharedScan(root);
-  return { entries: scan.entries, complete: scan.complete };
+  const { entries, complete, dirs, repos } = await sharedScan(root);
+  return { entries, complete, dirs, repos };
 }

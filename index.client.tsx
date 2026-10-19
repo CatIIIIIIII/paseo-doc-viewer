@@ -8,8 +8,8 @@ import { DOCUMENT_SCREEN_ID, DOCUMENTS_PANEL_ID, openByPath, openMostRecent, SET
 import { REVIEW_SCREEN_ID, reviewScreen } from "./client/review-note";
 import { ReviewScreen } from "./client/review-screen";
 import { ViewerSettings } from "./client/settings-screen";
-import { createTurnDocsCard } from "./client/turn-docs-card";
-import { TURN_DOCS_KIND, TURN_DOCS_VERSION, turnDocsSchema } from "./shared/turn-docs";
+import { createTurnDocsCard, legacyTurnDocsCard } from "./client/turn-docs-card";
+import { TURN_DOCS_KIND, TURN_DOCS_VERSION, turnDocsSchema, turnDocsV1Schema } from "./shared/turn-docs";
 
 export default function contribute(client: PluginClientContext) {
   setHostClient(client);
@@ -56,11 +56,20 @@ export default function contribute(client: PluginClientContext) {
       context: "workspace",
       onSelect: ({ openScreen, workspace }) => openScreen(reviewScreen(workspace.id)),
     }),
-    client.addTimelineRenderer({ kind: TURN_DOCS_KIND, version: TURN_DOCS_VERSION, schema: turnDocsSchema, Component: createTurnDocsCard(client) }),
+    ...turnDocsRenderers(client),
     client.addSettingsScreen({ id: SETTINGS_SCREEN_ID, title: "Document viewer", icon: "FileText", Component: ViewerSettings }),
   ];
   return () => {
     setHostClient(null);
     for (const cleanup of cleanups) cleanup();
   };
+}
+
+// Renderers match the exact version, so cards stored by an older plugin keep theirs.
+function turnDocsRenderers(client: PluginClientContext) {
+  const Card = createTurnDocsCard(client);
+  return [
+    client.addTimelineRenderer({ kind: TURN_DOCS_KIND, version: 1, schema: turnDocsV1Schema, Component: legacyTurnDocsCard(Card) }),
+    client.addTimelineRenderer({ kind: TURN_DOCS_KIND, version: TURN_DOCS_VERSION, schema: turnDocsSchema, Component: Card }),
+  ];
 }

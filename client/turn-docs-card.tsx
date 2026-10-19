@@ -1,8 +1,8 @@
 import type { PluginClientContext, PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useReducer, useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
-import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
+import { type TurnDocs, type TurnDocsFile, type TurnDocsV1, upgradeTurnDocs } from "../shared/turn-docs";
 import { createCardThumbnails } from "./card-thumbnails";
 import { TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir } from "./format";
@@ -69,6 +69,12 @@ export function createTurnDocsCard(client: CardClient) {
         {settingsFailed ? <Text style={[styles.muted, { paddingHorizontal: 4, paddingTop: 4 }]}>{TURN_CARDS_SETTING_HINT}</Text> : null}
       </View>
     );
+  };
+}
+
+export function legacyTurnDocsCard(Card: (props: PluginTimelineItemProps<TurnDocs>) => ReactElement) {
+  return function TurnDocsCardV1(props: PluginTimelineItemProps<TurnDocsV1>) {
+    return <Card {...props} item={{ ...props.item, data: upgradeTurnDocs(props.item.data) }} />;
   };
 }
 
