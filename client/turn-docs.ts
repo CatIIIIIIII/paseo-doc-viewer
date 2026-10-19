@@ -64,5 +64,5 @@ const documents = (count: number) => `${count} ${count === 1 ? "document" : "doc
 
 export const TURN_GROUP = {
   checkout: { detail: (count: number) => `New checkout · ${documents(count)}`, spoken: "new Git checkout" },
-  folder: { detail: (count: number) => `${count} new files`, spoken: "new folder" },
+  folder: { detail: (count: number) => `New folder · ${documents(count)}`, spoken: "new folder" },
 } as const satisfies Record<TurnDocsGroup["reason"], { detail(count: number): string; spoken: string }>;

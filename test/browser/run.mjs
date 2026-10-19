@@ -796,7 +796,7 @@ try {
   await page.getByRole("button", { name: "Checkout card", exact: true }).click();
   await expect(page.getByText("80 documents changed while this turn ran", { exact: true })).toBeVisible();
   await expect(page.getByText("New checkout · 65 documents", { exact: true })).toBeVisible();
-  await expect(page.getByText("13 new files", { exact: true })).toBeVisible();
+  await expect(page.getByText("New folder · 13 documents", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(2);
   await expect(cardFrame.locator("img")).toHaveCount(1);
   await page.waitForTimeout(500);

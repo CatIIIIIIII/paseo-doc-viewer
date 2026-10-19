@@ -225,7 +225,7 @@ describe("card folder rows", () => {
   it("says what the row stands for", () => {
     expect(TURN_GROUP.checkout.detail(65)).toBe("New checkout · 65 documents");
     expect(TURN_GROUP.checkout.detail(1)).toBe("New checkout · 1 document");
-    expect(TURN_GROUP.folder.detail(13)).toBe("13 new files");
+    expect(TURN_GROUP.folder.detail(13)).toBe("New folder · 13 documents");
   });
 });
 
