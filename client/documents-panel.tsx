@@ -11,6 +11,8 @@ import { docsRecentRpc, docsVisitRpc } from "../shared/rpc";
 import { viewerSettingsRpc } from "../shared/settings";
 import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, parentDir, relativeTime } from "./format";
 import { kindColor, type KindPalette } from "./kind-colors";
+import { detailsColumns } from "./panel-layout";
+import { DetailsHeader, DetailsRow } from "./documents-details";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
 import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, listFooter, noMatchDetail, type RecentEntry, unsupportedDetail } from "./recent";
@@ -143,6 +145,7 @@ function DocumentsList({
   };
 
   const controlHeight = layout.compact ? 44 : 36;
+  const columns = view === "details" ? detailsColumns(width, layout.compact) : null;
   return (
     <View style={styles.screen} onLayout={onLayout}>
       <View style={{ gap: 8, paddingTop: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
@@ -184,6 +187,7 @@ function DocumentsList({
           ))}
         </ScrollView>
       </View>
+      {columns && entries.length > 0 ? <DetailsHeader theme={theme} styles={styles} columns={columns} /> : null}
       {entries.length === 0 ? (
         pending ? (
           <LoadingState theme={theme} styles={styles} />
@@ -209,8 +213,19 @@ function DocumentsList({
                 theme={theme}
                 styles={styles}
                 row={item}
+                variant={columns ? { type: "details", rowHeight: columns.rowHeight } : { type: "list" }}
                 onToggle={() => toggle(item.group)}
                 onShowAll={() => setGroup(item.group)}
+              />
+            ) : columns ? (
+              <DetailsRow
+                theme={theme}
+                styles={styles}
+                columns={columns}
+                entry={item.entry}
+                palette={palette}
+                now={now}
+                onPress={() => openScreen(documentScreen(workspaceId, item.entry.path))}
               />
             ) : (
               <EntryRow
@@ -378,26 +393,39 @@ function Chip({
   );
 }
 
+const GROUP_HEADER_LOOK = {
+  list: { marginTop: 4, paddingVertical: 6, fontSize: 13 },
+  details: { marginTop: 2, paddingVertical: 0, fontSize: 12 },
+} as const;
+
 function GroupHeader({
   theme,
   styles,
   row,
+  variant,
   onToggle,
   onShowAll,
-}: ChromeProps & { row: Extract<BrowseRow, { type: "header" }>; onToggle(): void; onShowAll(): void }) {
+}: ChromeProps & {
+  row: Extract<BrowseRow, { type: "header" }>;
+  variant: { type: "list" } | { type: "details"; rowHeight: number };
+  onToggle(): void;
+  onShowAll(): void;
+}) {
   const label = GROUP_LABEL[row.group];
   const count = row.shown < row.total ? `${row.shown} of ${row.total}` : String(row.total);
+  const look = GROUP_HEADER_LOOK[variant.type];
+  const minHeight = variant.type === "details" ? variant.rowHeight : undefined;
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", marginTop: look.marginTop }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${label}, ${count}`}
         accessibilityState={{ expanded: !row.collapsed }}
         onPress={onToggle}
-        style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8, paddingVertical: 6 }}
+        style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8, paddingVertical: look.paddingVertical, minHeight }}
       >
         <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={theme.colors.foregroundMuted} />
-        <Text style={[styles.text, { fontSize: 13, fontWeight: "600" }]}>{label}</Text>
+        <Text style={[styles.text, { fontSize: look.fontSize, fontWeight: "600" }]}>{label}</Text>
         <Text style={styles.label}>{count}</Text>
       </Pressable>
       {row.shown < row.total ? (

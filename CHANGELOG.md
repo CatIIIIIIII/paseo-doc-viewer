@@ -10,6 +10,7 @@
 - Turn card rows say Opened once the file was opened in the viewer at the card's version or a later one, instead of keeping New or Changed forever. New `viewer-state.opened-revisions` RPC reads the opened mark of up to 50 files at once.
 - File icons in Documents and on turn cards take a color per file type, from a palette checked for color blindness, with a gray fallback on themes where a color would fall under 3:1. New "Color file types" setting (on by default) turns them off for every client of the daemon.
 - Documents has a List, Details and Previews switch beside the search box. The daemon keeps the choice per layout class (phone-sized or wide) in `documents-view.json`, through new `documents-view.read` and `documents-view.write` RPCs. List stays the default.
+- Details view: one line per file with Name, Folder (from 640 pt), Size, Modified (absolute) and Status columns. Phones keep 44 pt rows and drop the size column.
 
 ### Changed
 

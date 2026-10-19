@@ -46,7 +46,7 @@ export const Pressable = ({ children, style, accessibilityLabel, accessibilityRo
   return <div role={checkable ? accessibilityRole : "button"} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel}
     aria-pressed={checkable ? undefined : accessibilityState?.selected} aria-checked={accessibilityRole === "radio" ? Boolean(accessibilityState?.selected) : accessibilityRole === "checkbox" ? Boolean(accessibilityState?.checked) : undefined} aria-disabled={disabled || undefined}
     onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }}
-    style={{ cursor: "pointer", boxSizing: "border-box", ...css(typeof style === "function" ? style({ pressed: false, hovered: false }) : style) }}>{children}</div>;
+    style={{ cursor: "pointer", boxSizing: "border-box", display: "flex", flexDirection: "column", flexShrink: 0, minWidth: 0, ...css(typeof style === "function" ? style({ pressed: false, hovered: false }) : style) }}>{children}</div>;
 };
 export const ScrollView = forwardRef<any, any>(function ScrollView({ children, style, contentContainerStyle, onLayout, onScroll }: any, ref) {
   useEffect(() => { onLayout?.({ nativeEvent: { layout: { width: FRAME_WIDTH, height: 540, x: 0, y: 0 } } }); }, [onLayout]);

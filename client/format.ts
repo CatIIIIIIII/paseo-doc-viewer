@@ -52,6 +52,21 @@ export function relativeTime(mtimeMs: number, nowMs: number): string {
   return new Date(mtimeMs).toISOString().slice(0, 10);
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const pad = (value: number) => String(value).padStart(2, "0");
+
+export function absoluteTime(mtimeMs: number, nowMs: number, form: "long" | "short" = "long"): string {
+  const date = new Date(mtimeMs);
+  const now = new Date(nowMs);
+  const day = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const days = Math.round((day(now) - day(date)) / DAY);
+  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  if (days <= 0) return clock;
+  if (days === 1) return form === "long" ? `Yesterday ${clock}` : "Yesterday";
+  if (date.getFullYear() === now.getFullYear()) return `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export function formatCount(value: number): string {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
