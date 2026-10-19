@@ -26,6 +26,9 @@ for (const [path] of checkoutFiles) {
   mkdirSync(dirname(join(root, path)), { recursive: true });
   copyFileSync(join(process.cwd(), path.endsWith(".pdf") ? "node_modules/.cache/viewer-browser/report.pdf" : "test/fixtures/photo.png"), join(root, path));
 }
+mkdirSync(join(root, "archive/2025/q4"), { recursive: true });
+copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/report.pdf"), join(root, "archive/2025/q4/ledger.pdf"));
+utimesSync(join(root, "archive/2025/q4/ledger.pdf"), new Date("2025-12-01"), new Date("2025-12-01"));
 mkdirSync(join(root, "exports"), { recursive: true });
 for (const [path] of exportFiles) writeFileSync(join(root, path), "a,b\n1,2\n");
 writeFileSync(join(root, "broken.pdf"), "original unsupported file");

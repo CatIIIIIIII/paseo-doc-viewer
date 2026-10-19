@@ -1,7 +1,7 @@
 import { opendir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, matchesQuery, newestFirst, queryTerms, type ReviewStatus } from "../shared/browse";
-import { RECENT_MAX_ENTRIES, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
+import { RECENT_MAX_ENTRIES, RECENT_MAX_LIMIT, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { kindForPath, type DocumentKind } from "../shared/kinds";
 import type { ScannedFolders } from "../shared/turn-docs";
 import { revisionOf } from "./revision";
@@ -90,9 +90,9 @@ export async function recentDocuments(
   root: string,
   { limit = RECENT_MAX_ENTRIES, query, group, needsReview, newOnly, newSince }: BrowseFilter & { limit?: number; newSince?: number } = {},
   marks?: (entry: RecentEntry) => { review?: ReviewStatus; opened: boolean } | undefined,
-): Promise<{ entries: RecentEntry[]; truncated: boolean; counts: GroupCounts; needsReview: number; newCount: number; unsupported?: string[] }> {
+): Promise<{ entries: RecentEntry[]; truncated: boolean; truncatedBy?: "limit" | "scan"; counts: GroupCounts; needsReview: number; newCount: number; unsupported?: string[] }> {
   const scan = await sharedScan(root);
-  const cap = Math.max(1, Math.min(limit, RECENT_MAX_ENTRIES));
+  const cap = Math.max(1, Math.min(limit, RECENT_MAX_LIMIT));
   const searched = filterEntries(scan.entries, { query });
   // New: changed since the previous Documents visit, never reviewed, and not opened at this revision.
   const matched = marks || newSince !== undefined
@@ -106,10 +106,12 @@ export async function recentDocuments(
   const unsupported = shown.length === 0 && terms.length > 0
     ? scan.unsupported.filter((path) => matchesQuery(path, terms)).slice(0, MAX_UNSUPPORTED_SHOWN)
     : [];
+  const truncatedBy = shown.length > cap ? "limit" : scan.complete ? null : "scan";
   return {
     ...(unsupported.length > 0 ? { unsupported } : {}),
     entries: shown.slice(0, cap),
-    truncated: !scan.complete || shown.length > cap,
+    truncated: truncatedBy !== null,
+    ...(truncatedBy ? { truncatedBy } : {}),
     counts: countGroups(matched),
     needsReview: filterEntries(matched, { needsReview: true }).length,
     newCount: filterEntries(matched, { newOnly: true }).length,

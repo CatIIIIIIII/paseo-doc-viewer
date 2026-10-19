@@ -30,3 +30,10 @@ export function siblingPosition(siblings: readonly string[] | null, path: string
   if (!siblings || index < 0) return null;
   return { index, count: siblings.length, previous: siblings[index - 1] ?? null, next: siblings[index + 1] ?? null };
 }
+
+export function siblingWindow(paths: readonly string[], path: string): readonly string[] {
+  const index = paths.indexOf(path);
+  if (index < 0 || paths.length <= DOCUMENT_SIBLINGS_MAX) return paths;
+  const start = Math.min(Math.max(0, index - Math.floor(DOCUMENT_SIBLINGS_MAX / 2)), paths.length - DOCUMENT_SIBLINGS_MAX);
+  return paths.slice(start, start + DOCUMENT_SIBLINGS_MAX);
+}

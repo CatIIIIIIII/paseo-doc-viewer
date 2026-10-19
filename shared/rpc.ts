@@ -287,6 +287,7 @@ export const docsRecentRpc = defineRpc({
   name: "docs.recent",
   input: z.object({
     workspaceId: z.string().min(1),
+    // 50 unless asked; more than RECENT_MAX_LIMIT is read as RECENT_MAX_LIMIT.
     limit: z.number().int().positive().optional(),
     query: z.string().max(200).optional(),
     group: z.enum(DOCUMENT_GROUPS).optional(),
@@ -310,6 +311,8 @@ export const docsRecentRpc = defineRpc({
       }),
     ),
     truncated: z.boolean(),
+    // Sent when truncated: cut at the limit, or the list fits but the scan stopped before the end of the workspace.
+    truncatedBy: z.enum(["limit", "scan"]).optional(),
     counts: z.record(z.enum(DOCUMENT_GROUPS), z.number().int().nonnegative()),
     needsReview: z.number().int().nonnegative(),
     newCount: z.number().int().nonnegative(),

@@ -50,3 +50,32 @@ export function previewGrid(width: number, compact: boolean, pixelRatio: number)
   const requestWidth = cellWidth * Math.min(pixelRatio, MAX_PIXEL_RATIO) <= 160 ? 160 : 240;
   return { columns, gap, cellWidth, frameSize: cellWidth, requestWidth };
 }
+
+export const TREE_MAX_INDENT_LEVELS = 6;
+const TREE_SIZE_MIN_WIDTH = 360;
+const TREE_FULL_STATUS_MIN_WIDTH = 640;
+
+export interface TreeLayout {
+  indent: number;
+  rowHeight: number;
+  iconSize: number;
+  nameSize: number;
+  size: boolean;
+  status: "full" | "short" | "none";
+  actionLabels: boolean;
+}
+
+export function treeLayout(width: number, compact: boolean): TreeLayout {
+  const roomy = width === 0 || width >= TREE_SIZE_MIN_WIDTH;
+  return {
+    indent: compact ? 12 : 16,
+    rowHeight: compact ? 44 : 28,
+    iconSize: compact ? 16 : 14,
+    nameSize: compact ? 14 : 13,
+    size: roomy,
+    status: !compact && width >= TREE_FULL_STATUS_MIN_WIDTH ? "full" : roomy ? "short" : "none",
+    actionLabels: roomy,
+  };
+}
+
+export const treeIndent = (layout: TreeLayout, depth: number) => Math.min(depth, TREE_MAX_INDENT_LEVELS) * layout.indent;

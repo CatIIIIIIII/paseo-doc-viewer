@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const DOCUMENT_VIEWS = ["list", "details", "previews"] as const;
+export const DOCUMENT_VIEWS = ["list", "details", "previews", "tree"] as const;
 export const documentView = z.enum(DOCUMENT_VIEWS);
 export type DocumentView = z.infer<typeof documentView>;
 export const DEFAULT_DOCUMENT_VIEW: DocumentView = "list";

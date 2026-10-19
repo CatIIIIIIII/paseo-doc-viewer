@@ -7,17 +7,21 @@ import { type LayoutChangeEvent, PixelRatio, Pressable, Text, View } from "react
 import type { DocumentView } from "../shared/documents-view";
 import { layoutClass } from "../shared/viewer-state";
 import { countGroups, type DocumentGroup, filterEntries, queryTerms } from "../shared/browse";
+import { RECENT_MAX_LIMIT } from "../shared/limits";
 import { docsRecentRpc, docsVisitRpc, docThumbnailRpc } from "../shared/rpc";
 import { viewerSettingsRpc } from "../shared/settings";
 import { baseName, GROUP_FILES, GROUP_ICON, GROUP_LABEL, humanSize, KIND_ICON, parentDir, relativeTime } from "./format";
 import { kindColor, type KindPalette } from "./kind-colors";
-import { detailsColumns, previewGrid } from "./panel-layout";
+import { detailsColumns, previewGrid, treeLayout } from "./panel-layout";
 import { DetailsHeader, DetailsRow } from "./documents-details";
 import { countText, PreviewTile, TileRow, usePreviews } from "./documents-previews";
+import { TreeActions, TreeList, useTreeExpansion } from "./documents-tree";
+import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, isExpanded, toggleFolder, treeRows } from "./folder-tree";
 import { type PreviewRow, previewRowKey, previewRows } from "./previews";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
-import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, listFooter, noMatchDetail, type RecentEntry, unsupportedDetail } from "./recent";
+import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, listFooter, noMatchDetail, type RecentEntry, treeNotice, unsupportedDetail } from "./recent";
+import { siblingWindow } from "./siblings";
 import { TipsCard, TipsLink, useTips } from "./tips-card";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, statusIcon, type Styles } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
@@ -25,7 +29,8 @@ import { useKindPalette } from "./use-kind-colors";
 import { documentsVisits } from "./visits";
 
 const SEARCH_DEBOUNCE_MS = 250;
-const SWITCH_LABELS_MIN_WIDTH = 520;
+const SWITCH_LABELS_MIN_WIDTH = 600;
+const SWITCH_INLINE_MIN_WIDTH = 360;
 const NO_GROUPS: ReadonlySet<DocumentGroup> = new Set();
 const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
 
@@ -89,7 +94,8 @@ function DocumentsList({
   const searched = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const newSince = useLastVisit(host?.id, workspaceId);
   const listRecent = useRpc(docsRecentRpc);
-  const { request, ...options } = recentQueryOptions(workspaceId, { query: searched, group, needsReview, newOnly, newSince });
+  const tree = view === "tree";
+  const { request, ...options } = recentQueryOptions(workspaceId, { query: searched, group, needsReview, newOnly, newSince, limit: tree ? RECENT_MAX_LIMIT : undefined });
   const recent = useQuery({ ...options, queryFn: () => listRecent(request) });
   const filtering = queryTerms(query).length > 0 || group !== null || needsReview || newOnly;
   const pending = recent.isPlaceholderData || searched !== query;
@@ -109,6 +115,12 @@ function DocumentsList({
           })
         : [],
     [entries, recent.data, collapsed, group, needsReview, newOnly, previewHeadings],
+  );
+  const filterKey = filtering ? JSON.stringify([queryTerms(query), group, needsReview, newOnly]) : null;
+  const [expansion, setExpansion] = useTreeExpansion(`${host?.id ?? ""}\0${workspaceId}`, filterKey);
+  const folderRows = useMemo(
+    () => (tree ? treeRows(folderTree(entries), (path, depth) => isExpanded(expansion, path, depth)) : []),
+    [tree, entries, expansion],
   );
   const columnsCount = grid?.columns ?? 0;
   const items: readonly PreviewRow[] = useMemo(() => (columnsCount > 0 ? previewRows(rows, columnsCount) : rows), [rows, columnsCount]);
@@ -183,21 +195,44 @@ function DocumentsList({
 
   const controlHeight = layout.compact ? 44 : 36;
   const columns = view === "details" ? detailsColumns(width, layout.compact) : null;
+  const shape = treeLayout(width, layout.compact);
+  const switchInline = width === 0 || width >= SWITCH_INLINE_MIN_WIDTH;
+  const viewSwitch = (
+    <ViewSwitch
+      theme={theme}
+      styles={styles}
+      view={view}
+      height={controlHeight}
+      labels={!layout.compact && width >= SWITCH_LABELS_MIN_WIDTH}
+      stretch={!switchInline}
+      onChange={setView}
+    />
+  );
+  const openFromTree = (path: string) => openScreen(documentScreen(workspaceId, path, siblingWindow(folderFiles(folderRows, path), path)));
+  const footer =
+    recent.data.truncated || tipsLink ? (
+      <View style={{ padding: 8, gap: 8 }}>
+        {recent.data.truncated && !tree ? <Text style={styles.muted}>{listFooter(entries.length, filtering)}</Text> : null}
+        {tipsLink}
+      </View>
+    ) : null;
   return (
     <View style={styles.screen} onLayout={onLayout}>
       <View style={{ gap: 8, paddingTop: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
         {tipsCard}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: styles.gutter }}>
-          <SearchBox theme={theme} styles={styles} compact={layout.compact} height={controlHeight} value={query} onChange={setQuery} />
-          <ViewSwitch
+          <SearchBox
             theme={theme}
             styles={styles}
-            view={view}
+            compact={layout.compact}
+            shortHint={layout.compact || !switchInline}
             height={controlHeight}
-            labels={!layout.compact && width >= SWITCH_LABELS_MIN_WIDTH}
-            onChange={setView}
+            value={query}
+            onChange={setQuery}
           />
+          {switchInline ? viewSwitch : null}
         </View>
+        {switchInline ? null : <View style={{ marginHorizontal: styles.gutter }}>{viewSwitch}</View>}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -234,6 +269,16 @@ function DocumentsList({
         </ScrollView>
       </View>
       {columns && entries.length > 0 ? <DetailsHeader theme={theme} styles={styles} columns={columns} /> : null}
+      {tree && entries.length > 0 ? (
+        <TreeActions
+          theme={theme}
+          styles={styles}
+          layout={shape}
+          notice={treeNotice(recent.data.entries.length, recent.data.truncatedBy, filtering)}
+          onExpandAll={() => setExpansion(ALL_EXPANDED)}
+          onCollapseAll={() => setExpansion(ALL_COLLAPSED)}
+        />
+      ) : null}
       {entries.length === 0 ? (
         pending ? (
           <LoadingState theme={theme} styles={styles} />
@@ -247,6 +292,18 @@ function DocumentsList({
             action={{ label: "Clear filters", onPress: clearFilters }}
           />
         )
+      ) : tree ? (
+        <TreeList
+          theme={theme}
+          styles={styles}
+          layout={shape}
+          rows={folderRows}
+          palette={palette}
+          now={now}
+          footer={footer}
+          onToggle={(path) => setExpansion(toggleFolder(expansion, path))}
+          onOpen={openFromTree}
+        />
       ) : (
         <FlatList
           data={items}
@@ -308,14 +365,7 @@ function DocumentsList({
               />
             )
           }
-          ListFooterComponent={
-            recent.data.truncated || tipsLink ? (
-              <View style={{ padding: 8, gap: 8 }}>
-                {recent.data.truncated ? <Text style={styles.muted}>{listFooter(entries.length, filtering)}</Text> : null}
-                {tipsLink}
-              </View>
-            ) : null
-          }
+          ListFooterComponent={footer}
         />
       )}
     </View>
@@ -330,10 +380,11 @@ interface ChromeProps {
 function SearchBox({
   theme,
   compact,
+  shortHint,
   height,
   value,
   onChange,
-}: ChromeProps & { compact: boolean; height: number; value: string; onChange(value: string): void }) {
+}: ChromeProps & { compact: boolean; shortHint: boolean; height: number; value: string; onChange(value: string): void }) {
   return (
     <View
       style={{
@@ -354,7 +405,7 @@ function SearchBox({
       <TextInput
         value={value}
         onChangeText={onChange}
-        placeholder="Search by name or folder"
+        placeholder={shortHint ? "Search documents" : "Search by name or folder"}
         placeholderTextColor={theme.colors.foregroundMuted}
         accessibilityLabel="Search documents"
         autoCapitalize="none"
@@ -386,7 +437,8 @@ function ViewSwitch({
   height,
   labels,
   onChange,
-}: ChromeProps & { view: DocumentView; height: number; labels: boolean; onChange(view: DocumentView): void }) {
+  stretch,
+}: ChromeProps & { view: DocumentView; height: number; labels: boolean; stretch: boolean; onChange(view: DocumentView): void }) {
   return (
     <View style={{ flexDirection: "row", height, padding: styles.compact ? 1 : 2, gap: 2, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, backgroundColor: theme.colors.surface1 }}>
       {VIEW_OPTIONS.map((option) => {
@@ -406,6 +458,7 @@ function ViewSwitch({
               justifyContent: "center",
               gap: 6,
               minWidth: styles.compact ? 40 : 30,
+              flex: stretch ? 1 : undefined,
               paddingHorizontal: labels ? 10 : 0,
               borderRadius: 6,
               backgroundColor: selected ? theme.colors.surface2 : pressed || hovered ? theme.colors.surface0 : "transparent",

@@ -59,7 +59,7 @@ function App() {
   useEffect(() => { void fetch("/turn-docs-checkout").then((response) => response.json()).then(setCheckoutDocs); }, []);
   const [opened, setOpened] = useState(true);
   const [browsing, setBrowsing] = useState(false);
-  const [Panel] = useState(() => createDocumentsPanel((input) => { setPath(input.params!.path!); setBrowsing(false); setOpened(true); }));
+  const [Panel] = useState(() => createDocumentsPanel((input) => { (window as any).__openedScreen = input; setPath(input.params!.path!); setSiblings(input.params!.siblings); setBrowsing(false); setOpened(true); }));
   const [screen, setScreen] = useState("document");
   useEffect(() => {
     openScreen = (input) => {

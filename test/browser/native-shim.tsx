@@ -41,10 +41,10 @@ export const Text = ({ children, style, accessibilityLabel, onPress, accessibili
 };
 // React Native Web renders Pressable as a focusable div with role=button, not a <button>.
 const CHECKED_ROLES = new Set(["radio", "checkbox"]);
-export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, accessibilityState, disabled, onPress }: any) => {
+export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, accessibilityState, disabled, onPress, "aria-expanded": ariaExpanded }: any) => {
   const checkable = CHECKED_ROLES.has(accessibilityRole);
   return <div role={checkable ? accessibilityRole : "button"} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel}
-    aria-pressed={checkable ? undefined : accessibilityState?.selected} aria-checked={accessibilityRole === "radio" ? Boolean(accessibilityState?.selected) : accessibilityRole === "checkbox" ? Boolean(accessibilityState?.checked) : undefined} aria-disabled={disabled || undefined}
+    aria-pressed={checkable ? undefined : accessibilityState?.selected} aria-expanded={ariaExpanded ?? accessibilityState?.expanded} aria-checked={accessibilityRole === "radio" ? Boolean(accessibilityState?.selected) : accessibilityRole === "checkbox" ? Boolean(accessibilityState?.checked) : undefined} aria-disabled={disabled || undefined}
     onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }}
     style={{ cursor: "pointer", boxSizing: "border-box", display: "flex", flexDirection: "column", flexShrink: 0, minWidth: 0, ...css(typeof style === "function" ? style({ pressed: false, hovered: false }) : style) }}>{children}</div>;
 };

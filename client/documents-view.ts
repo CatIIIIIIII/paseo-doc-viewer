@@ -11,6 +11,7 @@ export const VIEW_OPTIONS: readonly { view: DocumentView; label: string; icon: s
   { view: "list", label: "List", icon: "LayoutList", spoken: "List view" },
   { view: "details", label: "Details", icon: "List", spoken: "Details view" },
   { view: "previews", label: "Previews", icon: "LayoutGrid", spoken: "Preview view" },
+  { view: "tree", label: "Tree", icon: "FolderTree", spoken: "Tree view" },
 ];
 
 export function useDocumentView(layout: LayoutClass): [DocumentView, (view: DocumentView) => void] {

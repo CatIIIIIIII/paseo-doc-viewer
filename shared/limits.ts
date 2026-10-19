@@ -12,6 +12,7 @@ export const DOCX_MAX_BLOCKS = 100;
 export const MEDIA_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 export const ANIMATION_MAX_BYTES = 16 * 1024 * 1024;
 export const RECENT_MAX_ENTRIES = 50;
+export const RECENT_MAX_LIMIT = 1_000;
 export const RECENT_MAX_SCANNED_ENTRIES = 50_000;
 export const PINS_MAX_PER_FILE = 30;
 export const OPENED_REVISIONS_MAX_PATHS = 50;

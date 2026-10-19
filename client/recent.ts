@@ -84,6 +84,12 @@ export function listFooter(shown: number, filtered: boolean): string {
   return filtered ? `Showing the ${shown} most recent matches` : `Showing the ${shown} most recently changed`;
 }
 
+export function treeNotice(listed: number, truncatedBy: "limit" | "scan" | undefined, filtered: boolean): string | null {
+  if (truncatedBy === "scan") return `Showing the documents in the first ${formatCount(RECENT_MAX_SCANNED_ENTRIES)} entries of this workspace`;
+  if (truncatedBy === "limit") return `Showing the ${formatCount(listed)} most recently changed ${filtered ? "matches" : "documents"}`;
+  return null;
+}
+
 export function documentScreen(workspaceId: string, path: string, siblings?: readonly string[]): PluginOpenScreenInput {
   const encoded = siblings ? encodeSiblings(siblings) : null;
   return { screenId: DOCUMENT_SCREEN_ID, params: encoded ? { workspaceId, path, siblings: encoded } : { workspaceId, path } };

@@ -29,7 +29,7 @@ describe("R3: docs.recent finds the newest file in big trees", () => {
     writeFileSync(join(root, "z-reports", "newest.pdf"), "%PDF-1.4");
     const result = await listRecent(root, {});
     expect(result.entries.map((entry) => entry.path)).toContain("z-reports/newest.pdf");
-    expect(result.truncated).toBe(true);
+    expect(result).toMatchObject({ truncated: true, truncatedBy: "scan" });
   }, 30_000);
 
   it("skips dependency folders and Office lock files but lists build output", async () => {
