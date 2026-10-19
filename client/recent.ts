@@ -12,6 +12,7 @@ import { extensionOf } from "../shared/kinds";
 import { RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { docsRecentRpc, type DocsRecentOutput } from "../shared/rpc";
 import { formatCount, GROUP_FILES } from "./format";
+import { encodeSiblings } from "./siblings";
 
 export const DOCUMENT_SCREEN_ID = "document";
 export const DOCUMENTS_PANEL_ID = "documents";
@@ -68,8 +69,9 @@ export function listFooter(shown: number, filtered: boolean): string {
   return filtered ? `Showing the ${shown} most recent matches` : `Showing the ${shown} most recently changed`;
 }
 
-export function documentScreen(workspaceId: string, path: string): PluginOpenScreenInput {
-  return { screenId: DOCUMENT_SCREEN_ID, params: { workspaceId, path } };
+export function documentScreen(workspaceId: string, path: string, siblings?: readonly string[]): PluginOpenScreenInput {
+  const encoded = siblings ? encodeSiblings(siblings) : null;
+  return { screenId: DOCUMENT_SCREEN_ID, params: encoded ? { workspaceId, path, siblings: encoded } : { workspaceId, path } };
 }
 
 type CommandContext = Pick<PluginWorkspaceCommandContext, "rpc" | "openScreen" | "openPanel"> & {

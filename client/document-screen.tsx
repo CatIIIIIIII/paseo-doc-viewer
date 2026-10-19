@@ -5,7 +5,7 @@ import { DownloadOriginal } from "./download-original";
 import { type PluginScreenProps, useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import { docOpenRpc, type DocOpenOutput } from "../shared/rpc";
 import { BlocksViewer } from "./blocks-viewer";
 import { originalReachable } from "./format";
@@ -22,6 +22,8 @@ import { type DocumentReview, reviewStatus } from "./review";
 import { MediaViewer } from "./media-viewer";
 import { kindForPath } from "../shared/kinds";
 import { openHostScreen } from "./host-client";
+import { documentScreen } from "./recent";
+import { parseSiblings, type SiblingPosition, siblingPosition } from "./siblings";
 import { reviewDrafts, reviewScope, useReviewDraft } from "./review-draft";
 import { NoteComposer, reviewScreen } from "./review-note";
 
@@ -31,6 +33,11 @@ export function DocumentScreen({ host, theme, layout, params }: PluginScreenProp
   const workspaceId = params.workspaceId ?? "";
   const path = params.path ?? "";
   const documentKey = `${workspaceId}\0${path}`;
+  const siblings = useMemo(() => parseSiblings(params.siblings), [params.siblings]);
+  const position = siblingPosition(siblings, path);
+  const stepper = position && siblings ? (
+    <SiblingStepper position={position} theme={theme} styles={styles} onOpen={(next) => openHostScreen(documentScreen(workspaceId, next, siblings))} />
+  ) : null;
   const [unlock, setUnlock] = useState<{ documentKey: string; password: string; attempt: number } | null>(null);
   const unlocked = unlock?.documentKey === documentKey ? unlock : null;
   const password = unlocked?.password;
@@ -55,6 +62,7 @@ export function DocumentScreen({ host, theme, layout, params }: PluginScreenProp
   } else if (!opened.data && (prompt || checking)) {
     body = (
       <View style={styles.screen}>
+        {stepper ? <View style={styles.toolbar}>{stepper}</View> : null}
         <PasswordPrompt
           theme={theme}
           styles={styles}
@@ -70,6 +78,7 @@ export function DocumentScreen({ host, theme, layout, params }: PluginScreenProp
   } else if (!opened.data) {
     body = (
       <View style={styles.screen}>
+        {stepper ? <View style={styles.toolbar}>{stepper}</View> : null}
         {opened.error ? (
           <ErrorState theme={theme} styles={styles} error={opened.error} onRetry={() => void opened.refetch()}>
             {originalReachable(opened.error) ? download : null}
@@ -82,7 +91,7 @@ export function DocumentScreen({ host, theme, layout, params }: PluginScreenProp
   } else {
     body = (
       <DocumentBody key={documentKey} document={opened.data} workspaceId={workspaceId} path={path} password={password} compact={layout.compact}
-        reviewScope={reviewScope(host?.id, workspaceId)} theme={theme} styles={styles} />
+        reviewScope={reviewScope(host?.id, workspaceId)} stepper={stepper} theme={theme} styles={styles} />
     );
   }
   return (
@@ -145,7 +154,7 @@ function ViewerContent({
   }
 }
 
-function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof ViewerContent>[0] & { reviewScope: string }) {
+function DocumentBody({ reviewScope: scope, stepper, ...props }: Parameters<typeof ViewerContent>[0] & { reviewScope: string; stepper: ReactNode }) {
   const [finding, setFinding] = useState(false);
   // A note being typed when the viewer was unmounted (for example by a workspace switch) reopens.
   const [notePage, setNotePage] = useState<number | null>(() => {
@@ -174,6 +183,7 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
   return <FindScope enabled={searchable} onFind={() => { if (searchable) setFinding(true); }}>
     <View style={props.styles.screen}>
     <View style={props.styles.toolbar}>
+      {props.compact ? null : stepper}
       {searchable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="Search" label={props.compact ? undefined : "Find in document"} accessibilityLabel="Find in document"
         variant="toggle" selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} /> : null}
       {/* Status sits left of the spacer, so it appearing never moves the buttons. */}
@@ -189,6 +199,7 @@ function DocumentBody({ reviewScope: scope, ...props }: Parameters<typeof Viewer
       {marks.ready ? <MarkReviewed marks={marks} status={review} revision={props.document.revision} compact={props.compact} theme={props.theme} styles={props.styles} /> : null}
       <DownloadOriginal workspaceId={props.workspaceId} path={props.path} theme={props.theme} styles={props.styles} />
     </View>
+    {props.compact && stepper ? <View style={props.styles.toolbar}>{stepper}</View> : null}
     {notePage !== null ? <NoteComposer key={notePage} scope={scope} workspaceId={props.workspaceId} path={props.path} revision={props.document.revision}
       page={notePage} password={props.password} draft={draft} theme={props.theme} styles={props.styles} onClose={() => setNotePage(null)} /> : null}
     {finding ? <FindPanel key={props.document.revision} workspaceId={props.workspaceId} path={props.path} password={props.password}
@@ -208,4 +219,17 @@ function MarkReviewed({ marks, status, revision, compact, theme, styles }: {
   return <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Mark reviewed"}
     accessibilityLabel={reviewed ? "Reviewed, clear the review mark" : "Mark reviewed"} variant="toggle" selected={reviewed}
     disabled={marks.saving} onPress={() => void marks.setReview(reviewed ? null : revision)} />;
+}
+
+function SiblingStepper({ position, theme, styles, onOpen }: {
+  position: SiblingPosition; theme: PluginScreenProps["theme"]; styles: Styles; onOpen(path: string): void;
+}) {
+  const { previous, next } = position;
+  return <View style={[styles.toolbarGroup, { gap: 4 }]}>
+    <ToolbarButton theme={theme} styles={styles} icon="ChevronLeft" accessibilityLabel="Previous document" disabled={previous === null}
+      onPress={() => { if (previous !== null) onOpen(previous); }} />
+    <Text style={styles.label} accessibilityLabel={`Document ${position.index + 1} of ${position.count}`}>{position.index + 1} of {position.count}</Text>
+    <ToolbarButton theme={theme} styles={styles} icon="ChevronRight" accessibilityLabel="Next document" disabled={next === null}
+      onPress={() => { if (next !== null) onOpen(next); }} />
+  </View>;
 }

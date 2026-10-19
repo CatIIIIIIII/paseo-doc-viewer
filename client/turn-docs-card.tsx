@@ -24,6 +24,7 @@ export function createTurnDocsCard(client: CardClient) {
     const size = layout.compact ? TURN_THUMBNAIL_SIZE.compact : TURN_THUMBNAIL_SIZE.wide;
     const thumbnails = useCardThumbnails(client, data, thumbnailWidth(size, Math.min(MAX_THUMBNAIL_PIXEL_RATIO, PixelRatio.get())));
     const opened = useOpenedRevisions(client, data);
+    const siblings = data.files.map((file) => file.path);
     const [settingsFailed, setSettingsFailed] = useState(false);
     const note = turnDocsNote(data);
     // The host throws when it cannot open the screen; an exception in a press handler is fatal on native.
@@ -52,7 +53,7 @@ export function createTurnDocsCard(client: CardClient) {
             size={size}
             styles={styles}
             theme={theme}
-            onOpen={() => client.openScreen(documentScreen(data.workspaceId, file.path))}
+            onOpen={() => client.openScreen(documentScreen(data.workspaceId, file.path, siblings))}
           />
         ))}
         {data.moreCount > 0 ? (
