@@ -2,14 +2,17 @@ import type { PluginClientContext, PluginTimelineItemProps } from "@getpaseo/plu
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { type ReactElement, useEffect, useMemo, useReducer, useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
+import { viewerSettingsRpc } from "../shared/settings";
 import { type TurnDocs, type TurnDocsFile, type TurnDocsGroup, type TurnDocsV1, upgradeTurnDocs } from "../shared/turn-docs";
 import { cardThumbnailIndices, createCardThumbnails } from "./card-thumbnails";
 import { listedFiles, TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_GROUP, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir } from "./format";
+import { kindColor, type KindPalette } from "./kind-colors";
 import { watchOpenedRevisions } from "./opened-marks";
 import { DOCUMENTS_PANEL_ID, documentScreen, SETTINGS_SCREEN_ID } from "./recent";
 import type { ThumbnailLoader, ThumbnailState } from "./thumbnails";
 import { makeStyles, StatusPill, ToolbarButton, type Styles } from "./ui";
+import { useKindPalette } from "./use-kind-colors";
 
 type CardClient = Pick<PluginClientContext, "openScreen" | "openPanel" | "openSettings" | "rpc">;
 type Theme = PluginTimelineItemProps["theme"];
@@ -25,6 +28,7 @@ export function createTurnDocsCard(client: CardClient) {
     const listed = listedFiles(data, expanded);
     const thumbnails = useCardThumbnails(client, data.workspaceId, carried, listed);
     const opened = useOpenedRevisions(client, data.workspaceId, listed);
+    const palette = useKindPalette(theme, () => client.rpc(viewerSettingsRpc.read, {}));
     const siblings = listed.map((file) => file.path);
     const [settingsFailed, setSettingsFailed] = useState(false);
     const note = turnDocsNote(data);
@@ -44,6 +48,7 @@ export function createTurnDocsCard(client: CardClient) {
         within={within}
         thumbnail={thumbnails?.state(index)}
         pill={turnFilePill(file, opened[file.path])}
+        palette={palette}
         size={size}
         styles={styles}
         theme={theme}
@@ -168,7 +173,7 @@ function useOpenedRevisions(client: CardClient, workspaceId: string, listed: rea
   return opened;
 }
 
-function FileThumbnail({ file, state, size, theme }: { file: TurnDocsFile; state: ThumbnailState | undefined; size: number; theme: Theme }) {
+function FileThumbnail({ file, state, size, palette, theme }: { file: TurnDocsFile; state: ThumbnailState | undefined; size: number; palette: KindPalette; theme: Theme }) {
   const image = state?.status === "ready" ? state.image : null;
   return (
     <View style={{ width: size, height: size, borderRadius: 4, overflow: "hidden", alignItems: "center", justifyContent: "center",
@@ -177,7 +182,7 @@ function FileThumbnail({ file, state, size, theme }: { file: TurnDocsFile; state
         <Image source={{ uri: `data:${image.mimeType};base64,${image.data}` }} style={{ width: size, height: size }} resizeMode="contain"
           accessible={false} />
       ) : (
-        <Icon name={KIND_ICON[file.kind]} size={16} color={theme.colors.foregroundMuted} />
+        <Icon name={KIND_ICON[file.kind]} size={16} color={kindColor(palette, file.kind)} />
       )}
     </View>
   );
@@ -221,8 +226,8 @@ function GroupRow({ group, open, size, styles, theme, onToggle }: {
   );
 }
 
-function FileRow({ file, within, thumbnail, pill, size, styles, theme, onOpen }: {
-  file: TurnDocsFile; within: string; thumbnail: ThumbnailState | undefined; pill: TurnFilePill; size: number; styles: Styles; theme: Theme; onOpen(): void;
+function FileRow({ file, within, thumbnail, pill, palette, size, styles, theme, onOpen }: {
+  file: TurnDocsFile; within: string; thumbnail: ThumbnailState | undefined; pill: TurnFilePill; palette: KindPalette; size: number; styles: Styles; theme: Theme; onOpen(): void;
 }) {
   const folder = within ? parentDir(file.path.slice(within.length + 1)) : parentDir(file.path);
   const { status, spoken } = TURN_FILE_PILL[pill];
@@ -231,7 +236,7 @@ function FileRow({ file, within, thumbnail, pill, size, styles, theme, onOpen }:
       accessible={false}
       style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4, paddingVertical: styles.compact ? 4 : 3 }}
     >
-      <FileThumbnail file={file} state={thumbnail} size={size} theme={theme} />
+      <FileThumbnail file={file} state={thumbnail} size={size} palette={palette} theme={theme} />
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
           <Text style={[styles.text, { flexShrink: 1 }]} numberOfLines={1}>

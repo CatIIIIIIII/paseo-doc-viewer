@@ -11,7 +11,7 @@ import {
 import { extensionOf } from "../shared/kinds";
 import { RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { docsRecentRpc, type DocsRecentOutput } from "../shared/rpc";
-import { formatCount, GROUP_FILES } from "./format";
+import { baseName, formatCount, GROUP_FILES, KIND_LABEL, parentDir, relativeTime } from "./format";
 import { encodeSiblings } from "./siblings";
 
 export const DOCUMENT_SCREEN_ID = "document";
@@ -40,6 +40,21 @@ export function browseRows(
     };
     return isCollapsed ? [header] : [header, ...members.map((entry): BrowseRow => ({ type: "entry", entry }))];
   });
+}
+
+const SPOKEN_STATUS = { reviewed: "reviewed", changed: "changed since review" } as const;
+
+export function entryLabel(entry: RecentEntry, now: number, extra: readonly string[] = []): string {
+  const folder = parentDir(entry.path);
+  const status = entry.review ? SPOKEN_STATUS[entry.review] : entry.isNew ? "new" : null;
+  return [
+    baseName(entry.path),
+    KIND_LABEL[entry.kind],
+    ...(folder ? [`in ${folder}`] : []),
+    `changed ${relativeTime(entry.mtimeMs, now)}`,
+    ...extra,
+    ...(status ? [status] : []),
+  ].join(", ");
 }
 
 export function filterChips(counts: GroupCounts, selected: DocumentGroup | null): { group: DocumentGroup | null; count: number }[] {

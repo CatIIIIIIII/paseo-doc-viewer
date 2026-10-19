@@ -8,6 +8,7 @@ import { scanIssues, searchDocument } from "../../server/documents";
 import { searchGenerations } from "../../server/search";
 import { readFileSync } from "node:fs";
 import { DOCUMENT_RPCS } from "../../shared/rpc";
+import { viewerSettingsRpc } from "../../shared/settings";
 const root = mkdtempSync(join(tmpdir(), "viewer-browser-files-"));
 for (const file of ["statement.pdf", "invoices.xlsx", "contract.docx", "deck.pptx", "clip.mp4", "audible.webm", "animated.webp"]) copyFileSync(join(process.cwd(), "test/fixtures", file), join(root, file));
 copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/searchable.pdf"), join(root, "statement.pdf"));
@@ -53,6 +54,9 @@ handlers.set("doc.search", async ({ path, password, query, cursor, searchId }) =
   searchDocument({ root, path, password }, query, cursor, 1, searchId && searchGenerations.begin(searchId.session, searchId.generation)));
 // A five-row cap makes the issue check pause, so the client must show coverage and continue on request.
 handlers.set("doc.issues", async ({ path, cursor }) => scanIssues({ root, path }, cursor, { budgetMs: 60_000, maxRows: 5, maxIssues: 200 }));
+let settingsValues = { turnCards: true, kindColors: true };
+handlers.set(viewerSettingsRpc.read.name, async () => ({ status: "ready", revision: "1", values: settingsValues }));
+const contracts = [...DOCUMENT_RPCS, viewerSettingsRpc.read];
 const paseo = { workspaces: { list: async () => ({ entries: [{ id: "workspace", workspaceDirectory: root }], pageInfo: { hasMore: false } }) } };
 const turnFile = (files: readonly (readonly string[])[]) =>
   files.map(([path, kind, status]) => { const info = statSync(join(root, path!)); return { path, kind, status, size: info.size, revision: revisionOf(info) }; });
@@ -60,6 +64,7 @@ const server = createServer(async (request, response) => {
   if (request.url === "/bundle.js") { response.setHeader("Content-Type", "application/javascript"); response.end(readFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/app.js"))); return; }
   // Simulates an agent rewriting a file: a new modified time gives it a new revision.
   if (request.url === "/touch/statement.pdf") { const later = new Date(Date.now() + 60_000); utimesSync(join(root, "statement.pdf"), later, later); response.end("ok"); return; }
+  if (request.url?.startsWith("/settings?")) { settingsValues = { ...settingsValues, kindColors: !request.url.endsWith("kindColors=0") }; response.end("ok"); return; }
   if (request.url === "/turn-docs") {
     response.setHeader("Content-Type", "application/json");
     response.end(JSON.stringify({ workspaceId: "workspace", startedAt: 0, endedAt: 1, outcome: "completed", partial: false, moreCount: 2, files: turnFile(turnFiles) }));
@@ -79,7 +84,7 @@ const server = createServer(async (request, response) => {
   try {
     let body = ""; for await (const part of request) body += part;
     const { method, input } = JSON.parse(body);
-    const contract = DOCUMENT_RPCS.find((rpc) => rpc.name === method)!;
+    const contract = contracts.find((rpc) => rpc.name === method)!;
     const output = await handlers.get(method)!(contract.input.parse(input), { paseo });
     response.setHeader("Content-Type", "application/json"); response.end(JSON.stringify(contract.output.parse(output)));
   } catch (error) { response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) })); }

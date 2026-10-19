@@ -6,12 +6,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { type DocumentGroup, filterEntries, queryTerms } from "../shared/browse";
 import { docsRecentRpc, docsVisitRpc } from "../shared/rpc";
-import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, KIND_LABEL, parentDir, relativeTime } from "./format";
+import { viewerSettingsRpc } from "../shared/settings";
+import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, parentDir, relativeTime } from "./format";
+import { kindColor, type KindPalette } from "./kind-colors";
 import { recentQueryOptions } from "./queries";
-import { type BrowseRow, browseRows, documentScreen, filterChips, listFooter, noMatchDetail, type RecentEntry, unsupportedDetail } from "./recent";
+import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, listFooter, noMatchDetail, type RecentEntry, unsupportedDetail } from "./recent";
 import { TipsCard, TipsLink, useTips } from "./tips-card";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, type Styles } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
+import { useKindPalette } from "./use-kind-colors";
 import { documentsVisits } from "./visits";
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -86,6 +89,8 @@ function DocumentsList({
   );
   const now = recent.dataUpdatedAt || Date.now();
   const tips = useTips();
+  const readSettings = useRpc(viewerSettingsRpc.read);
+  const palette = useKindPalette(theme, () => readSettings({}));
   const tipsCard = tips.step !== null ? <TipsCard theme={theme} styles={styles} step={tips.step} onNext={tips.next} onSkip={tips.skip} /> : null;
   const tipsLink = tips.canReopen ? <TipsLink theme={theme} styles={styles} onPress={tips.reopen} /> : null;
 
@@ -194,6 +199,7 @@ function DocumentsList({
                 theme={theme}
                 styles={styles}
                 entry={item.entry}
+                palette={palette}
                 now={now}
                 onPress={() => openScreen(documentScreen(workspaceId, item.entry.path))}
               />
@@ -353,15 +359,15 @@ function EntryRow({
   theme,
   styles,
   entry,
+  palette,
   now,
   onPress,
-}: ChromeProps & { entry: RecentEntry; now: number; onPress(): void }) {
+}: ChromeProps & { entry: RecentEntry; palette: KindPalette; now: number; onPress(): void }) {
   const directory = parentDir(entry.path);
-  const review = entry.review === "changed" ? ", changed since review" : entry.review === "reviewed" ? ", reviewed" : entry.isNew ? ", new" : "";
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open ${entry.path}, ${KIND_LABEL[entry.kind]}, changed ${relativeTime(entry.mtimeMs, now)}${review}`}
+      accessibilityLabel={entryLabel(entry, now)}
       onPress={onPress}
       style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
         flexDirection: "row",
@@ -373,7 +379,7 @@ function EntryRow({
         backgroundColor: pressed || hovered ? theme.colors.surface2 : "transparent",
       })}
     >
-      <Icon name={KIND_ICON[entry.kind]} size={16} color={theme.colors.foregroundMuted} />
+      <Icon name={KIND_ICON[entry.kind]} size={16} color={kindColor(palette, entry.kind)} />
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
           <Text style={[styles.text, { flexShrink: 1 }]} numberOfLines={1}>

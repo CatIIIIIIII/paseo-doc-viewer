@@ -8,9 +8,11 @@
 - A document opened from a turn card has Previous and Next buttons that step through the card's files. The screen takes an optional `siblings` param (a JSON list of paths).
 - Turn cards fold the files of a new Git checkout (clone, worktree or submodule) into one row with a Show button, and do the same for any other new folder with more than 12 changed files. Repositories that existed when the turn started stay listed file by file. No Git process runs: the workspace scan notes folders that hold a `.git` entry. Cards are timeline data version 2 (`groups` beside `files`); version 1 cards still render.
 - Turn card rows say Opened once the file was opened in the viewer at the card's version or a later one, instead of keeping New or Changed forever. New `viewer-state.opened-revisions` RPC reads the opened mark of up to 50 files at once.
+- File icons in Documents and on turn cards take a color per file type, from a palette checked for color blindness, with a gray fallback on themes where a color would fall under 3:1. New "Color file types" setting (on by default) turns them off for every client of the daemon.
 
 ### Changed
 
+- Documents rows read as the file name first for screen readers, then type, folder, time and status. Before, they started with "Open" and the full path.
 - Thumbnails a turn card asks for (`keepOpen: false`) open a PDF for that one call, so they never push the document open in the viewer out of the daemon's open set. They wait behind page map thumbnails, and a client asks for two at a time across all its cards, the card mounted last first. A busy daemon gets asked again a little later, at a random point; a thumbnail that ran out of time is not, and the daemon does not try it again until the file changes.
 - `doc.thumbnail` takes an optional `revision`: a file changed since fails at once with "The file changed since it was listed", without being rendered. The daemon keeps thumbnails in a cache of their own, apart from pages, and bounds a PDF thumbnail's height to twice its width.
 

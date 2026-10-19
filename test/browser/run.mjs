@@ -418,7 +418,7 @@ try {
   await expect(page.getByLabel(/^Tip \d of 4$/)).toHaveCount(0);
   await page.goto(`http://127.0.0.1:${port}`);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
-  await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   await expect(page.getByLabel(/^Tip \d of 4$/)).toHaveCount(0);
   await page.getByRole("button", { name: "Show tips", exact: true }).click();
   await expect(page.getByLabel("Tip 1 of 4", { exact: true })).toBeVisible();
@@ -428,18 +428,18 @@ try {
   await page.getByRole("button", { name: "Done with tips", exact: true }).click();
   await expect(page.getByLabel(/^Tip \d of 4$/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Show tips", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Open long\.pdf, PDF, [^,]*$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^long\.pdf, PDF, [^,]*$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Needs review/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^New, / })).toHaveCount(0);
   await touch("statement.pdf", Date.now() / 1000 + 60);
-  await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible({ timeout: 15000 });
   // Needs review leads the filter row, so it is not scrolled off on a phone.
   await expect(page.getByRole("button", { name: /^(Needs review|All), / }).first()).toHaveAttribute("aria-label", "Needs review, 1 document");
   await page.getByRole("button", { name: "Needs review, 1 document", exact: true }).click();
-  await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(1);
   await page.screenshot({ path: `${directory}/needs-review.png`, fullPage: true });
-  await page.getByRole("button", { name: /^Open statement\.pdf/ }).click();
+  await page.getByRole("button", { name: /^statement\.pdf, PDF, / }).click();
   await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
   await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
   // A rewrite the open viewer has not picked up yet must not be marked reviewed.
@@ -454,7 +454,7 @@ try {
   await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
   await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Documents", exact: true }).click();
-  await expect(page.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   page.off("request", recordReview);
   // A search that only matches a file the viewer cannot open says so.
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("analysis");
@@ -568,20 +568,20 @@ try {
   await writeFile(`${root}/fresh.csv`, "a,b\n1,2\n");
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "Documents", exact: true }).click();
-  await expect(phone.getByRole("button", { name: /^Open fresh\.csv, CSV table, .*, new$/ })).toBeVisible();
-  await expect(phone.getByRole("button", { name: /^Open statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible();
+  await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ })).toBeVisible();
+  await expect(phone.getByRole("button", { name: /^statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible();
   await phone.getByRole("button", { name: "New, 1 document", exact: true }).click();
-  await expect(phone.getByRole("button", { name: /^Open / })).toHaveCount(1);
+  await expect(phone.getByRole("button", { name: /, changed / })).toHaveCount(1);
   await phone.screenshot({ path: `${directory}/documents-new.png` });
   // Opening a new file in the viewer clears its New label, until the file changes again.
   const openedMark = phone.waitForResponse((response) => response.url().endsWith("/rpc") && response.request().postData()?.includes('"viewer-state.opened"'));
-  await phone.getByRole("button", { name: /^Open fresh\.csv, CSV table, .*, new$/ }).click();
+  await phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ }).click();
   expect(await (await openedMark).json()).toEqual({ marked: true });
   await phone.getByRole("button", { name: "Documents", exact: true }).click();
-  await expect(phone.getByRole("button", { name: /^Open fresh\.csv, CSV table, changed [^,]*$/ })).toBeVisible();
+  await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, changed [^,]*$/ })).toBeVisible();
   await expect(phone.getByRole("button", { name: /^New, / })).toHaveCount(0);
   await writeFile(`${root}/fresh.csv`, "a,b\n1,2\n3,4\n");
-  await expect(phone.getByRole("button", { name: /^Open fresh\.csv, CSV table, .*, new$/ })).toBeVisible({ timeout: 15_000 });
+  await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ })).toBeVisible({ timeout: 15_000 });
   await expect(phone.getByRole("button", { name: "New, 1 document", exact: true })).toBeVisible();
   // Tips fit a phone: reopened from under the list, one card above the search box, 44 pt targets, no overflow.
   await phone.getByRole("button", { name: "Show tips", exact: true }).click();
@@ -838,7 +838,25 @@ try {
   await page.getByRole("button", { name: "+1 more in Documents", exact: true }).click();
   expect(await page.evaluate(() => window.__openedPanel)).toBe("documents");
   await cardFrame.screenshot({ path: `${collapseShots}/harness-phone-expanded.png` });
+  await page.setViewportSize({ width: 1100, height: 1000 });
+  await page.goto(`http://127.0.0.1:${port}`);
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  const rowIcon = (row, name) => page.getByRole("button", { name: row }).locator(`[data-icon="${name}"]`);
+  await expect(rowIcon(/^report\.pdf, PDF, /, "FileText")).toHaveCSS("color", "rgb(234, 152, 147)");
+  await expect(rowIcon(/^invoices\.xlsx, Spreadsheet, /, "FileSpreadsheet")).toHaveCSS("color", "rgb(143, 249, 156)");
+  await page.getByRole("button", { name: "Turn card", exact: true }).click();
+  await expect(cardFrame.locator('[data-icon="FileSpreadsheet"]')).toHaveCSS("color", "rgb(143, 249, 156)");
+  await page.getByRole("button", { name: "Checkout card", exact: true }).click();
+  await page.getByRole("button", { name: "Show exports, new folder, 13 documents", exact: true }).click();
+  await expect(cardFrame.locator('[data-icon="FileSpreadsheet"]')).toHaveCount(13);
+  for (const icon of await cardFrame.locator('[data-icon="FileSpreadsheet"]').all()) await expect(icon).toHaveCSS("color", "rgb(143, 249, 156)");
+  await expect(cardFrame.locator('[data-icon="Folder"]').first()).toHaveCSS("color", "rgb(156, 163, 175)");
+  await fetch(`http://127.0.0.1:${port}/settings?kindColors=0`);
+  await page.goto(`http://127.0.0.1:${port}`);
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(rowIcon(/^report\.pdf, PDF, /, "FileText")).toHaveCSS("color", "rgb(156, 163, 175)");
+  await fetch(`http://127.0.0.1:${port}/settings?kindColors=1`);
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide, thumbnails and stepper only once shown, phone fit).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide, thumbnails and stepper only once shown, phone fit), kind colors and their setting.");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { clearTimeout(watchdog); await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

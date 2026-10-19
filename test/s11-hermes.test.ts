@@ -58,7 +58,7 @@ var host = {
   "react/jsx-runtime": { jsx: noop, jsxs: noop, Fragment: "Fragment" },
   "react-native": { Platform: { OS: "ios", select: function (o) { return o.ios !== undefined ? o.ios : o.default; } }, StyleSheet: { create: function (s) { return s; } }, View: "View", Text: "Text", Image: "Image", ScrollView: "ScrollView", Pressable: "Pressable", ActivityIndicator: "ActivityIndicator", PixelRatio: { get: function () { return 3; } }, useWindowDimensions: function () { return { width: 390, height: 844 }; } },
   "@tanstack/react-query": { useQuery: noop, useQueryClient: noop, useInfiniteQuery: noop },
-  "@getpaseo/plugin": { defineRpc: function (contract) { return contract; }, defineSettings: function (definition) { return definition; } },
+  "@getpaseo/plugin": { defineRpc: function (contract) { return contract; }, defineSettings: function (definition) { return definition; }, settingsRpc: function (id) { return { read: { name: "settings." + id + ".read" } }; } },
   "@getpaseo/plugin/client": { useRpc: noop, useSettings: noop },
   "@getpaseo/plugin/client/ui": {},
   "@getpaseo/plugin/client/react-native": { Icon: noop, FlatList: noop },
