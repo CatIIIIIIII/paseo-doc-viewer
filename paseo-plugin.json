@@ -1,15 +1,14 @@
 {
   "id": "paseo-doc-viewer",
   "name": "PDF and Office viewer",
-  "description": "View PDF, Word, Excel, CSV, JSON Lines, Parquet, PowerPoint, image, video and audio files from your workspace inside Paseo, on desktop, web and mobile, and send page notes to an agent.",
+  "description": "Read PDFs and Office documents, inspect spreadsheets and data, and send PDF page notes to an agent without leaving Paseo.",
   "icon": "assets/icon.png",
   "media": [
-    "assets/screenshot-turn-card.png",
-    "assets/screenshot-documents-new.png",
-    "assets/screenshot-pdf-review.png",
-    "assets/screenshot-xlsx.png",
-    "assets/screenshot-docx.png",
-    "assets/screenshot-phone.png"
+    "assets/listing/cover-hd.png",
+    "assets/listing/data-hd.png",
+    "assets/listing/review-hd.png",
+    "assets/listing/turns-hd.png",
+    "assets/listing/phone-hd.png"
   ],
   "requirements": {
     "paseo": ">=0.11.2"

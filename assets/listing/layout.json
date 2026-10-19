@@ -1,0 +1,79 @@
+{
+  "name": "PDF and Office viewer",
+  "background": "#edf3ef",
+  "accent": "#196044",
+  "ink": "#172d24",
+  "muted": "#52665c",
+  "pages": [
+    {
+      "output": "cover-hd.png",
+      "source": "screenshot-docx.png",
+      "crop": [
+        400,
+        0,
+        1600,
+        1000
+      ],
+      "title": "Open the files\nyour agents\ncreate.",
+      "body": "Read documents inside Paseo.\nInspect spreadsheets and data.\nSend PDF notes to an agent.",
+      "detail": "PDF, Word, Excel, PowerPoint\nCSV, JSON Lines, Parquet",
+      "caption": "Word documents open as a reading view, including tables and images."
+    },
+    {
+      "output": "data-hd.png",
+      "source": "screenshot-xlsx.png",
+      "crop": [
+        400,
+        0,
+        1600,
+        1000
+      ],
+      "title": "Look beyond\nthe cell value.",
+      "body": "Inspect the formula, saved result\nand number format.\nBrowse rows as labelled records.",
+      "detail": "Excel, CSV, TSV, JSON Lines, Parquet",
+      "caption": "Spreadsheet results come from the file. The viewer does not recalculate formulas."
+    },
+    {
+      "output": "review-hd.png",
+      "source": "screenshot-pdf-review.png",
+      "crop": [
+        400,
+        45,
+        1600,
+        830
+      ],
+      "title": "Read.\nAdd page notes.\nSend a review.",
+      "titleSize": 65,
+      "body": "Collect PDF feedback by page.\nChoose the agent that receives it.\nSend when you are ready.",
+      "caption": "PDF review notes, message preview and recipient selection from the real plugin."
+    },
+    {
+      "output": "turns-hd.png",
+      "source": "screenshot-turn-card.png",
+      "crop": [
+        480,
+        290,
+        1520,
+        742
+      ],
+      "title": "Open results\nright from\nthe conversation.",
+      "titleSize": 64,
+      "body": "When a turn ends, see the\ndocuments that changed.\nOpen a file from its card.",
+      "detail": "New and Changed labels\nA New filter in Documents",
+      "caption": "The card lists files changed during the turn, including changes made by other programs."
+    },
+    {
+      "output": "phone-hd.png",
+      "source": "screenshot-phone.png",
+      "crop": [
+        130,
+        60,
+        1466,
+        941
+      ],
+      "title": "Review documents from your phone.",
+      "wide": true,
+      "caption": "Open a changed file, read the PDF and return to pinned pages. Real compact-layout screenshots."
+    }
+  ]
+}

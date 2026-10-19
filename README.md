@@ -1,20 +1,38 @@
 # PDF and Office viewer for Paseo
 
-![An agent turn in Paseo ends with a card listing the four documents it changed, each marked New or Changed with an Open button](assets/screenshot-turn-card.png)
+![PDF and Office viewer showing a Word document with a table and chart inside Paseo](assets/listing/cover-hd.png)
 
-A [Paseo](https://github.com/getpaseo/paseo) plugin that shows PDF, Word, Excel, CSV, JSON Lines, Parquet, PowerPoint, image, video and audio files from your workspace inside the app, on desktop, web and mobile. Documents are rendered on the daemon host with pure JavaScript and WebAssembly, so nothing needs to be installed there. When an agent turn ends, a card in the agent's timeline lists the documents changed while it ran, with Open buttons and a Settings link to turn the cards off. The Documents panel has a New filter for files added or changed since your last visit. [OVERVIEW.md](OVERVIEW.md) describes what users see and the limits.
+Review the files your agents produce without leaving [Paseo](https://github.com/getpaseo/paseo).
+
+- Open changed documents straight from an agent's conversation.
+- Read PDFs and Office documents, and inspect Excel, CSV, JSON Lines and Parquet data.
+- Collect PDF notes by page and send a review to the agent you choose.
+
+The Documents panel groups files by type and highlights what changed since your last visit. It also previews images and supported audio and video formats. [OVERVIEW.md](OVERVIEW.md) covers format support, mobile playback limits and how rendering works.
 
 ## Install
 
 Requires Paseo 0.11.2 or later with plugins enabled, and `npm` on the daemon host.
 
+Install the reviewed version from the [Paseo directory](https://paseo.sh/plugins/nkwib/doc-viewer):
+
 ```sh
-paseo plugin install git:nkwib/paseo-doc-viewer
+paseo plugin add nkwib/doc-viewer
 ```
+
+Or install directly from GitHub:
+
+```sh
+paseo plugin add https://github.com/nkwib/paseo-doc-viewer.git
+```
+
+`nkwib/doc-viewer` is the registry ID; `nkwib/paseo-doc-viewer` is the GitHub repository. If your daemon tries to clone `nkwib/doc-viewer.git` and reports "Repository not found", use the full GitHub URL above. Registry installs follow the reviewed registry version; direct Git installs update from the repository.
 
 Plugins run unsandboxed on the daemon host. Read the code before you install it.
 
 ## Development
+
+Listing images are 1920 × 1080 PNGs composed from the original screenshots. To rebuild them, install Pillow 12 or later and run `python3 scripts/compose-listing.py`. Layout and copy live in [assets/listing/layout.json](assets/listing/layout.json). Screenshots are cropped and scaled down only. Set `LISTING_FONT` and `LISTING_FONT_BOLD` to use other installed TrueType fonts.
 
 ```sh
 npm ci

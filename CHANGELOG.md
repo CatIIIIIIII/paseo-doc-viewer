@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2 (2026-10-19)
+
+- Add reproducible HD listing images and a clearer description.
+- Explain registry and GitHub install names and provide an explicit Git URL.
+- Point phone users to the new tab menu and correct the Settings tip.
+
 ## 0.5.1 (2026-10-18)
 
 ### New

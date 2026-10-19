@@ -7,10 +7,10 @@ export interface Tip {
 }
 
 export const TIPS: readonly Tip[] = [
-  { title: "Open documents", text: "Use the Documents button in the workspace header. In a chat, /doc opens the latest document, or the one at a path you give." },
+  { title: "Open documents", text: "Open Documents from the new tab menu, including on a phone. In a chat, /doc opens the latest document, or a path you give." },
   { title: "Review a PDF", text: "Pin pages and add notes as you read, then send all notes to an agent as one review from Review notes." },
   { title: "See what is new", text: "The New filter shows files that changed since your last visit. Opening a file clears its New label until it changes again." },
-  { title: "After each turn", text: "The agent's chat gets a card listing the documents the turn changed. Turn cards off from its gear button or in Settings, Document viewer." },
+  { title: "After each turn", text: "A chat card lists changed documents. Its Settings link (gear icon on a phone) opens the option to turn cards off." },
 ];
 
 // What was pressed in this panel: nothing yet (follow the server), a tip to show, or closed.

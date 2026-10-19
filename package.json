@@ -1,8 +1,8 @@
 {
   "name": "paseo-doc-viewer",
   "private": true,
-  "version": "0.5.1",
-  "description": "View PDF, Word, Excel, PowerPoint, image, video and audio files from your workspace inside Paseo.",
+  "version": "0.5.2",
+  "description": "Read PDFs and Office documents, inspect spreadsheets and data, and send PDF page notes to an agent without leaving Paseo.",
   "license": "MIT",
   "type": "module",
   "files": [
