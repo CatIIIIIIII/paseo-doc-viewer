@@ -14,6 +14,7 @@ export const ANIMATION_MAX_BYTES = 16 * 1024 * 1024;
 export const RECENT_MAX_ENTRIES = 50;
 export const RECENT_MAX_SCANNED_ENTRIES = 50_000;
 export const PINS_MAX_PER_FILE = 30;
+export const OPENED_REVISIONS_MAX_PATHS = 50;
 export const PIN_LABEL_MAX_CHARS = 60;
 export const REVIEW_MAX_NOTES = 50;
 export const REVIEW_MAX_NOTE_CHARS = 2000;

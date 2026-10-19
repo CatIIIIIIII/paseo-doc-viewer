@@ -5,7 +5,7 @@ import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { z } from "zod";
 import { DOCUMENT_GROUPS } from "./browse";
 import { DOCUMENT_KINDS } from "./kinds";
-import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "./limits";
+import { OPENED_REVISIONS_MAX_PATHS, THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "./limits";
 
 // Kinds shown in the sheet grid. JSON Lines and Parquet have named columns instead of a header row.
 export const SHEET_KINDS = ["xlsx", "csv", "jsonl", "parquet"] as const;
@@ -357,6 +357,13 @@ export const viewerStateOpenedRpc = defineRpc({
   output: z.object({ marked: z.boolean() }),
 });
 
+// The revision each listed file was last opened at; files never opened, or no longer there, are left out.
+export const viewerStateOpenedRevisionsRpc = defineRpc({
+  name: "viewer-state.opened-revisions",
+  input: z.object({ workspaceId: z.string().min(1), paths: z.array(z.string().min(1)).max(OPENED_REVISIONS_MAX_PATHS) }),
+  output: z.object({ opened: z.record(z.string(), documentRevision) }),
+});
+
 // First-run tips in Documents: one dismissal for every client of the daemon.
 export const tipsReadRpc = defineRpc({ name: "tips.read", input: z.object({}), output: z.object({ dismissed: z.boolean() }) });
 export const tipsDismissRpc = defineRpc({ name: "tips.dismiss", input: z.object({}), output: z.object({ dismissed: z.literal(true) }) });
@@ -368,7 +375,7 @@ export const reviewPageImageRpc = defineRpc({
 });
 export type ReviewPageImageOutput = RpcOutput<typeof reviewPageImageRpc>;
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, viewerStateOpenedRpc, tipsReadRpc, tipsDismissRpc, reviewPageImageRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, viewerStateOpenedRpc, viewerStateOpenedRevisionsRpc, tipsReadRpc, tipsDismissRpc, reviewPageImageRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;

@@ -1,5 +1,5 @@
 import { fileInfo, fileChunk } from "./server/files";
-import { markOpened, markReviewed, readViewerState, setPin, stateDirectory, viewerStateStore } from "./server/viewer-state";
+import { markOpened, markReviewed, openedRevisions, readViewerState, setPin, stateDirectory, viewerStateStore } from "./server/viewer-state";
 import { TipsStore } from "./server/tips";
 import { VisitStore } from "./server/visits";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
@@ -10,7 +10,7 @@ import { workspaceRoot } from "./server/paths";
 import { forgetScan, hasDocuments, scannedDocuments } from "./server/recent";
 import { createTurnDocs } from "./server/turn-docs";
 import { viewerSettings } from "./shared/settings";
-import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docCellRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, tipsDismissRpc, tipsReadRpc, viewerStateOpenedRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
+import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docCellRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, tipsDismissRpc, tipsReadRpc, viewerStateOpenedRevisionsRpc, viewerStateOpenedRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
 
 // Workspace roots are salted with the viewer-state secret, so the file does not reveal them.
 const visitStore = new VisitStore(stateDirectory(), async (root) => (await viewerStateStore.scannedKeys(root))(""));
@@ -99,6 +99,9 @@ export default function contribute(server: PluginServerContext) {
     if (marked) forgetScan(root);
     return { marked };
   });
+  server.handle(viewerStateOpenedRevisionsRpc, async ({ workspaceId, paths }, { paseo }) =>
+    ({ opened: await openedRevisions(viewerStateStore, await workspaceRoot(paseo, workspaceId), paths) }),
+  );
   server.handle(tipsReadRpc, () => tipsStore.read());
   server.handle(tipsDismissRpc, () => tipsStore.dismiss());
   server.handle(reviewPageImageRpc, async ({ workspaceId, path, password, ...request }, { paseo }) =>

@@ -260,6 +260,15 @@ export async function markOpened(store: ViewerStateStore, root: string, path: st
   return true;
 }
 
+export async function openedRevisions(store: ViewerStateStore, root: string, paths: readonly string[]): Promise<Record<string, string>> {
+  const keys = await Promise.all(paths.map((path) => store.key(root, path).catch(() => null)));
+  const marks = await store.marks();
+  return Object.fromEntries(paths.flatMap((path, i) => {
+    const opened = keys[i] === null ? undefined : marks.get(keys[i]!)?.opened;
+    return opened ? [[path, opened] as const] : [];
+  }));
+}
+
 // Pinning a page that already has a pin replaces its label and revision: that is how a pin is confirmed.
 export async function setPin(store: ViewerStateStore, root: string, path: string, index: number, pin: { label?: string; revision: string } | null) {
   const saved = await store.update(await store.key(root, path), (current) => {
