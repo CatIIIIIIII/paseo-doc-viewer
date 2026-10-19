@@ -2,9 +2,9 @@ import type { PluginClientContext, PluginTimelineItemProps } from "@getpaseo/plu
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { type ReactElement, useEffect, useMemo, useReducer, useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
-import { type TurnDocs, type TurnDocsFile, type TurnDocsV1, upgradeTurnDocs } from "../shared/turn-docs";
-import { createCardThumbnails } from "./card-thumbnails";
-import { TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
+import { type TurnDocs, type TurnDocsFile, type TurnDocsGroup, type TurnDocsV1, upgradeTurnDocs } from "../shared/turn-docs";
+import { cardThumbnailIndices, createCardThumbnails } from "./card-thumbnails";
+import { listedFiles, TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_GROUP, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir } from "./format";
 import { watchOpenedRevisions } from "./opened-marks";
 import { DOCUMENTS_PANEL_ID, documentScreen, SETTINGS_SCREEN_ID } from "./recent";
@@ -20,9 +20,12 @@ export function createTurnDocsCard(client: CardClient) {
     const data = item.data;
     const styles = useMemo(() => makeStyles(theme, layout.compact), [theme, layout.compact]);
     const size = layout.compact ? TURN_THUMBNAIL_SIZE.compact : TURN_THUMBNAIL_SIZE.wide;
-    const thumbnails = useCardThumbnails(client, data);
-    const opened = useOpenedRevisions(client, data);
-    const siblings = data.files.map((file) => file.path);
+    const [expanded, toggle] = useReducer(toggled, NOTHING_EXPANDED);
+    const carried = [...data.files, ...data.groups.flatMap((group) => group.files)];
+    const listed = listedFiles(data, expanded);
+    const thumbnails = useCardThumbnails(client, data.workspaceId, carried, listed);
+    const opened = useOpenedRevisions(client, data.workspaceId, listed);
+    const siblings = listed.map((file) => file.path);
     const [settingsFailed, setSettingsFailed] = useState(false);
     const note = turnDocsNote(data);
     // The host throws when it cannot open the screen; an exception in a press handler is fatal on native.
@@ -33,6 +36,21 @@ export function createTurnDocsCard(client: CardClient) {
         setSettingsFailed(true);
       }
     };
+    const openDocuments = () => client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId: data.workspaceId });
+    const fileRow = (file: TurnDocsFile, index: number, within = "") => (
+      <FileRow
+        key={file.path}
+        file={file}
+        within={within}
+        thumbnail={thumbnails?.state(index)}
+        pill={turnFilePill(file, opened[file.path])}
+        size={size}
+        styles={styles}
+        theme={theme}
+        onOpen={() => client.openScreen(documentScreen(data.workspaceId, file.path, siblings))}
+      />
+    );
+    let offset = data.files.length;
     return (
       <View style={[styles.card, { paddingVertical: 8, paddingHorizontal: layout.compact ? 8 : 10, gap: 2, marginVertical: 4 }]}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4, paddingBottom: 4 }}>
@@ -42,34 +60,47 @@ export function createTurnDocsCard(client: CardClient) {
           </Text>
           <SettingsLink theme={theme} styles={styles} onPress={openSettings} />
         </View>
-        {data.files.map((file, index) => (
-          <FileRow
-            key={file.path}
-            file={file}
-            thumbnail={thumbnails?.state(index)}
-            pill={turnFilePill(file, opened[file.path])}
-            size={size}
-            styles={styles}
-            theme={theme}
-            onOpen={() => client.openScreen(documentScreen(data.workspaceId, file.path, siblings))}
-          />
-        ))}
-        {data.moreCount > 0 ? (
-          <View style={{ flexDirection: "row", paddingHorizontal: 4, paddingTop: 4 }}>
-            <ToolbarButton
-              theme={theme}
-              styles={styles}
-              icon="FileText"
-              label={`+${data.moreCount} more in Documents`}
-              onPress={() => client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId: data.workspaceId })}
-            />
-          </View>
-        ) : null}
+        {data.files.map((file, index) => fileRow(file, index))}
+        {data.groups.map((group) => {
+          const first = offset;
+          offset += group.files.length;
+          const open = expanded.has(group.path);
+          return (
+            <View key={`group:${group.path}`}>
+              <GroupRow group={group} open={open} size={size} styles={styles} theme={theme} onToggle={() => toggle(group.path)} />
+              {open ? (
+                <View style={{ marginLeft: size / 2 + 4, paddingLeft: 6, borderLeftWidth: 1, borderLeftColor: theme.colors.border }}>
+                  {group.files.map((file, index) => fileRow(file, first + index, group.path))}
+                  {group.count > group.files.length ? (
+                    <MoreInDocuments count={group.count - group.files.length} styles={styles} theme={theme} onPress={openDocuments} />
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
+        {data.moreCount > 0 ? <MoreInDocuments count={data.moreCount} styles={styles} theme={theme} onPress={openDocuments} /> : null}
         {note ? <Text style={[styles.muted, { paddingHorizontal: 4, paddingTop: 4 }]}>{note}</Text> : null}
         {settingsFailed ? <Text style={[styles.muted, { paddingHorizontal: 4, paddingTop: 4 }]}>{TURN_CARDS_SETTING_HINT}</Text> : null}
       </View>
     );
   };
+}
+
+const NOTHING_EXPANDED: ReadonlySet<string> = new Set();
+
+function toggled(open: ReadonlySet<string>, path: string): ReadonlySet<string> {
+  const next = new Set(open);
+  if (!next.delete(path)) next.add(path);
+  return next;
+}
+
+function MoreInDocuments({ count, styles, theme, onPress }: { count: number; styles: Styles; theme: Theme; onPress(): void }) {
+  return (
+    <View style={{ flexDirection: "row", paddingHorizontal: 4, paddingTop: 4 }}>
+      <ToolbarButton theme={theme} styles={styles} icon="FileText" label={`+${count} more in Documents`} onPress={onPress} />
+    </View>
+  );
 }
 
 export function legacyTurnDocsCard(Card: (props: PluginTimelineItemProps<TurnDocs>) => ReactElement) {
@@ -107,12 +138,12 @@ function SettingsLink({ theme, styles, onPress }: { theme: Theme; styles: Styles
   );
 }
 
-function useCardThumbnails(client: CardClient, data: TurnDocs): ThumbnailLoader | null {
+function useCardThumbnails(client: CardClient, workspaceId: string, files: readonly TurnDocsFile[], listed: readonly TurnDocsFile[]): ThumbnailLoader | null {
   const [loader, setLoader] = useState<ThumbnailLoader | null>(null);
   const [, refresh] = useReducer((tick: number) => tick + 1, 0);
-  const identity = data.files.map((file) => `${file.path}\0${file.revision}`).join("\0");
+  const identity = files.map((file) => `${file.path}\0${file.revision}`).join("\0");
   useEffect(() => {
-    const next = createCardThumbnails(client, data);
+    const next = createCardThumbnails(client, { workspaceId, files });
     const stop = next.subscribe(refresh);
     setLoader(next);
     return () => {
@@ -120,15 +151,20 @@ function useCardThumbnails(client: CardClient, data: TurnDocs): ThumbnailLoader 
       next.close();
     };
     // `identity` stands for `files`, which the host may hand over as a new array on every render.
-  }, [data.workspaceId, identity]);
+  }, [workspaceId, identity]);
+  const wanted = cardThumbnailIndices(files, listed);
+  const wantedKey = wanted.join(",");
+  useEffect(() => {
+    loader?.want(wanted);
+  }, [loader, wantedKey]);
   return loader;
 }
 
-function useOpenedRevisions(client: CardClient, data: TurnDocs): Readonly<Record<string, string>> {
+function useOpenedRevisions(client: CardClient, workspaceId: string, listed: readonly TurnDocsFile[]): Readonly<Record<string, string>> {
   const [opened, setOpened] = useState<Readonly<Record<string, string>>>({});
-  const paths = data.files.map((file) => file.path);
+  const paths = listed.map((file) => file.path);
   const identity = paths.join("\0");
-  useEffect(() => watchOpenedRevisions(client, data.workspaceId, paths, setOpened), [data.workspaceId, identity]);
+  useEffect(() => watchOpenedRevisions(client, workspaceId, paths, setOpened), [workspaceId, identity]);
   return opened;
 }
 
@@ -147,10 +183,48 @@ function FileThumbnail({ file, state, size, theme }: { file: TurnDocsFile; state
   );
 }
 
-function FileRow({ file, thumbnail, pill, size, styles, theme, onOpen }: {
-  file: TurnDocsFile; thumbnail: ThumbnailState | undefined; pill: TurnFilePill; size: number; styles: Styles; theme: Theme; onOpen(): void;
+function GroupRow({ group, open, size, styles, theme, onToggle }: {
+  group: TurnDocsGroup; open: boolean; size: number; styles: Styles; theme: Theme; onToggle(): void;
 }) {
-  const folder = parentDir(file.path);
+  const folder = parentDir(group.path);
+  const { detail, spoken } = TURN_GROUP[group.reason];
+  const action = open ? "Hide" : "Show";
+  return (
+    <View
+      accessible={false}
+      style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4, paddingVertical: styles.compact ? 4 : 3 }}
+    >
+      <View style={{ width: size, height: size, borderRadius: 4, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface2 }}>
+        <Icon name="Folder" size={16} color={theme.colors.foregroundMuted} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
+          <Text style={[styles.text, { flexShrink: 1 }]} numberOfLines={1}>
+            {`${baseName(group.path)}/`}
+          </Text>
+          <StatusPill theme={theme} styles={styles} status={TURN_FILE_PILL.new.status} label="short" />
+        </View>
+        <Text style={styles.muted} numberOfLines={1}>
+          {folder ? `${folder} · ` : ""}
+          {detail(group.count)}
+        </Text>
+      </View>
+      <ToolbarButton
+        theme={theme}
+        styles={styles}
+        icon={open ? "ChevronUp" : "ChevronDown"}
+        label={action}
+        accessibilityLabel={`${action} ${group.path}, ${spoken}, ${group.count} ${group.count === 1 ? "document" : "documents"}`}
+        onPress={onToggle}
+      />
+    </View>
+  );
+}
+
+function FileRow({ file, within, thumbnail, pill, size, styles, theme, onOpen }: {
+  file: TurnDocsFile; within: string; thumbnail: ThumbnailState | undefined; pill: TurnFilePill; size: number; styles: Styles; theme: Theme; onOpen(): void;
+}) {
+  const folder = within ? parentDir(file.path.slice(within.length + 1)) : parentDir(file.path);
   const { status, spoken } = TURN_FILE_PILL[pill];
   return (
     <View

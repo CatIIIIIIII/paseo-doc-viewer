@@ -4,6 +4,7 @@ import { ERROR_MESSAGES } from "../shared/errors";
 import { CARD_THUMBNAILS_IN_FLIGHT } from "../client/card-thumbnails";
 import { createRequestQueue, createThumbnailCache, createThumbnailLoader, gridLayout, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
 import { DOCUMENT_KINDS } from "../shared/kinds";
+import type { TurnDocsFile } from "../shared/turn-docs";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
 
 const image = (data = "x") => ({ mimeType: "image/png" as const, width: 10, height: 13, data });
@@ -280,13 +281,18 @@ describe("turn card thumbnail requests", () => {
         calls.push({ path: input.path, resolve: () => { inFlight--; resolve({ kind: "pdf", revision: `r${input.path.match(/\d+/)![0]}`, index: 0, pageCount: 1, image: image(input.path) }); } });
       }),
     } as unknown as Parameters<typeof module.createCardThumbnails>[0];
-    return { ...module, client, calls, peak: () => peak };
+    const mount = (list: TurnDocsFile[]) => {
+      const card = module.createCardThumbnails(client, { workspaceId: "w", files: list });
+      card.want(module.cardThumbnailIndices(list));
+      return card;
+    };
+    return { mount, calls, peak: () => peak };
   }
 
   it("ask for two thumbnails at a time across every card, the card mounted last first", async () => {
-    const { createCardThumbnails, client, calls, peak } = await cards();
-    const older = createCardThumbnails(client, { workspaceId: "w", files: files("old", 12) });
-    const newer = createCardThumbnails(client, { workspaceId: "w", files: files("new", 12) });
+    const { mount, calls, peak } = await cards();
+    const older = mount(files("old", 12));
+    const newer = mount(files("new", 12));
     await flush();
     while (calls.some((call) => call.path.startsWith("new"))) {
       calls.splice(0).forEach((call) => call.resolve());
@@ -300,9 +306,9 @@ describe("turn card thumbnail requests", () => {
   });
 
   it("drop a closed card's waiting requests, so a card scrolled away stops asking", async () => {
-    const { createCardThumbnails, client, calls } = await cards();
-    const gone = createCardThumbnails(client, { workspaceId: "w", files: files("gone", 12) });
-    const kept = createCardThumbnails(client, { workspaceId: "w", files: files("kept", 2) });
+    const { mount, calls } = await cards();
+    const gone = mount(files("gone", 12));
+    const kept = mount(files("kept", 2));
     await flush();
     expect(calls.map((call) => call.path)).toEqual(["kept0.pdf", "kept1.pdf"]);
     gone.close();

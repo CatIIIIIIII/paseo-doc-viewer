@@ -15,7 +15,7 @@ async function simulate({ cards, perCard, decodeMs }: { cards: number; perCard: 
   vi.useFakeTimers();
   vi.resetModules();
   const { thumbnailCached } = await import("../server/thumbnails");
-  const { createCardThumbnails } = await import("../client/card-thumbnails");
+  const { cardThumbnailIndices, createCardThumbnails } = await import("../client/card-thumbnails");
   const { createThumbnailLoader, thumbnailCache } = await import("../client/thumbnails");
   let decodes = 0;
   const serve = (input: DocThumbnailInput, ms: number) => Promise.resolve().then(() =>
@@ -28,7 +28,11 @@ async function simulate({ cards, perCard, decodeMs }: { cards: number; perCard: 
   const files = (card: number): TurnDocsFile[] => Array.from({ length: perCard }, (_, i) => ({
     path: `card${card}/file${i}.pdf`, kind: "pdf", size: 1_000_000, revision: "r", status: "new",
   }));
-  const loaders = Array.from({ length: cards }, (_, card) => createCardThumbnails(client, { workspaceId: "w", files: files(card) }));
+  const loaders = Array.from({ length: cards }, (_, card) => {
+    const loader = createCardThumbnails(client, { workspaceId: "w", files: files(card) });
+    loader.want(cardThumbnailIndices(files(card)));
+    return loader;
+  });
   await vi.advanceTimersByTimeAsync(2_000);
   const pageMap = createThumbnailLoader({
     identify: (index) => ({ key: `open.pdf\0${index}`, revision: "r" }),

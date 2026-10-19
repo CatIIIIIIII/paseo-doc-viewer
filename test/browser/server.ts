@@ -19,6 +19,14 @@ for (const [from, to] of [["node_modules/.cache/viewer-browser/report.pdf", "rep
   copyFileSync(join(process.cwd(), from), join(root, to));
 }
 const turnFiles = [["reports/quarterly-report-with-a-long-file-name.pdf", "pdf", "new"], ["finance/forecast.xlsx", "xlsx", "changed"], ["screenshots/photo.png", "image-raster", "new"], ["animated.webp", "image-decoded", "changed"]] as const;
+const checkoutFiles = Array.from({ length: 12 }, (_, index) => index === 0 ? ["paseo-doc-viewer-gallery/docs/guide.pdf", "pdf"] : [`paseo-doc-viewer-gallery/assets/shot-${index}.png`, "image-raster"]);
+const exportFiles = Array.from({ length: 12 }, (_, index) => [`exports/run-${index + 1}.csv`, "csv"]);
+for (const [path] of checkoutFiles) {
+  mkdirSync(dirname(join(root, path)), { recursive: true });
+  copyFileSync(join(process.cwd(), path.endsWith(".pdf") ? "node_modules/.cache/viewer-browser/report.pdf" : "test/fixtures/photo.png"), join(root, path));
+}
+mkdirSync(join(root, "exports"), { recursive: true });
+for (const [path] of exportFiles) writeFileSync(join(root, path), "a,b\n1,2\n");
 writeFileSync(join(root, "broken.pdf"), "original unsupported file");
 writeFileSync(join(root, ".env"), "SECRET=1");
 writeFileSync(join(root, "analysis.ipynb"), "{}");
@@ -46,14 +54,25 @@ handlers.set("doc.search", async ({ path, password, query, cursor, searchId }) =
 // A five-row cap makes the issue check pause, so the client must show coverage and continue on request.
 handlers.set("doc.issues", async ({ path, cursor }) => scanIssues({ root, path }, cursor, { budgetMs: 60_000, maxRows: 5, maxIssues: 200 }));
 const paseo = { workspaces: { list: async () => ({ entries: [{ id: "workspace", workspaceDirectory: root }], pageInfo: { hasMore: false } }) } };
+const turnFile = (files: readonly (readonly string[])[]) =>
+  files.map(([path, kind, status]) => { const info = statSync(join(root, path!)); return { path, kind, status, size: info.size, revision: revisionOf(info) }; });
 const server = createServer(async (request, response) => {
   if (request.url === "/bundle.js") { response.setHeader("Content-Type", "application/javascript"); response.end(readFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/app.js"))); return; }
   // Simulates an agent rewriting a file: a new modified time gives it a new revision.
   if (request.url === "/touch/statement.pdf") { const later = new Date(Date.now() + 60_000); utimesSync(join(root, "statement.pdf"), later, later); response.end("ok"); return; }
   if (request.url === "/turn-docs") {
-    const files = turnFiles.map(([path, kind, status]) => { const info = statSync(join(root, path)); return { path, kind, status, size: info.size, revision: revisionOf(info) }; });
     response.setHeader("Content-Type", "application/json");
-    response.end(JSON.stringify({ workspaceId: "workspace", startedAt: 0, endedAt: 1, outcome: "completed", partial: false, moreCount: 2, files }));
+    response.end(JSON.stringify({ workspaceId: "workspace", startedAt: 0, endedAt: 1, outcome: "completed", partial: false, moreCount: 2, files: turnFile(turnFiles) }));
+    return;
+  }
+  if (request.url === "/turn-docs-checkout") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({ workspaceId: "workspace", startedAt: 0, endedAt: 1, outcome: "completed", partial: false, moreCount: 0,
+      files: turnFile([["reports/quarterly-report-with-a-long-file-name.pdf", "pdf", "new"], ["finance/forecast.xlsx", "xlsx", "new"]]),
+      groups: [
+        { reason: "checkout", path: "paseo-doc-viewer-gallery", count: 65, files: turnFile(checkoutFiles.map(([path, kind]) => [path, kind, "new"])) },
+        { reason: "folder", path: "exports", count: 13, files: turnFile(exportFiles.map(([path, kind]) => [path, kind, "new"])) },
+      ] }));
     return;
   }
   if (request.url !== "/rpc") { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><html><head><meta charset="utf-8"><title>Viewer test harness</title></head><body style="background:#111827;color:#e5e7eb;font-family:system-ui"><div id="root"></div><script src="/bundle.js"></script></body></html>'); return; }

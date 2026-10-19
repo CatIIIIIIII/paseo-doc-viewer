@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { revisionOf } from "../server/revision";
 import { createTurnDocs, type TurnDocsHost } from "../server/turn-docs";
 import { sharedOpenedMarks } from "../client/opened-marks";
-import { turnDocsNote, turnDocsTitle, turnFilePill } from "../client/turn-docs";
+import { listedFiles, TURN_GROUP, turnDocsNote, turnDocsTitle, turnFilePill } from "../client/turn-docs";
 import { documentRevision } from "../shared/revision";
 import { workspace } from "./helpers";
 import {
@@ -203,6 +203,29 @@ describe("card labels", () => {
       .toBe("67 documents changed while this turn ran");
     expect(turnDocsNote({ outcome: "completed", partial: false })).toBeNull();
     expect(turnDocsNote({ outcome: "canceled", partial: true })).toBe("Turn was stopped · Large workspace: only part of it was scanned");
+  });
+});
+
+describe("card folder rows", () => {
+  const entry = (path: string): TurnDocsFile => ({ path, kind: "pdf", size: 1, revision: "r", status: "new" });
+  const data = {
+    files: [entry("a.pdf")],
+    groups: [
+      { reason: "checkout" as const, path: "wt", count: 65, files: [entry("wt/b.pdf"), entry("wt/c.pdf")] },
+      { reason: "folder" as const, path: "out", count: 13, files: [entry("out/d.pdf")] },
+    ],
+  };
+
+  it("lists, and so steps through, a folder row's files only once it is shown", () => {
+    expect(listedFiles(data, new Set()).map((file) => file.path)).toEqual(["a.pdf"]);
+    expect(listedFiles(data, new Set(["out"])).map((file) => file.path)).toEqual(["a.pdf", "out/d.pdf"]);
+    expect(listedFiles(data, new Set(["out", "wt"])).map((file) => file.path)).toEqual(["a.pdf", "wt/b.pdf", "wt/c.pdf", "out/d.pdf"]);
+  });
+
+  it("says what the row stands for", () => {
+    expect(TURN_GROUP.checkout.detail(65)).toBe("New checkout · 65 documents");
+    expect(TURN_GROUP.checkout.detail(1)).toBe("New checkout · 1 document");
+    expect(TURN_GROUP.folder.detail(13)).toBe("13 new files");
   });
 });
 

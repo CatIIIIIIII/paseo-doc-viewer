@@ -1,4 +1,5 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { OPENED_REVISIONS_MAX_PATHS } from "../shared/limits";
 import { viewerStateOpenedRevisionsRpc } from "../shared/rpc";
 
 // Like the visits memory it hangs off the global object, so a bundle re-evaluated on reconnect keeps
@@ -49,8 +50,10 @@ export function watchOpenedRevisions(
   let latest = 0;
   const read = () => {
     const request = ++latest;
-    client.rpc(viewerStateOpenedRevisionsRpc, { workspaceId, paths: [...paths] }).then(
-      (answer) => { if (request === latest) onChange(answer.opened); },
+    const chunks = Array.from({ length: Math.ceil(paths.length / OPENED_REVISIONS_MAX_PATHS) }, (_, index) =>
+      paths.slice(index * OPENED_REVISIONS_MAX_PATHS, (index + 1) * OPENED_REVISIONS_MAX_PATHS));
+    Promise.all(chunks.map((chunk) => client.rpc(viewerStateOpenedRevisionsRpc, { workspaceId, paths: chunk }))).then(
+      (answers) => { if (request === latest) onChange(Object.assign({}, ...answers.map((answer) => answer.opened))); },
       () => {},
     );
   };

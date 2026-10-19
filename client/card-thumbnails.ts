@@ -1,6 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { docThumbnailRpc } from "../shared/rpc";
-import type { TurnDocs } from "../shared/turn-docs";
+import type { TurnDocsFile } from "../shared/turn-docs";
 import { createRequestQueue, createThumbnailLoader, pageThumbnailKey, type RequestQueue, thumbnailCache, type ThumbnailLoader } from "./thumbnails";
 import { cardThumbnail, cardThumbnailRetry, TURN_THUMBNAIL_WIDTH } from "./turn-docs";
 
@@ -10,10 +10,15 @@ export const CARD_THUMBNAILS_IN_FLIGHT = 2;
 export const cardThumbnailQueue = createRequestQueue(CARD_THUMBNAILS_IN_FLIGHT);
 let mounted = 0;
 
-// One per mounted card. A card mounted later goes first: the timeline mounts the cards scrolled into view.
+// The indices in `files` of the listed rows that draw a thumbnail.
+export const cardThumbnailIndices = (files: readonly TurnDocsFile[], listed: readonly TurnDocsFile[] = files) =>
+  listed.map((file) => files.indexOf(file)).filter((index) => index >= 0 && cardThumbnail(files[index]!));
+
+// One per mounted card; the card says which rows it wants. A card mounted later goes first: the
+// timeline mounts the cards scrolled into view.
 export function createCardThumbnails(
   client: Pick<PluginClientContext, "rpc">,
-  { workspaceId, files }: Pick<TurnDocs, "workspaceId" | "files">,
+  { workspaceId, files }: { workspaceId: string; files: readonly TurnDocsFile[] },
   queue: RequestQueue = cardThumbnailQueue,
 ): ThumbnailLoader {
   const owner = {};
@@ -26,7 +31,6 @@ export function createCardThumbnails(
       client.rpc(docThumbnailRpc, { workspaceId, path: files[index]!.path, index: 0, width, keepOpen: false, revision: files[index]!.revision })),
     retryAfter: cardThumbnailRetry,
   });
-  loader.want(files.flatMap((file, index) => (cardThumbnail(file) ? [index] : [])));
   return {
     ...loader,
     close() {

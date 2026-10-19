@@ -1,7 +1,7 @@
 import { ERROR_MESSAGES, isError } from "../shared/errors";
 import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
 import { revisionChangedAt } from "../shared/revision";
-import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
+import type { TurnDocs, TurnDocsFile, TurnDocsGroup } from "../shared/turn-docs";
 
 // "Changed while this turn ran", never "written by this agent": the card comes from file times,
 // so another agent or the user editing the same workspace shows up here too.
@@ -55,3 +55,14 @@ export const TURN_FILE_PILL = {
   changed: { status: "modified", spoken: "changed during this turn" },
   opened: { status: "opened", spoken: "opened since this turn" },
 } as const satisfies Record<TurnFilePill, { status: string; spoken: string }>;
+
+export function listedFiles(data: Pick<TurnDocs, "files" | "groups">, expanded: ReadonlySet<string>): TurnDocsFile[] {
+  return [...data.files, ...data.groups.flatMap((group) => (expanded.has(group.path) ? group.files : []))];
+}
+
+const documents = (count: number) => `${count} ${count === 1 ? "document" : "documents"}`;
+
+export const TURN_GROUP = {
+  checkout: { detail: (count: number) => `New checkout · ${documents(count)}`, spoken: "new Git checkout" },
+  folder: { detail: (count: number) => `${count} new files`, spoken: "new folder" },
+} as const satisfies Record<TurnDocsGroup["reason"], { detail(count: number): string; spoken: string }>;

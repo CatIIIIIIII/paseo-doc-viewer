@@ -84,31 +84,36 @@ describe("turn card thumbnails", () => {
   }));
   const answer = (path: string) => ({ kind: "pdf", revision: "r", index: 0, pageCount: 1, image: { mimeType: "image/png", width: 8, height: 10, data: path } });
 
-  async function fresh() {
+  async function fresh(client: never) {
     vi.resetModules();
-    return import("../client/card-thumbnails");
+    const { cardThumbnailIndices, createCardThumbnails } = await import("../client/card-thumbnails");
+    return (list: TurnDocsFile[]) => {
+      const card = createCardThumbnails(client, { workspaceId: "w", files: list });
+      card.want(cardThumbnailIndices(list));
+      return card;
+    };
   }
 
   it("on new files, stop asking for the old ones and keep their answers in the cache only", async () => {
-    const { createCardThumbnails } = await fresh();
     const { client, calls } = rpcHarness();
-    const before = createCardThumbnails(client, { workspaceId: "w", files: files("old", 6) });
+    const mount = await fresh(client);
+    const before = mount(files("old", 6));
     let notified = 0;
     before.subscribe(() => notified++);
     await flush();
     before.close();
-    createCardThumbnails(client, { workspaceId: "w", files: files("new", 1) });
+    mount(files("new", 1));
     for (const call of calls.splice(0, 2)) call.resolve(answer(call.input.path!));
     await flush();
     expect(notified).toBe(0);
     expect(calls.map((call) => call.input.path)).toEqual(["new0.pdf"]);
-    expect(createCardThumbnails(client, { workspaceId: "w", files: files("old", 2) }).state(1)?.status).toBe("ready");
+    expect(mount(files("old", 2)).state(1)?.status).toBe("ready");
   });
 
   it("notify nobody when an answer arrives after the card unmounted", async () => {
-    const { createCardThumbnails } = await fresh();
     const { client, calls } = rpcHarness();
-    const card = createCardThumbnails(client, { workspaceId: "w", files: files("gone", 2) });
+    const mount = await fresh(client);
+    const card = mount(files("gone", 2));
     const listener = vi.fn();
     card.subscribe(listener);
     await flush();
@@ -121,9 +126,9 @@ describe("turn card thumbnails", () => {
   });
 
   it("keep the icon of a file whose thumbnail failed, without asking again", async () => {
-    const { createCardThumbnails } = await fresh();
     const { client, calls } = rpcHarness();
-    const card = createCardThumbnails(client, { workspaceId: "w", files: files("bad", 1) });
+    const mount = await fresh(client);
+    const card = mount(files("bad", 1));
     await flush();
     calls[0]!.reject(new Error(ERROR_MESSAGES.pdfPasswordRequired()));
     await flush();
