@@ -203,7 +203,14 @@ try {
   await expect(page.locator("audio")).toBeVisible();
   const media = await page.locator("audio").evaluate(async (element) => {
     await element.play();
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`playback did not advance in 5 s: ${element.currentTime}`)), 5000);
+      const advanced = () => {
+        if (element.currentTime <= 0) return;
+        clearTimeout(timer); element.removeEventListener("timeupdate", advanced); resolve();
+      };
+      element.addEventListener("timeupdate", advanced); advanced();
+    });
     const result = { currentTime: element.currentTime, duration: element.duration, muted: element.muted, error: element.error?.message };
     element.pause(); return result;
   });
@@ -214,7 +221,14 @@ try {
   await expect(page.locator("video")).toBeVisible();
   const video = await page.locator("video").evaluate(async (element) => {
     await element.play();
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`playback did not advance in 5 s: ${element.currentTime}`)), 5000);
+      const advanced = () => {
+        if (element.currentTime <= 0) return;
+        clearTimeout(timer); element.removeEventListener("timeupdate", advanced); resolve();
+      };
+      element.addEventListener("timeupdate", advanced); advanced();
+    });
     const result = { time: element.currentTime, muted: element.muted, tracks: element.captureStream().getAudioTracks().length };
     element.pause(); return result;
   });
@@ -361,11 +375,14 @@ try {
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
   await page.getByRole("button", { name: "Page map", exact: true }).click();
   await expect(page.getByRole("button", { name: "Open page 3", exact: true })).toBeVisible();
-  const sentBeforeClose = thumbnails.requested.length;
   await page.getByRole("button", { name: "Close page map", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Open page 3", exact: true })).toHaveCount(0);
+  // Requests that settle before the unmount cleanup may still refill the queue; count from after it.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))));
+  const sentAfterClose = thumbnails.requested.length;
   await page.waitForTimeout(1500);
-  expect(thumbnails.requested.length - sentBeforeClose).toBe(0);
-  expect(thumbnails.inFlight).toBe(0);
+  expect(thumbnails.requested.length).toBe(sentAfterClose);
+  await expect.poll(() => thumbnails.inFlight).toBe(0);
   await page.unroute("**/rpc", verySlow);
   // Review marks follow explicit presses only, for the revision on screen.
   const reviews = [];
