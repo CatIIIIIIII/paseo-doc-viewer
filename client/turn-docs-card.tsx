@@ -1,21 +1,27 @@
 import type { PluginClientContext, PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useEffect, useMemo, useReducer, useState } from "react";
+import { Image, PixelRatio, Pressable, Text, View } from "react-native";
+import { docThumbnailRpc } from "../shared/rpc";
 import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
-import { TURN_CARDS_SETTING_HINT, turnDocsNote, turnDocsTitle } from "./turn-docs";
+import { hasThumbnail, TURN_CARDS_SETTING_HINT, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle } from "./turn-docs";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir } from "./format";
 import { DOCUMENTS_PANEL_ID, documentScreen, SETTINGS_SCREEN_ID } from "./recent";
+import { createThumbnailLoader, pageThumbnailKey, thumbnailCache, type ThumbnailLoader, type ThumbnailState, thumbnailWidth } from "./thumbnails";
 import { makeStyles, StatusPill, ToolbarButton, type Styles } from "./ui";
 
-type Navigation = Pick<PluginClientContext, "openScreen" | "openPanel" | "openSettings">;
+type CardClient = Pick<PluginClientContext, "openScreen" | "openPanel" | "openSettings" | "rpc">;
 type Theme = PluginTimelineItemProps["theme"];
 
-// Closes over the client: timeline item props carry no navigation in this SDK.
-export function createTurnDocsCard(client: Navigation) {
+const MAX_THUMBNAIL_PIXEL_RATIO = 2;
+
+// Closes over the client: timeline item props carry no navigation or RPC provider in this SDK.
+export function createTurnDocsCard(client: CardClient) {
   return function TurnDocsCard({ item, theme, layout }: PluginTimelineItemProps<TurnDocs>) {
     const data = item.data;
     const styles = useMemo(() => makeStyles(theme, layout.compact), [theme, layout.compact]);
+    const size = layout.compact ? TURN_THUMBNAIL_SIZE.compact : TURN_THUMBNAIL_SIZE.wide;
+    const thumbnails = useCardThumbnails(client, data, thumbnailWidth(size, Math.min(MAX_THUMBNAIL_PIXEL_RATIO, PixelRatio.get())));
     const [settingsFailed, setSettingsFailed] = useState(false);
     const note = turnDocsNote(data);
     // The host throws when it cannot open the screen; an exception in a press handler is fatal on native.
@@ -35,10 +41,12 @@ export function createTurnDocsCard(client: Navigation) {
           </Text>
           <SettingsLink theme={theme} styles={styles} onPress={openSettings} />
         </View>
-        {data.files.map((file) => (
+        {data.files.map((file, index) => (
           <FileRow
             key={file.path}
             file={file}
+            thumbnail={thumbnails?.state(index)}
+            size={size}
             styles={styles}
             theme={theme}
             onOpen={() => client.openScreen(documentScreen(data.workspaceId, file.path))}
@@ -91,7 +99,47 @@ function SettingsLink({ theme, styles, onPress }: { theme: Theme; styles: Styles
   );
 }
 
-function FileRow({ file, styles, theme, onOpen }: { file: TurnDocsFile; styles: Styles; theme: Theme; onOpen(): void }) {
+function useCardThumbnails(client: CardClient, data: TurnDocs, width: number): ThumbnailLoader | null {
+  const [loader, setLoader] = useState<ThumbnailLoader | null>(null);
+  const [, refresh] = useReducer((tick: number) => tick + 1, 0);
+  const files = data.files;
+  const identity = files.map((file) => `${file.path}\0${file.revision}`).join("\0");
+  useEffect(() => {
+    const next = createThumbnailLoader({
+      identify: (index) => ({ key: pageThumbnailKey(data.workspaceId, files[index]!.path, width, 0), revision: files[index]!.revision }),
+      cache: thumbnailCache,
+      fetch: (index) => client.rpc(docThumbnailRpc, { workspaceId: data.workspaceId, path: files[index]!.path, index: 0, width }),
+    });
+    const stop = next.subscribe(refresh);
+    next.want(files.flatMap((file, index) => (hasThumbnail(file.kind) ? [index] : [])));
+    setLoader(next);
+    return () => {
+      stop();
+      next.close();
+    };
+    // `identity` stands for `files`, which the host may hand over as a new array on every render.
+  }, [data.workspaceId, identity, width]);
+  return loader;
+}
+
+function FileThumbnail({ file, state, size, theme }: { file: TurnDocsFile; state: ThumbnailState | undefined; size: number; theme: Theme }) {
+  const image = state?.status === "ready" ? state.image : null;
+  return (
+    <View style={{ width: size, height: size, borderRadius: 4, overflow: "hidden", alignItems: "center", justifyContent: "center",
+      backgroundColor: image ? theme.colors.surface2 : "transparent" }}>
+      {image ? (
+        <Image source={{ uri: `data:${image.mimeType};base64,${image.data}` }} style={{ width: size, height: size }} resizeMode="contain"
+          accessible={false} />
+      ) : (
+        <Icon name={KIND_ICON[file.kind]} size={16} color={theme.colors.foregroundMuted} />
+      )}
+    </View>
+  );
+}
+
+function FileRow({ file, thumbnail, size, styles, theme, onOpen }: {
+  file: TurnDocsFile; thumbnail: ThumbnailState | undefined; size: number; styles: Styles; theme: Theme; onOpen(): void;
+}) {
   const folder = parentDir(file.path);
   const status = file.status === "new" ? "new" : "changed during this turn";
   return (
@@ -99,7 +147,7 @@ function FileRow({ file, styles, theme, onOpen }: { file: TurnDocsFile; styles: 
       accessible={false}
       style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4, paddingVertical: styles.compact ? 4 : 3 }}
     >
-      <Icon name={KIND_ICON[file.kind]} size={16} color={theme.colors.foregroundMuted} />
+      <FileThumbnail file={file} state={thumbnail} size={size} theme={theme} />
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
           <Text style={[styles.text, { flexShrink: 1 }]} numberOfLines={1}>

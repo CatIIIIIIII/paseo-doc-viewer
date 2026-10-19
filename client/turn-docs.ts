@@ -1,3 +1,4 @@
+import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
 import type { TurnDocs } from "../shared/turn-docs";
 
 // "Changed while this turn ran", never "written by this agent": the card comes from file times,
@@ -17,3 +18,7 @@ export function turnDocsNote(data: Pick<TurnDocs, "outcome" | "partial">): strin
 
 // Shown only when the host cannot open the settings screen, so the user still knows where the switch lives.
 export const TURN_CARDS_SETTING_HINT = "Turn these cards off in Settings, Document viewer.";
+
+export const TURN_THUMBNAIL_SIZE = { compact: 36, wide: 40 } as const;
+
+export const hasThumbnail = (kind: DocumentKind) => KIND_REGISTRY[kind].rpcs.includes("doc.thumbnail");

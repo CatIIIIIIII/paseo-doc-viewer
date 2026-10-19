@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createThumbnailCache, createThumbnailLoader, gridLayout, thumbnailWidth, visibleOrder } from "../client/thumbnails";
+import { hasThumbnail } from "../client/turn-docs";
+import { createThumbnailCache, createThumbnailLoader, gridLayout, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
+import { DOCUMENT_KINDS } from "../shared/kinds";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
 
 const image = (data = "x") => ({ mimeType: "image/png" as const, width: 10, height: 13, data });
@@ -7,8 +9,7 @@ const image = (data = "x") => ({ mimeType: "image/png" as const, width: 10, heig
 function harness(revision = "r1", cache = createThumbnailCache(100, 1_000_000)) {
   const calls: { index: number; resolve(revision?: string): void; reject(error: Error): void }[] = [];
   const loader = createThumbnailLoader({
-    key: "doc",
-    revision,
+    identify: (index: number) => ({ key: `doc\0${index}`, revision }),
     cache,
     fetch: (index: number) =>
       new Promise((resolve, reject) => {
@@ -104,6 +105,28 @@ describe("thumbnail loader", () => {
     expect(calls.map((call) => call.index)).toEqual([0, 1, 1]);
   });
 
+  it("checks each file of a turn card against its own revision and shares page 1 with the page map", async () => {
+    const cache = createThumbnailCache(100, 1_000_000);
+    const files = [{ path: "a.pdf", revision: "ra" }, { path: "b.png", revision: "rb" }];
+    const answers = [{ revision: "ra", image: image("a") }, { revision: "rb-later", image: image("b") }];
+    const card = createThumbnailLoader({
+      identify: (index) => ({ key: pageThumbnailKey("w", files[index]!.path, 80, 0), revision: files[index]!.revision }),
+      cache,
+      fetch: async (index) => answers[index]!,
+    });
+    card.want([0, 1]);
+    await flush();
+    expect(card.state(0)).toEqual({ status: "ready", image: image("a") });
+    expect(card.state(1)).toEqual({ status: "stale" });
+    const pageMap = createThumbnailLoader({
+      identify: (index) => ({ key: pageThumbnailKey("w", "a.pdf", 80, index), revision: "ra" }),
+      cache,
+      fetch: () => new Promise(() => {}),
+    });
+    expect(pageMap.state(0)?.status).toBe("ready");
+    expect(pageMap.state(1)).toBeUndefined();
+  });
+
   it("notifies subscribers when a thumbnail settles", async () => {
     const { loader, calls } = harness();
     let notified = 0;
@@ -132,5 +155,11 @@ describe("thumbnail cache", () => {
     expect(small.get("next")).toBeDefined();
     small.set("huge", image("z".repeat(50)));
     expect(small.get("huge")).toBeUndefined();
+  });
+});
+
+describe("turn card thumbnails", () => {
+  it("are drawn for PDFs and images only", () => {
+    expect(DOCUMENT_KINDS.filter(hasThumbnail)).toEqual(["pdf", "image-raster", "image-decoded"]);
   });
 });

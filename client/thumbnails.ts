@@ -27,6 +27,8 @@ export function gridLayout(width: number, compact: boolean) {
   return { columns, gap, cellWidth, imageHeight, rowHeight: imageHeight + LABEL_HEIGHT + gap };
 }
 
+export const pageThumbnailKey = (workspaceId: string, path: string, width: number, index: number) => `${workspaceId}\0${path}\0${width}\0${index}`;
+
 // A few fixed widths keep the shared cache useful across small layout changes.
 export function thumbnailWidth(cellWidth: number, pixelRatio: number): number {
   const stepped = Math.ceil((cellWidth * pixelRatio) / WIDTH_STEP) * WIDTH_STEP;
@@ -98,10 +100,9 @@ export interface ThumbnailLoader {
   close(): void;
 }
 
-// One loader per open grid. Closing it stops new requests; answers already on the way only fill the cache.
-export function createThumbnailLoader({ key, revision, cache, fetch }: {
-  key: string;
-  revision: string;
+// One loader per open grid or card. Closing it stops new requests; answers already on the way only fill the cache.
+export function createThumbnailLoader({ identify, cache, fetch }: {
+  identify(index: number): { key: string; revision: string };
   cache: ThumbnailCache;
   fetch(index: number): Promise<{ revision: string; image: EncodedImage }>;
 }): ThumbnailLoader {
@@ -110,7 +111,10 @@ export function createThumbnailLoader({ key, revision, cache, fetch }: {
   let wanted: number[] = [];
   let inFlight = 0;
   let closed = false;
-  const cacheKey = (index: number) => `${key}\0${revision}\0${index}`;
+  const cacheKey = (index: number) => {
+    const { key, revision } = identify(index);
+    return `${key}\0${revision}`;
+  };
 
   const state = (index: number): ThumbnailState | undefined => {
     const known = states.get(index);
@@ -134,7 +138,7 @@ export function createThumbnailLoader({ key, revision, cache, fetch }: {
     states.set(index, { status: "loading" });
     fetch(index).then(
       (answer) => {
-        if (answer.revision !== revision) return settle(index, { status: "stale" });
+        if (answer.revision !== identify(index).revision) return settle(index, { status: "stale" });
         cache.set(cacheKey(index), answer.image);
         settle(index, cache.get(cacheKey(index)) ? undefined : { status: "ready", image: answer.image });
       },
