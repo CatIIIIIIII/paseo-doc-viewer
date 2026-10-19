@@ -727,7 +727,7 @@ try {
   await expect(page.getByRole("button", { name: /^Open finance\/forecast\.xlsx, .*, changed during this turn$/ })).toBeVisible();
   await cardFrame.screenshot({ path: `${shots}/harness-desktop-card-thumbnails.png` });
   await page.getByRole("button", { name: pdfRow }).click();
-  await expect(page.getByText("1 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 1 of 4", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Previous document", exact: true })).toHaveAttribute("aria-disabled", "true");
   await expect(page.getByRole("img").first()).toBeVisible();
   await page.screenshot({ path: `${shots}/harness-desktop-viewer-stepper.png` });
@@ -741,16 +741,16 @@ try {
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Find in document", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("2 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 2 of 4", { exact: true })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Find in document", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Page map", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("3 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 3 of 4", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("4 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 4 of 4", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Next document", exact: true })).toHaveAttribute("aria-disabled", "true");
   await page.getByRole("button", { name: "Previous document", exact: true }).click();
-  await expect(page.getByText("3 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 3 of 4", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.__openedScreen.params)).toMatchObject({ path: "screenshots/photo.png" });
   await page.getByRole("button", { name: "Turn card", exact: true }).click();
   await expect(page.getByLabel("Opened", { exact: true })).toHaveCount(4);
@@ -765,7 +765,7 @@ try {
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await cardFrame.screenshot({ path: `${shots}/harness-phone-card-opened.png` });
   await page.getByRole("button", { name: pdfRow }).click();
-  await expect(page.getByText("1 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 1 of 4", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Page map", exact: true })).toBeVisible();
   const stepperBox = await page.getByRole("button", { name: "Next document", exact: true }).boundingBox();
   const toolbarBox = await page.getByRole("button", { name: "Find in document", exact: true }).boundingBox();
@@ -777,7 +777,7 @@ try {
   }
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("2 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 2 of 4", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Find in document", exact: true })).toBeVisible();
   await page.screenshot({ path: `${shots}/harness-phone-viewer-stepper.png` });
   expect(failures).toEqual([]);

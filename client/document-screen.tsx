@@ -228,7 +228,7 @@ function SiblingStepper({ position, theme, styles, onOpen }: {
   return <View style={[styles.toolbarGroup, { gap: 4 }]}>
     <ToolbarButton theme={theme} styles={styles} icon="ChevronLeft" accessibilityLabel="Previous document" disabled={previous === null}
       onPress={() => { if (previous !== null) onOpen(previous); }} />
-    <Text style={styles.label} accessibilityLabel={`Document ${position.index + 1} of ${position.count}`}>{position.index + 1} of {position.count}</Text>
+    <Text style={styles.label} accessibilityLabel={`Document ${position.index + 1} of ${position.count}`}>Document {position.index + 1} of {position.count}</Text>
     <ToolbarButton theme={theme} styles={styles} icon="ChevronRight" accessibilityLabel="Next document" disabled={next === null}
       onPress={() => { if (next !== null) onOpen(next); }} />
   </View>;
