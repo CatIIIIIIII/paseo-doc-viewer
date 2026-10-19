@@ -41,7 +41,7 @@ export const KIND_REGISTRY: { readonly [K in DocumentKind]: KindSpec } = {
   "image-raster": {
     extensions: ["png", "jpg", "jpeg", "gif"],
     magic: [{ offset: 0, bytes: [0x89, 0x50, 0x4e, 0x47] }, { offset: 0, bytes: [0xff, 0xd8, 0xff] }, ascii(0, "GIF8")],
-    rpcs: ["doc.page", "media.chunk"],
+    rpcs: ["doc.page", "doc.thumbnail", "media.chunk"],
   },
   "image-decoded": {
     extensions: ["tif", "tiff", "heic", "heif", "webp"],
@@ -53,7 +53,7 @@ export const KIND_REGISTRY: { readonly [K in DocumentKind]: KindSpec } = {
       ascii(4, "ftypmif1"),
       ascii(8, "WEBPVP8"),
     ],
-    rpcs: ["doc.page", "media.chunk"],
+    rpcs: ["doc.page", "doc.thumbnail", "media.chunk"],
   },
 };
 

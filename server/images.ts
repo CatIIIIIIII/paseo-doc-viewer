@@ -304,7 +304,7 @@ export async function animationAsGif(bytes: Buffer, family: ImageFamily): Promis
 
 function passesThrough(codec: ImageCodec, bytes: Buffer, size: Size, fit: Fit): boolean {
   if (!codec.passthrough || bytes.length > fit.maxBytes || (codec.orientation?.(bytes) ?? 1) !== 1) return false;
-  return targetScale(size.width, size.height, fit.maxWidth) === 1;
+  return targetScale(size.width, size.height, fit) === 1;
 }
 
 async function fitCodec(codec: ImageCodec, bytes: Buffer, size: Size, fit: Fit): Promise<EncodedImage> {
@@ -312,7 +312,7 @@ async function fitCodec(codec: ImageCodec, bytes: Buffer, size: Size, fit: Fit):
     return encoded(codec.passthrough!, size.width, size.height, bytes);
   }
   if (codec.scaled && size.width * size.height <= MAX_STREAMED_PIXELS) {
-    const scale = targetScale(size.width, size.height, fit.maxWidth);
+    const scale = targetScale(size.width, size.height, fit);
     const width = Math.max(1, Math.round(size.width * scale));
     const height = Math.max(1, Math.round(size.height * scale));
     const scaled = codec.scaled(bytes, width, height);
@@ -323,7 +323,7 @@ async function fitCodec(codec: ImageCodec, bytes: Buffer, size: Size, fit: Fit):
   const decoded = await codec.decode(bytes);
   const orientation = codec.orientation?.(bytes) ?? 1;
   if (orientation === 1) return fitRgba(decoded, fit);
-  const scale = targetScale(size.width, size.height, fit.maxWidth);
+  const scale = targetScale(size.width, size.height, fit);
   const scaled = resize(decoded, Math.max(1, Math.round(decoded.width * scale)), Math.max(1, Math.round(decoded.height * scale)));
   return fitRgba(orient(scaled, orientation), fit);
 }

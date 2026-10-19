@@ -4,7 +4,7 @@ import { renderThumbnail } from "../server/documents";
 import { heavy } from "../server/heavy";
 import { docThumbnailRpc } from "../shared/rpc";
 import { THUMBNAIL_MAX_WIDTH_PX } from "../shared/limits";
-import { textPdf } from "./fixtures/generators";
+import { noisePng, textPdf } from "./fixtures/generators";
 import { decodePng, workspace, workspaceWithFixtures } from "./helpers";
 
 const deferred = () => {
@@ -64,7 +64,7 @@ describe("PDF thumbnails", () => {
     expect(cacheKeys().length - before).toBeLessThanOrEqual(1);
   });
 
-  it("is PDF only and reports missing pages", async () => {
+  it("is unavailable for kinds without a page image and reports missing pages", async () => {
     const root = workspaceWithFixtures("deck.pptx", "statement.pdf");
     await expect(renderThumbnail({ root, path: "deck.pptx" }, { index: 0, width: 160 })).rejects.toThrow(/doc.thumbnail/);
     await expect(renderThumbnail({ root, path: "statement.pdf" }, { index: 999, width: 160 })).rejects.toThrow(/out of range|999/i);
@@ -75,5 +75,27 @@ describe("PDF thumbnails", () => {
     expect(docThumbnailRpc.input.safeParse({ ...input, width: 160 }).success).toBe(true);
     expect(docThumbnailRpc.input.safeParse({ ...input, width: THUMBNAIL_MAX_WIDTH_PX + 1 }).success).toBe(false);
     expect(docThumbnailRpc.input.safeParse({ ...input, width: 8 }).success).toBe(false);
+  });
+});
+
+describe("image thumbnails", () => {
+  it("fits raster and decoded images inside a square of the requested width", async () => {
+    const root = workspaceWithFixtures("photo.png", "photo.tiff", "photo.heic", "photo-lossy.webp");
+    for (const path of ["photo.png", "photo.tiff", "photo.heic", "photo-lossy.webp"]) {
+      const thumbnail = await renderThumbnail({ root, path }, { index: 0, width: 80 });
+      expect(thumbnail.kind).toBe(path === "photo.png" ? "image-raster" : "image-decoded");
+      expect(Math.max(thumbnail.image.width, thumbnail.image.height)).toBeLessThanOrEqual(80);
+    }
+  });
+
+  it("bounds the height of a tall image too, and sends a small image as it is", async () => {
+    const small = noisePng(40, 30);
+    const root = workspace({ "tall.png": noisePng(60, 600), "small.png": small });
+    const tall = await renderThumbnail({ root, path: "tall.png" }, { index: 0, width: 80 });
+    expect(tall.image).toMatchObject({ width: 8, height: 80 });
+    expect(decodePng(tall.image.data).height).toBe(80);
+    const kept = await renderThumbnail({ root, path: "small.png" }, { index: 0, width: 80 });
+    expect(kept.image).toMatchObject({ mimeType: "image/png", width: 40, height: 30, data: small.toString("base64") });
+    await expect(renderThumbnail({ root, path: "small.png" }, { index: 1, width: 80 })).rejects.toThrow(/out of range|1/i);
   });
 });

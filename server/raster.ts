@@ -60,8 +60,8 @@ function edgeScale(width: number, height: number, maxWidth: number, maxEdge = MA
   return Math.min(maxWidth / width, maxEdge / Math.max(width, height));
 }
 
-export function targetScale(width: number, height: number, maxWidth: number): number {
-  return Math.min(1, edgeScale(width, height, maxWidth));
+export function targetScale(width: number, height: number, fit: Pick<Fit, "maxWidth" | "maxEdge">): number {
+  return Math.min(1, edgeScale(width, height, fit.maxWidth, fit.maxEdge));
 }
 
 export function decodePngBytes(bytes: Uint8Array): Rgba {
@@ -185,7 +185,7 @@ export function encoded(mimeType: EncodedImage["mimeType"], width: number, heigh
 }
 
 export function fitRgba(image: Rgba, fit: Fit): EncodedImage {
-  let scale = targetScale(image.width, image.height, fit.maxWidth);
+  let scale = targetScale(image.width, image.height, fit);
   for (let attempt = 0; attempt < MAX_FIT_ATTEMPTS; attempt++) {
     const width = Math.max(1, Math.round(image.width * scale));
     const height = Math.max(1, Math.round(image.height * scale));

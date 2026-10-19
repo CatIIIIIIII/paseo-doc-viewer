@@ -213,6 +213,13 @@ function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamil
         return { kind, revision: file.revision, sourceWidth: source.width, sourceHeight: source.height, image };
       });
     },
+    thumbnail: async (file, { index, width }) => {
+      inRange(index, 1, "Page");
+      const edge = Math.min(width, THUMBNAIL_MAX_WIDTH_PX);
+      const fit = { maxWidth: edge, maxEdge: edge, maxBytes: THUMBNAIL_MAX_BYTES };
+      const image = await heavy(async () => renderImage(await readFile(file.path), family, fit), { background: true });
+      return { kind, revision: file.revision, image };
+    },
     chunk: async (file, { offset, length, mimeType }) => {
       const opened = await openCached(file);
       const animation = "animation" in opened ? opened.animation : undefined;

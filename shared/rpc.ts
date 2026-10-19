@@ -97,13 +97,16 @@ export const docThumbnailRpc = defineRpc({
     index: z.number().int().nonnegative(),
     width: z.number().int().min(THUMBNAIL_MIN_WIDTH_PX).max(THUMBNAIL_MAX_WIDTH_PX),
   }),
-  output: z.object({
-    kind: z.literal("pdf"),
-    revision,
-    index: z.number().int().nonnegative(),
-    pageCount: z.number().int().nonnegative(),
-    image: encodedImage,
-  }),
+  output: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("pdf"),
+      revision,
+      index: z.number().int().nonnegative(),
+      pageCount: z.number().int().nonnegative(),
+      image: encodedImage,
+    }),
+    z.object({ kind: z.enum(["image-raster", "image-decoded"]), revision, image: encodedImage }),
+  ]),
 });
 
 export const docTextRpc = defineRpc({
