@@ -4,6 +4,7 @@ import { defineRpc } from "@getpaseo/plugin";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { z } from "zod";
 import { DOCUMENT_GROUPS } from "./browse";
+import { documentView, documentViews } from "./documents-view";
 import { DOCUMENT_KINDS } from "./kinds";
 import { OPENED_REVISIONS_MAX_PATHS, THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "./limits";
 
@@ -374,6 +375,14 @@ export const viewerStateOpenedRevisionsRpc = defineRpc({
 export const tipsReadRpc = defineRpc({ name: "tips.read", input: z.object({}), output: z.object({ dismissed: z.boolean() }) });
 export const tipsDismissRpc = defineRpc({ name: "tips.dismiss", input: z.object({}), output: z.object({ dismissed: z.literal(true) }) });
 
+// How Documents shows its files, per layout class, shared by every client of the daemon.
+export const documentsViewReadRpc = defineRpc({ name: "documents-view.read", input: z.object({}), output: z.object({ views: documentViews }) });
+export const documentsViewWriteRpc = defineRpc({
+  name: "documents-view.write",
+  input: z.object({ layout: z.enum(["compact", "wide"]), view: documentView }),
+  output: z.object({ views: documentViews }),
+});
+
 export const reviewPageImageRpc = defineRpc({
   name: "review.page-image",
   input: z.object({ ...documentRef, password, revision, index: z.number().int().nonnegative() }),
@@ -381,7 +390,7 @@ export const reviewPageImageRpc = defineRpc({
 });
 export type ReviewPageImageOutput = RpcOutput<typeof reviewPageImageRpc>;
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, viewerStateOpenedRpc, viewerStateOpenedRevisionsRpc, tipsReadRpc, tipsDismissRpc, reviewPageImageRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, viewerStateOpenedRpc, viewerStateOpenedRevisionsRpc, tipsReadRpc, tipsDismissRpc, documentsViewReadRpc, documentsViewWriteRpc, reviewPageImageRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;

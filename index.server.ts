@@ -1,6 +1,7 @@
 import { fileInfo, fileChunk } from "./server/files";
 import { markOpened, markReviewed, openedRevisions, readViewerState, setPin, stateDirectory, viewerStateStore } from "./server/viewer-state";
 import { TipsStore } from "./server/tips";
+import { DocumentViewStore } from "./server/documents-view";
 import { VisitStore } from "./server/visits";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import type { TurnDocsHost } from "./server/turn-docs";
@@ -10,11 +11,12 @@ import { workspaceRoot } from "./server/paths";
 import { forgetScan, hasDocuments, scannedDocuments } from "./server/recent";
 import { createTurnDocs } from "./server/turn-docs";
 import { viewerSettings } from "./shared/settings";
-import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docCellRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, tipsDismissRpc, tipsReadRpc, viewerStateOpenedRevisionsRpc, viewerStateOpenedRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
+import { docBlocksRpc, docIssuesRpc, docOpenRpc, docPageRpc, docRowsRpc, docCellRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, docTextRpc, docThumbnailRpc, mediaChunkRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, tipsDismissRpc, tipsReadRpc, documentsViewReadRpc, documentsViewWriteRpc, viewerStateOpenedRevisionsRpc, viewerStateOpenedRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, viewerStateWriteRpc, reviewPageImageRpc } from "./shared/rpc";
 
 // Workspace roots are salted with the viewer-state secret, so the file does not reveal them.
 const visitStore = new VisitStore(stateDirectory(), async (root) => (await viewerStateStore.scannedKeys(root))(""));
 const tipsStore = new TipsStore(stateDirectory());
+const viewStore = new DocumentViewStore(stateDirectory());
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(viewerSettings);
@@ -104,6 +106,8 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(tipsReadRpc, () => tipsStore.read());
   server.handle(tipsDismissRpc, () => tipsStore.dismiss());
+  server.handle(documentsViewReadRpc, () => viewStore.read());
+  server.handle(documentsViewWriteRpc, ({ layout, view }) => viewStore.write(layout, view));
   server.handle(reviewPageImageRpc, async ({ workspaceId, path, password, ...request }, { paseo }) =>
     renderReviewPage({ root: await workspaceRoot(paseo, workspaceId), path, password }, request),
   );

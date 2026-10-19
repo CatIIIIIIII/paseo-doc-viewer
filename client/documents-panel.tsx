@@ -3,12 +3,15 @@ import { FlatList, Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/r
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { type LayoutChangeEvent, Pressable, Text, View } from "react-native";
+import type { DocumentView } from "../shared/documents-view";
+import { layoutClass } from "../shared/viewer-state";
 import { type DocumentGroup, filterEntries, queryTerms } from "../shared/browse";
 import { docsRecentRpc, docsVisitRpc } from "../shared/rpc";
 import { viewerSettingsRpc } from "../shared/settings";
 import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, parentDir, relativeTime } from "./format";
 import { kindColor, type KindPalette } from "./kind-colors";
+import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
 import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, listFooter, noMatchDetail, type RecentEntry, unsupportedDetail } from "./recent";
 import { TipsCard, TipsLink, useTips } from "./tips-card";
@@ -18,6 +21,7 @@ import { useKindPalette } from "./use-kind-colors";
 import { documentsVisits } from "./visits";
 
 const SEARCH_DEBOUNCE_MS = 250;
+const SWITCH_LABELS_MIN_WIDTH = 520;
 const NO_GROUPS: ReadonlySet<DocumentGroup> = new Set();
 
 function useDebounced<T>(value: T, delayMs: number): T {
@@ -72,6 +76,9 @@ function DocumentsList({
   const [needsReview, setNeedsReview] = useState(false);
   const [newOnly, setNewOnly] = useState(false);
   const [collapsed, setCollapsed] = useState(NO_GROUPS);
+  const [view, setView] = useDocumentView(layoutClass(layout.compact));
+  const [width, setWidth] = useState(0);
+  const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
   const searched = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const newSince = useLastVisit(host?.id, workspaceId);
   const listRecent = useRpc(docsRecentRpc);
@@ -135,11 +142,22 @@ function DocumentsList({
     setNewOnly(false);
   };
 
+  const controlHeight = layout.compact ? 44 : 36;
   return (
-    <View style={styles.screen}>
+    <View style={styles.screen} onLayout={onLayout}>
       <View style={{ gap: 8, paddingTop: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
         {tipsCard}
-        <SearchBox theme={theme} styles={styles} compact={layout.compact} value={query} onChange={setQuery} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: styles.gutter }}>
+          <SearchBox theme={theme} styles={styles} compact={layout.compact} height={controlHeight} value={query} onChange={setQuery} />
+          <ViewSwitch
+            theme={theme}
+            styles={styles}
+            view={view}
+            height={controlHeight}
+            labels={!layout.compact && width >= SWITCH_LABELS_MIN_WIDTH}
+            onChange={setView}
+          />
+        </View>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -226,19 +244,20 @@ interface ChromeProps {
 
 function SearchBox({
   theme,
-  styles,
   compact,
+  height,
   value,
   onChange,
-}: ChromeProps & { compact: boolean; value: string; onChange(value: string): void }) {
+}: ChromeProps & { compact: boolean; height: number; value: string; onChange(value: string): void }) {
   return (
     <View
       style={{
+        flex: 1,
+        minWidth: 0,
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        height: compact ? 44 : 36,
-        marginHorizontal: styles.gutter,
+        height,
         paddingLeft: 10,
         borderWidth: 1,
         borderColor: theme.colors.border,
@@ -271,6 +290,47 @@ function SearchBox({
       ) : (
         <View style={{ width: 10 }} />
       )}
+    </View>
+  );
+}
+
+function ViewSwitch({
+  theme,
+  styles,
+  view,
+  height,
+  labels,
+  onChange,
+}: ChromeProps & { view: DocumentView; height: number; labels: boolean; onChange(view: DocumentView): void }) {
+  return (
+    <View style={{ flexDirection: "row", height, padding: styles.compact ? 1 : 2, gap: 2, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, backgroundColor: theme.colors.surface1 }}>
+      {VIEW_OPTIONS.map((option) => {
+        const selected = option.view === view;
+        const color = selected ? theme.colors.foreground : theme.colors.foregroundMuted;
+        return (
+          <Pressable
+            key={option.view}
+            accessibilityRole="button"
+            accessibilityLabel={option.spoken}
+            accessibilityState={{ selected }}
+            hitSlop={styles.hitSlop}
+            onPress={() => onChange(option.view)}
+            style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              minWidth: styles.compact ? 40 : 30,
+              paddingHorizontal: labels ? 10 : 0,
+              borderRadius: 6,
+              backgroundColor: selected ? theme.colors.surface2 : pressed || hovered ? theme.colors.surface0 : "transparent",
+            })}
+          >
+            <Icon name={option.icon} size={14} color={color} />
+            {labels ? <Text style={{ color, fontSize: 12, fontWeight: selected ? "600" : "400" }}>{option.label}</Text> : null}
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

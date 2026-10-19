@@ -856,7 +856,36 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(rowIcon(/^report\.pdf, PDF, /, "FileText")).toHaveCSS("color", "rgb(156, 163, 175)");
   await fetch(`http://127.0.0.1:${port}/settings?kindColors=1`);
+  await page.goto(`http://127.0.0.1:${port}`);
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  const viewButton = (name) => page.getByRole("button", { name, exact: true });
+  await expect(viewButton("List view")).toHaveAttribute("aria-pressed", "true");
+  await expect(viewButton("Details view")).toContainText("Details");
+  const searchBox = await page.getByRole("textbox", { name: "Search documents", exact: true }).boundingBox();
+  const switchBox = await viewButton("Preview view").boundingBox();
+  expect(Math.abs(switchBox.y + switchBox.height / 2 - (searchBox.y + searchBox.height / 2))).toBeLessThanOrEqual(1);
+  expect(switchBox.x).toBeGreaterThan(searchBox.x + searchBox.width);
+  await viewButton("Details view").click();
+  await expect(viewButton("Details view")).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("invoices");
+  await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(1);
+  await page.goto(`http://127.0.0.1:${port}`);
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(viewButton("Details view")).toHaveAttribute("aria-pressed", "true");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`http://127.0.0.1:${port}/?compact`);
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(viewButton("List view")).toHaveAttribute("aria-pressed", "true");
+  for (const option of ["List view", "Details view", "Preview view"]) {
+    await expect(viewButton(option)).not.toContainText(/List|Details|Previews/);
+    expect((await viewButton(option).boundingBox()).height).toBeGreaterThanOrEqual(40);
+  }
+  expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
+  await page.setViewportSize({ width: 1100, height: 1000 });
+  await page.goto(`http://127.0.0.1:${port}`);
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await viewButton("List view").click();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide, thumbnails and stepper only once shown, phone fit), kind colors and their setting.");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide, thumbnails and stepper only once shown, phone fit), kind colors and their setting, view switch (beside search, kept per layout class, phone fit).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { clearTimeout(watchdog); await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }
