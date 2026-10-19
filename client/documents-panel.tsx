@@ -83,6 +83,8 @@ function DocumentsList({
   const [collapsed, setCollapsed] = useState(NO_GROUPS);
   const [view, setView] = useDocumentView(layoutClass(layout.compact));
   const [width, setWidth] = useState(0);
+  // Every return below measures: react-native-web starts observing a View only if it mounts with onLayout,
+  // and React keeps the loading state's View for the list.
   const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
   const searched = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const newSince = useLastVisit(host?.id, workspaceId);
@@ -140,7 +142,7 @@ function DocumentsList({
 
   if (!recent.data) {
     return (
-      <View style={styles.screen}>
+      <View style={styles.screen} onLayout={onLayout}>
         {recent.error ? (
           <ErrorState theme={theme} styles={styles} error={recent.error} onRetry={() => void recent.refetch()} />
         ) : (
@@ -151,7 +153,7 @@ function DocumentsList({
   }
   if (recent.data.entries.length === 0 && !filtering && !pending) {
     return (
-      <View style={styles.screen}>
+      <View style={styles.screen} onLayout={onLayout}>
         {tipsCard ? <View style={{ paddingTop: 8 }}>{tipsCard}</View> : null}
         <MessageState
           theme={theme}

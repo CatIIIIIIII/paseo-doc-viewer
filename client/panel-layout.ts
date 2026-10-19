@@ -13,13 +13,13 @@ export interface DetailsColumns {
 }
 
 export function detailsColumns(width: number, compact: boolean): DetailsColumns {
-  if (compact) return { folder: "inline", size: false, time: "short", timeWidth: 64, statusWidth: 92, rowHeight: 44, iconSize: 16, nameSize: 14 };
+  if (compact) return { folder: "inline", size: false, time: "short", timeWidth: 80, statusWidth: 92, rowHeight: 44, iconSize: 16, nameSize: 14 };
   const wide = width >= DETAILS_FOLDER_MIN_WIDTH;
   return {
     folder: wide ? "column" : "inline",
     size: width >= DETAILS_SIZE_MIN_WIDTH,
     time: wide ? "long" : "short",
-    timeWidth: wide ? 112 : 64,
+    timeWidth: wide ? 112 : 80,
     statusWidth: 92,
     rowHeight: 28,
     iconSize: 14,
