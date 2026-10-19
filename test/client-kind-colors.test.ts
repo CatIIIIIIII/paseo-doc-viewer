@@ -56,9 +56,9 @@ describe("kind colors", () => {
 describe("entry labels", () => {
   const now = Date.UTC(2026, 9, 19, 12);
   it("lead with the file name, then kind, folder, time and status", () => {
-    expect(entryLabel({ path: "docs/q3/report.pdf", kind: "pdf", mtimeMs: now - 3 * 60_000, size: 1, review: "changed" }, now))
+    expect(entryLabel({ path: "docs/q3/report.pdf", kind: "pdf", mtimeMs: now - 3 * 60_000, size: 1, revision: "r", review: "changed" }, now))
       .toBe("report.pdf, PDF, in docs/q3, changed 3 min ago, changed since review");
-    expect(entryLabel({ path: "deck.pptx", kind: "pptx", mtimeMs: now, size: 1, isNew: true }, now, ["2.4 MB"]))
+    expect(entryLabel({ path: "deck.pptx", kind: "pptx", mtimeMs: now, size: 1, revision: "r", isNew: true }, now, ["2.4 MB"]))
       .toBe("deck.pptx, Presentation, changed just now, 2.4 MB, new");
   });
 });

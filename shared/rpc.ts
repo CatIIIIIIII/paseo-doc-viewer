@@ -292,6 +292,8 @@ export const docsRecentRpc = defineRpc({
         kind: z.enum(DOCUMENT_KINDS),
         mtimeMs: z.number(),
         size: z.number().int().nonnegative(),
+        // The file's revision as doc.open would report it, so thumbnails can be keyed without opening the file.
+        revision,
         review: z.enum(["reviewed", "changed"]).optional(),
         isNew: z.literal(true).optional(),
       }),
