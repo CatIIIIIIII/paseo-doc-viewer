@@ -13,7 +13,7 @@ import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, parentDir, re
 import { kindColor, type KindPalette } from "./kind-colors";
 import { detailsColumns, previewGrid } from "./panel-layout";
 import { DetailsHeader, DetailsRow } from "./documents-details";
-import { pageCountText, PreviewTile, TileRow, usePreviews } from "./documents-previews";
+import { countText, PreviewTile, TileRow, usePreviews } from "./documents-previews";
 import { type PreviewRow, previewRowKey, previewRows } from "./previews";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
@@ -249,7 +249,7 @@ function DocumentsList({
               <TileRow grid={grid}>
                 {item.entries.map((entry) => {
                   const { thumbnail, loading } = preview(entry);
-                  const pages = thumbnail?.pageCount;
+                  const count = thumbnail?.count;
                   return (
                     <PreviewTile
                       key={entry.path}
@@ -260,7 +260,7 @@ function DocumentsList({
                       thumbnail={thumbnail}
                       loading={loading}
                       size={grid.cellWidth}
-                      label={entryLabel(entry, now, pages === undefined ? [] : [pageCountText(pages)])}
+                      label={entryLabel(entry, now, count === undefined ? [] : [countText(entry.kind, count)])}
                       when={relativeTime(entry.mtimeMs, now)}
                       onOpen={openPath}
                     />

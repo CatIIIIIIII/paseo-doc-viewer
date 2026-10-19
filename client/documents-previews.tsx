@@ -9,7 +9,7 @@ import { kindColor, type KindPalette } from "./kind-colors";
 import { PREVIEW_CAPTION_HEIGHT, type PreviewGrid } from "./panel-layout";
 import { type HeldRevision, holdRevisions, nextRelease, wantsPreview } from "./previews";
 import type { RecentEntry } from "./recent";
-import { createThumbnailLoader, pageThumbnailKey, type Thumbnail, thumbnailCache, type ThumbnailLoader } from "./thumbnails";
+import { createThumbnailLoader, pageThumbnailKey, type Thumbnail, thumbnailAnswer, thumbnailCache, type ThumbnailLoader } from "./thumbnails";
 import { cardThumbnailRetry } from "./turn-docs";
 import { StatusPill, type Styles } from "./ui";
 
@@ -20,7 +20,21 @@ export interface Preview {
 
 const NO_PREVIEW: Preview = { thumbnail: null, loading: false };
 
-export const pageCountText = (count: number) => `${count} ${count === 1 ? "page" : "pages"}`;
+export const countText = (kind: RecentEntry["kind"], count: number) => {
+  const noun = kind === "pptx" ? "slide" : "page";
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+};
+
+function TitleCard({ theme, title, size }: { theme: PluginTheme; title: string; size: number }) {
+  const width = size - 16;
+  return (
+    <View style={{ width, height: Math.round((width * 9) / 16), padding: 8, borderRadius: 3, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface0, justifyContent: "center" }}>
+      <Text style={{ color: theme.colors.foreground, fontSize: 12, fontWeight: "600", textAlign: "center" }} numberOfLines={3}>
+        {title}
+      </Text>
+    </View>
+  );
+}
 
 export function usePreviews(
   workspaceId: string,
@@ -51,7 +65,7 @@ export function usePreviews(
     const loader = createThumbnailLoader({
       identify: (index) => ({ key: pageThumbnailKey(workspaceId, targets[index]!.path, width, 0), revision: targets[index]!.revision }),
       cache: thumbnailCache,
-      fetch: (index) => fetchThumbnail({ workspaceId, path: targets[index]!.path, index: 0, width, keepOpen: false }),
+      fetch: (index) => fetchThumbnail({ workspaceId, path: targets[index]!.path, index: 0, width, keepOpen: false }).then(thumbnailAnswer),
       retryAfter: cardThumbnailRetry,
     });
     const stop = loader.subscribe(bump);
@@ -74,9 +88,8 @@ export function usePreviews(
     if (index === undefined || !current) return shown.current.has(entry.path) ? { thumbnail: shown.current.get(entry.path)!, loading: false } : NO_PREVIEW;
     const state = current.loader.state(index);
     if (state?.status === "ready") {
-      const previous = shown.current.get(entry.path);
-      if (previous?.image !== state.image) shown.current.set(entry.path, { image: state.image, pageCount: state.pageCount });
-      return { thumbnail: shown.current.get(entry.path)!, loading: false };
+      shown.current.set(entry.path, state.thumbnail);
+      return { thumbnail: state.thumbnail, loading: false };
     }
     return { thumbnail: shown.current.get(entry.path) ?? null, loading: state === undefined || state.status === "loading" };
   };
@@ -97,7 +110,8 @@ interface TileProps {
 
 export const PreviewTile = memo(function PreviewTile({ theme, styles, palette, entry, thumbnail, loading, size, label, when, onOpen }: TileProps) {
   const color = kindColor(palette, entry.kind);
-  const pageCount = thumbnail?.pageCount;
+  const count = thumbnail?.count;
+  const picture = thumbnail && (thumbnail.type === "image" || thumbnail.title !== "") ? thumbnail : null;
   return (
     <Pressable
       accessibilityRole="button"
@@ -120,18 +134,22 @@ export const PreviewTile = memo(function PreviewTile({ theme, styles, palette, e
           overflow: "hidden",
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: thumbnail ? theme.colors.surface2 : theme.colors.surface1,
+          backgroundColor: picture ? theme.colors.surface2 : theme.colors.surface1,
         }}
       >
-        {thumbnail ? (
+        {picture ? (
           <>
-            <Image
-              source={{ uri: `data:${thumbnail.image.mimeType};base64,${thumbnail.image.data}` }}
-              style={{ width: size - 2, height: size - 2 }}
-              resizeMode="contain"
-              accessible={false}
-              importantForAccessibility="no"
-            />
+            {picture.type === "image" ? (
+              <Image
+                source={{ uri: `data:${picture.image.mimeType};base64,${picture.image.data}` }}
+                style={{ width: size - 2, height: size - 2 }}
+                resizeMode="contain"
+                accessible={false}
+                importantForAccessibility="no"
+              />
+            ) : (
+              <TitleCard theme={theme} title={picture.title} size={size} />
+            )}
             <View style={{ position: "absolute", left: 6, bottom: 6, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface0 }}>
               <Icon name={KIND_ICON[entry.kind]} size={12} color={color} />
             </View>
@@ -150,7 +168,7 @@ export const PreviewTile = memo(function PreviewTile({ theme, styles, palette, e
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, minWidth: 0 }}>
           {entry.review || entry.isNew ? <StatusPill theme={theme} styles={styles} status={entry.review ?? "new"} label="none" /> : null}
           <Text style={[styles.muted, { flexShrink: 1 }]} numberOfLines={1}>
-            {pageCount === undefined ? when : `${when} · ${pageCountText(pageCount)}`}
+            {count === undefined ? when : `${when} · ${countText(entry.kind, count)}`}
           </Text>
         </View>
       </View>

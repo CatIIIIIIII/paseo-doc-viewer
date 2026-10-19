@@ -16,7 +16,7 @@ function harness(revision = "r1", cache = createThumbnailCache(100, 1_000_000)) 
     cache,
     fetch: (index: number) =>
       new Promise((resolve, reject) => {
-        calls.push({ index, resolve: (answered = revision) => resolve({ revision: answered, image: image(`page${index}`) }), reject });
+        calls.push({ index, resolve: (answered = revision) => resolve({ revision: answered, thumbnail: { type: "image", image: image(`page${index}`) } }), reject });
       }),
   });
   return { loader, calls, cache };
@@ -60,7 +60,7 @@ describe("thumbnail loader", () => {
     calls[0]!.resolve();
     await flush();
     expect(calls.map((call) => call.index)).toEqual([5, 6, 20]);
-    expect(loader.state(5)).toEqual({ status: "ready", image: image("page5") });
+    expect(loader.state(5)).toEqual({ status: "ready", thumbnail: { type: "image", image: image("page5") } });
     calls[1]!.resolve();
     calls[2]!.resolve();
     await flush();
@@ -111,7 +111,7 @@ describe("thumbnail loader", () => {
   it("checks each file of a turn card against its own revision and shares page 1 with the page map", async () => {
     const cache = createThumbnailCache(100, 1_000_000);
     const files = [{ path: "a.pdf", revision: "ra" }, { path: "b.png", revision: "rb" }];
-    const answers = [{ revision: "ra", image: image("a") }, { revision: "rb-later", image: image("b") }];
+    const answers = [{ revision: "ra", thumbnail: { type: "image" as const, image: image("a") } }, { revision: "rb-later", thumbnail: { type: "image" as const, image: image("b") } }];
     const card = createThumbnailLoader({
       identify: (index) => ({ key: pageThumbnailKey("w", files[index]!.path, 80, 0), revision: files[index]!.revision }),
       cache,
@@ -119,7 +119,7 @@ describe("thumbnail loader", () => {
     });
     card.want([0, 1]);
     await flush();
-    expect(card.state(0)).toEqual({ status: "ready", image: image("a") });
+    expect(card.state(0)).toEqual({ status: "ready", thumbnail: { type: "image", image: image("a") } });
     expect(card.state(1)).toEqual({ status: "stale" });
     const pageMap = createThumbnailLoader({
       identify: (index) => ({ key: pageThumbnailKey("w", "a.pdf", 80, index), revision: "ra" }),
@@ -132,7 +132,7 @@ describe("thumbnail loader", () => {
 
   it("does not show a card the page 1 a password unlocked in the page map", () => {
     const cache = createThumbnailCache(100, 1_000_000);
-    cache.set(`${pageThumbnailKey("w", "locked.pdf", 80, 0, true)}\0r`, { image: image("unlocked") });
+    cache.set(`${pageThumbnailKey("w", "locked.pdf", 80, 0, true)}\0r`, { type: "image", image: image("unlocked") });
     const card = createThumbnailLoader({
       identify: () => ({ key: pageThumbnailKey("w", "locked.pdf", 80, 0), revision: "r" }),
       cache,
@@ -200,25 +200,25 @@ describe("thumbnail loader", () => {
 describe("thumbnail cache", () => {
   it("evicts the least recently used entries by count and by size", () => {
     const cache = createThumbnailCache(2, 1_000);
-    cache.set("a", { image: image("a") });
-    cache.set("b", { image: image("b") });
+    cache.set("a", { type: "image", image: image("a") });
+    cache.set("b", { type: "image", image: image("b") });
     cache.get("a");
-    cache.set("c", { image: image("c") });
+    cache.set("c", { type: "image", image: image("c") });
     expect(cache.get("b")).toBeUndefined();
     expect(cache.get("a")).toBeDefined();
     const small = createThumbnailCache(10, 10);
-    small.set("big", { image: image("x".repeat(8)) });
-    small.set("next", { image: image("y".repeat(8)) });
+    small.set("big", { type: "image", image: image("x".repeat(8)) });
+    small.set("next", { type: "image", image: image("y".repeat(8)) });
     expect(small.get("big")).toBeUndefined();
     expect(small.get("next")).toBeDefined();
-    small.set("huge", { image: image("z".repeat(50)) });
+    small.set("huge", { type: "image", image: image("z".repeat(50)) });
     expect(small.get("huge")).toBeUndefined();
   });
 });
 
 describe("turn card thumbnails", () => {
-  it("are drawn for PDFs and images only", () => {
-    expect(DOCUMENT_KINDS.filter(hasThumbnail)).toEqual(["pdf", "image-raster", "image-decoded"]);
+  it("are drawn for PDFs, decks and images only", () => {
+    expect(DOCUMENT_KINDS.filter(hasThumbnail)).toEqual(["pdf", "pptx", "image-raster", "image-decoded"]);
     expect(cardThumbnail({ kind: "pdf", size: TURN_THUMBNAIL_MAX_BYTES })).toBe(true);
     expect(cardThumbnail({ kind: "pdf", size: TURN_THUMBNAIL_MAX_BYTES + 1 })).toBe(false);
   });

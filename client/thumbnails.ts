@@ -3,17 +3,28 @@ import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
 import type { DocThumbnailOutput } from "../shared/rpc";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
 
-type EncodedImage = DocThumbnailOutput["image"];
+type EncodedImage = Extract<DocThumbnailOutput, { kind: "pdf" }>["image"];
 
-// What one thumbnail answer leaves for later: the picture, and a PDF's page count.
-export interface Thumbnail {
-  image: EncodedImage;
-  pageCount?: number;
+export type Thumbnail =
+  | { type: "image"; image: EncodedImage; count?: number }
+  | { type: "title"; title: string; count?: number };
+
+export interface ThumbnailAnswer {
+  revision: string;
+  thumbnail: Thumbnail;
+}
+
+export function thumbnailAnswer(output: DocThumbnailOutput): ThumbnailAnswer {
+  const { revision } = output;
+  if (output.kind === "pdf") return { revision, thumbnail: { type: "image", image: output.image, count: output.pageCount } };
+  if (output.kind !== "pptx") return { revision, thumbnail: { type: "image", image: output.image } };
+  const { preview, slideCount: count } = output;
+  return { revision, thumbnail: preview.type === "image" ? { type: "image", image: preview.image, count } : { type: "title", title: preview.title, count } };
 }
 
 export type ThumbnailState =
   | { status: "loading" }
-  | ({ status: "ready" } & Thumbnail)
+  | { status: "ready"; thumbnail: Thumbnail }
   | { status: "stale" }
   | { status: "failed"; error: unknown };
 
@@ -74,7 +85,7 @@ export interface ThumbnailCache {
 // Plain closures instead of classes: Paseo's Hermes client bundle cannot load class syntax.
 export function createThumbnailCache(maxEntries: number, maxBytes: number): ThumbnailCache {
   const entries = new Map<string, Thumbnail>();
-  const sizeOf = (thumbnail: Thumbnail) => thumbnail.image.data.length;
+  const sizeOf = (thumbnail: Thumbnail) => (thumbnail.type === "image" ? thumbnail.image.data.length : thumbnail.title.length * 2);
   let bytes = 0;
   return {
     get(key) {
@@ -117,7 +128,7 @@ export interface ThumbnailLoader {
 export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
   identify(index: number): { key: string; revision: string };
   cache: ThumbnailCache;
-  fetch(index: number): Promise<{ revision: string } & Thumbnail>;
+  fetch(index: number): Promise<ThumbnailAnswer>;
   retryAfter?(error: unknown, failures: number): number | null;
 }): ThumbnailLoader {
   const states = new Map<number, ThumbnailState>();
@@ -136,7 +147,7 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
     const known = states.get(index);
     if (known) return known;
     const thumbnail = cache.get(cacheKey(index));
-    return thumbnail ? { status: "ready", ...thumbnail } : undefined;
+    return thumbnail ? { status: "ready", thumbnail } : undefined;
   };
 
   // A ready thumbnail lives in the shared cache; it is kept here only if the cache refused it.
@@ -155,9 +166,8 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
     fetch(index).then(
       (answer) => {
         if (answer.revision !== identify(index).revision) return settle(index, { status: "stale" });
-        const thumbnail: Thumbnail = answer.pageCount === undefined ? { image: answer.image } : { image: answer.image, pageCount: answer.pageCount };
-        cache.set(cacheKey(index), thumbnail);
-        settle(index, cache.get(cacheKey(index)) ? undefined : { status: "ready", ...thumbnail });
+        cache.set(cacheKey(index), answer.thumbnail);
+        settle(index, cache.get(cacheKey(index)) ? undefined : { status: "ready", thumbnail: answer.thumbnail });
       },
       (error: unknown) => {
         if (isError(error, ERROR_MESSAGES.fileChanged())) return settle(index, { status: "stale" });

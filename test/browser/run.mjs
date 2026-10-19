@@ -912,7 +912,9 @@ try {
   const longTile = await page.getByRole("button", { name: /^long\.pdf, PDF, / }).boundingBox();
   expect(Math.abs(longTile.y - tileBox.y) < 1 || Math.abs(longTile.x - tileBox.x) < 1).toBe(true);
   await expect(page.getByRole("button", { name: /^photo\.png, Image, / }).locator("img")).toBeVisible();
-  await expect(page.getByRole("button", { name: /^deck\.pptx, / })).toContainText("PPTX");
+  const deckTile = page.getByRole("button", { name: /^deck\.pptx, Presentation, .*, 11 slides$/ });
+  await expect(deckTile.getByText("Slide 1", { exact: true })).toBeVisible();
+  await expect(deckTile.getByText(/ · 11 slides$/)).toBeVisible();
   const wordRow = page.getByRole("button", { name: /^contract\.docx, / });
   expect((await wordRow.boundingBox()).width).toBeGreaterThan(600);
   await expect(wordRow.locator("img")).toHaveCount(0);

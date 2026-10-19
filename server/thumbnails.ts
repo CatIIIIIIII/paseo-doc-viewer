@@ -11,6 +11,7 @@ const thumbnailLane = (keepOpen: boolean | undefined): Lane => (keepOpen === fal
 // Thumbnails have a cache of their own, so a page map or a timeline of cards cannot evict the pages
 // being read, and a card asking again, or another client, does not decode the file again.
 const thumbnails = createMemo({ maxBytes: 16 * 1024 * 1024, maxEntries: 1024 });
+export const thumbnailCacheKeys = thumbnails.keys;
 // A file nobody is reading whose thumbnail ran out of time is not tried again at that revision: on a
 // PDF each try ends by restarting PDFium, which drops the document open in the viewer.
 const SLOW_THUMBNAILS_MAX = 256;

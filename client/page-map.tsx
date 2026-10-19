@@ -7,7 +7,7 @@ import { PIN_LABEL_MAX_CHARS } from "../shared/limits";
 import { docThumbnailRpc } from "../shared/rpc";
 import type { PagePin } from "../shared/viewer-state";
 import { pinStatus } from "./pins";
-import { createThumbnailLoader, gridLayout, pageThumbnailKey, thumbnailCache, type ThumbnailLoader, type ThumbnailState, thumbnailWidth, visibleOrder } from "./thumbnails";
+import { createThumbnailLoader, gridLayout, pageThumbnailKey, thumbnailAnswer, thumbnailCache, type ThumbnailLoader, type ThumbnailState, thumbnailWidth, visibleOrder } from "./thumbnails";
 import { type Styles, ToolbarButton } from "./ui";
 import { useViewerMarks } from "./use-viewer-marks";
 
@@ -46,7 +46,7 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
     const next = createThumbnailLoader({
       identify: (index) => ({ key: pageThumbnailKey(workspaceId, path, width, index, password !== undefined), revision }),
       cache: thumbnailCache,
-      fetch: (index) => fetchThumbnail({ workspaceId, path, password, index, width }),
+      fetch: (index) => fetchThumbnail({ workspaceId, path, password, index, width }).then(thumbnailAnswer),
     });
     const stop = next.subscribe(refresh);
     setLoader(next);
@@ -241,12 +241,13 @@ function ThumbnailCell({ index, state, current, pinned, left, top, width, height
 }) {
   const label = `Page ${index + 1}`;
   let body;
-  if (state?.status === "ready") {
-    const scale = Math.min((width - 2) / state.image.width, (height - 2) / state.image.height);
+  if (state?.status === "ready" && state.thumbnail.type === "image") {
+    const { image } = state.thumbnail;
+    const scale = Math.min((width - 2) / image.width, (height - 2) / image.height);
     body = (
       <Image
-        source={{ uri: `data:${state.image.mimeType};base64,${state.image.data}` }}
-        style={{ width: Math.round(state.image.width * scale), height: Math.round(state.image.height * scale) }}
+        source={{ uri: `data:${image.mimeType};base64,${image.data}` }}
+        style={{ width: Math.round(image.width * scale), height: Math.round(image.height * scale) }}
         resizeMode="contain"
         accessibilityLabel={`${label} thumbnail`}
       />

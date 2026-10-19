@@ -174,7 +174,7 @@ function useOpenedRevisions(client: CardClient, workspaceId: string, listed: rea
 }
 
 function FileThumbnail({ file, state, size, palette, theme }: { file: TurnDocsFile; state: ThumbnailState | undefined; size: number; palette: KindPalette; theme: Theme }) {
-  const image = state?.status === "ready" ? state.image : null;
+  const image = state?.status === "ready" && state.thumbnail.type === "image" ? state.thumbnail.image : null;
   return (
     <View style={{ width: size, height: size, borderRadius: 4, overflow: "hidden", alignItems: "center", justifyContent: "center",
       backgroundColor: image ? theme.colors.surface2 : "transparent" }}>

@@ -12,6 +12,12 @@ import { alphaRampPng, noisePng, textPdf } from "./fixtures/generators";
 import { nestedFormPdf } from "./fixtures/hostile";
 import { decodePng, workspace, workspaceWithFixtures } from "./helpers";
 
+async function pageThumbnail(...args: Parameters<typeof renderThumbnail>) {
+  const thumbnail = await renderThumbnail(...args);
+  if (thumbnail.kind === "pptx") throw new Error("expected a page or an image");
+  return thumbnail;
+}
+
 const deferred = () => {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => (resolve = done));
@@ -96,7 +102,7 @@ describe("PDF thumbnails", () => {
   it("renders a small page image within the width bound without filling the shared page cache", async () => {
     const root = workspace({ "report.pdf": await textPdf(["one", "two", "three"]) });
     const before = cacheKeys().length;
-    const thumbnail = await renderThumbnail({ root, path: "report.pdf" }, { index: 2, width: 9_999 });
+    const thumbnail = await pageThumbnail({ root, path: "report.pdf" }, { index: 2, width: 9_999 });
     expect(thumbnail).toMatchObject({ kind: "pdf", index: 2, pageCount: 3 });
     expect(thumbnail.image.width).toBeLessThanOrEqual(THUMBNAIL_MAX_WIDTH_PX);
     expect(decodePng(thumbnail.image.data).width).toBe(thumbnail.image.width);
@@ -105,8 +111,8 @@ describe("PDF thumbnails", () => {
   });
 
   it("is unavailable for kinds without a page image and reports missing pages", async () => {
-    const root = workspaceWithFixtures("deck.pptx", "statement.pdf");
-    await expect(renderThumbnail({ root, path: "deck.pptx" }, { index: 0, width: 160 })).rejects.toThrow(/doc.thumbnail/);
+    const root = workspaceWithFixtures("contract.docx", "statement.pdf");
+    await expect(renderThumbnail({ root, path: "contract.docx" }, { index: 0, width: 160 })).rejects.toThrow(/doc.thumbnail/);
     await expect(renderThumbnail({ root, path: "statement.pdf" }, { index: 999, width: 160 })).rejects.toThrow(/out of range|999/i);
   });
 
@@ -132,8 +138,8 @@ describe("PDF thumbnails", () => {
     const opens = () => pdfiumStats().opens;
     const before = opens();
     const pages = cacheKeys().length;
-    const first = await renderThumbnail({ root, path: "cached.pdf" }, { index: 0, width: 80, keepOpen: false });
-    const again = await renderThumbnail({ root, path: "cached.pdf" }, { index: 0, width: 80, keepOpen: false });
+    const first = await pageThumbnail({ root, path: "cached.pdf" }, { index: 0, width: 80, keepOpen: false });
+    const again = await pageThumbnail({ root, path: "cached.pdf" }, { index: 0, width: 80, keepOpen: false });
     expect(again.image).toEqual(first.image);
     expect(opens()).toBe(before + 1);
     expect(cacheKeys().length).toBe(pages);
@@ -179,7 +185,7 @@ describe("PDF thumbnails", () => {
 
   it("bounds the height of a tall page to twice the width", async () => {
     const root = workspace({ "receipt.pdf": await textPdf(["receipt"], [200, 4_000]) });
-    const thumbnail = await renderThumbnail({ root, path: "receipt.pdf" }, { index: 0, width: 80, keepOpen: false });
+    const thumbnail = await pageThumbnail({ root, path: "receipt.pdf" }, { index: 0, width: 80, keepOpen: false });
     expect(thumbnail.image).toMatchObject({ width: 8, height: 160 });
   });
 
@@ -202,7 +208,7 @@ describe("image thumbnails", () => {
   it("fits raster and decoded images inside a square of the requested width", async () => {
     const root = workspaceWithFixtures("photo.png", "photo.tiff", "photo.heic", "photo-lossy.webp");
     for (const path of ["photo.png", "photo.tiff", "photo.heic", "photo-lossy.webp"]) {
-      const thumbnail = await renderThumbnail({ root, path }, { index: 0, width: 80 });
+      const thumbnail = await pageThumbnail({ root, path }, { index: 0, width: 80 });
       expect(thumbnail.kind).toBe(path === "photo.png" ? "image-raster" : "image-decoded");
       expect(Math.max(thumbnail.image.width, thumbnail.image.height)).toBeLessThanOrEqual(80);
     }
@@ -210,8 +216,8 @@ describe("image thumbnails", () => {
 
   it("sends opaque images as JPEG and keeps PNG where there is transparency", async () => {
     const root = workspace({ "photo.png": noisePng(400, 300), "overlay.png": alphaRampPng(noisePng(400, 300)) });
-    const photo = await renderThumbnail({ root, path: "photo.png" }, { index: 0, width: 80 });
-    const overlay = await renderThumbnail({ root, path: "overlay.png" }, { index: 0, width: 80 });
+    const photo = await pageThumbnail({ root, path: "photo.png" }, { index: 0, width: 80 });
+    const overlay = await pageThumbnail({ root, path: "overlay.png" }, { index: 0, width: 80 });
     expect(photo.image).toMatchObject({ mimeType: "image/jpeg", width: 80, height: 60 });
     expect(overlay.image).toMatchObject({ mimeType: "image/png", width: 80, height: 60 });
     expect(decodePng(overlay.image.data).width).toBe(80);
@@ -220,10 +226,10 @@ describe("image thumbnails", () => {
   it("bounds the height of a tall image too, and sends a small image as it is", async () => {
     const small = noisePng(40, 30);
     const root = workspace({ "tall.png": noisePng(60, 600), "small.png": small });
-    const tall = await renderThumbnail({ root, path: "tall.png" }, { index: 0, width: 80 });
+    const tall = await pageThumbnail({ root, path: "tall.png" }, { index: 0, width: 80 });
     expect(tall.image).toMatchObject({ width: 8, height: 80 });
     expect((await decode(Buffer.from(tall.image.data, "base64"))) as Image).toMatchObject({ width: 8, height: 80 });
-    const kept = await renderThumbnail({ root, path: "small.png" }, { index: 0, width: 80 });
+    const kept = await pageThumbnail({ root, path: "small.png" }, { index: 0, width: 80 });
     expect(kept.image).toMatchObject({ mimeType: "image/png", width: 40, height: 30, data: small.toString("base64") });
     await expect(renderThumbnail({ root, path: "small.png" }, { index: 1, width: 80 })).rejects.toThrow(/out of range|1/i);
   });

@@ -27,7 +27,7 @@ export const KIND_REGISTRY: { readonly [K in DocumentKind]: KindSpec } = {
   csv: { extensions: ["csv", "tsv"], magic: "text", rpcs: ["doc.rows", "doc.cell"] },
   jsonl: { extensions: ["jsonl", "ndjson"], magic: "text", rpcs: ["doc.rows", "doc.cell"] },
   parquet: { extensions: ["parquet"], magic: [ascii(0, "PAR1")], rpcs: ["doc.rows", "doc.cell"] },
-  pptx: { extensions: ["pptx"], magic: [zip], rpcs: ["doc.page"] },
+  pptx: { extensions: ["pptx"], magic: [zip], rpcs: ["doc.page", "doc.thumbnail"] },
   video: {
     extensions: ["mp4", "m4v", "mov", "webm"],
     magic: [ascii(4, "ftyp"), { offset: 0, bytes: [0x1a, 0x45, 0xdf, 0xa3] }],

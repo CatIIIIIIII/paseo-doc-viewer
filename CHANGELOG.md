@@ -12,6 +12,7 @@
 - Documents has a List, Details and Previews switch beside the search box. The daemon keeps the choice per layout class (phone-sized or wide) in `documents-view.json`, through new `documents-view.read` and `documents-view.write` RPCs. List stays the default.
 - Details view: one line per file with Name, Folder (from 640 pt), Size, Modified (absolute) and Status columns. Phones keep 44 pt rows and drop the size column.
 - Previews view: PDF, PowerPoint and image groups as tile grids (page 1 or the picture, PDF page count in the caption), other groups as rows. Thumbnails are 160 or 240 px, load as tiles come into view and keep the last picture while a rewritten file settles. Below 240 pt it shows rows.
+- `doc.thumbnail` answers for PowerPoint: the picture saved with the deck, else slide 1's first picture, else slide 1's title (`preview.type` is `image` or `title`), with the slide count. It is a preview, not a rendered slide, and needs no Office or LibreOffice. Previews tiles and turn cards use it.
 
 ### Changed
 

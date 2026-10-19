@@ -30,7 +30,7 @@ import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationM
 import { readChunk, sliceChunk, videoMimeType, audioMimeType } from "./media";
 import { resolveInside } from "./paths";
 import { pdfPageCount, readPdfPageText, renderPdfPage, searchPdfPage } from "./pdf";
-import { loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
+import { firstSlidePreview, loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
 import { IMAGE_BUDGET_BYTES, base64Capacity, decodeBudget, type Fit } from "./raster";
 import { recentDocuments, type RecentEntry } from "./recent";
 import { revisionOf } from "./revision";
@@ -379,6 +379,14 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       inRange(index, slides.slides.length, "Slide");
       const slide = await heavyCached(file, `slide\0${index}`, () => renderSlide(slides, index));
       return { kind: "pptx", revision: file.revision, index, slideCount: slides.slides.length, ...slide };
+    },
+    thumbnail: async (file, request) => {
+      inRange(request.index, 1, "Slide");
+      const slides = await deck(file);
+      const edge = Math.min(request.width, THUMBNAIL_MAX_WIDTH_PX);
+      const fit = { maxWidth: edge, maxEdge: edge, maxBytes: THUMBNAIL_MAX_BYTES, jpeg: true };
+      const preview = await thumbnailCached(file, request, () => firstSlidePreview(slides, fit));
+      return { kind: "pptx", revision: file.revision, slideCount: slides.slides.length, preview };
     },
   },
   video: {

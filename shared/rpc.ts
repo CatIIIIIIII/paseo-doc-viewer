@@ -111,6 +111,16 @@ export const docThumbnailRpc = defineRpc({
       image: encodedImage,
     }),
     z.object({ kind: z.enum(["image-raster", "image-decoded"]), revision, image: encodedImage }),
+    // A preview, not a rendered slide: the picture saved with the file, slide 1's first picture, or its title.
+    z.object({
+      kind: z.literal("pptx"),
+      revision,
+      slideCount: z.number().int().nonnegative(),
+      preview: z.discriminatedUnion("type", [
+        z.object({ type: z.literal("image"), source: z.enum(["saved-thumbnail", "slide-picture"]), image: encodedImage }),
+        z.object({ type: z.literal("title"), title: z.string().max(200) }),
+      ]),
+    }),
   ]),
 });
 

@@ -1,7 +1,7 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { docThumbnailRpc } from "../shared/rpc";
 import type { TurnDocsFile } from "../shared/turn-docs";
-import { createRequestQueue, createThumbnailLoader, pageThumbnailKey, type RequestQueue, thumbnailCache, type ThumbnailLoader } from "./thumbnails";
+import { createRequestQueue, createThumbnailLoader, pageThumbnailKey, type RequestQueue, thumbnailAnswer, thumbnailCache, type ThumbnailLoader } from "./thumbnails";
 import { cardThumbnail, cardThumbnailRetry, TURN_THUMBNAIL_WIDTH } from "./turn-docs";
 
 // Every card of this client shares two requests, so a timeline of cards stays within what the
@@ -28,7 +28,7 @@ export function createCardThumbnails(
     identify: (index) => ({ key: pageThumbnailKey(workspaceId, files[index]!.path, width, 0), revision: files[index]!.revision }),
     cache: thumbnailCache,
     fetch: (index) => queue.run(owner, priority, () =>
-      client.rpc(docThumbnailRpc, { workspaceId, path: files[index]!.path, index: 0, width, keepOpen: false, revision: files[index]!.revision })),
+      client.rpc(docThumbnailRpc, { workspaceId, path: files[index]!.path, index: 0, width, keepOpen: false, revision: files[index]!.revision }).then(thumbnailAnswer)),
     retryAfter: cardThumbnailRetry,
   });
   return {

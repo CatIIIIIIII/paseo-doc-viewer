@@ -121,11 +121,17 @@ export interface SlideSpec {
   title: string;
   body: string;
   images?: Buffer[];
+  titlePlaceholder?: boolean;
+}
+
+export interface SavedThumbnail {
+  name: string;
+  data: Buffer;
 }
 
 function slideXml(index: number, slide: SlideSpec): string {
-  const text = (id: number, value: string) =>
-    `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Text ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/>` +
+  const text = (id: number, value: string, placeholder = "") =>
+    `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Text ${id}"/><p:cNvSpPr/><p:nvPr>${placeholder}</p:nvPr></p:nvSpPr><p:spPr/>` +
     `<p:txBody><a:bodyPr/><a:p><a:r><a:t>${value}</a:t></a:r></a:p></p:txBody></p:sp>`;
   const pictures = (slide.images ?? [])
     .map(
@@ -139,11 +145,13 @@ function slideXml(index: number, slide: SlideSpec): string {
     `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
     `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ` +
     `xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">` +
-    `<p:cSld><p:spTree>${text(2, slide.title)}${text(3, slide.body)}${pictures}</p:spTree></p:cSld></p:sld>`
+    `<p:cSld><p:spTree>${
+      slide.titlePlaceholder ? `${text(3, slide.body)}${text(2, slide.title, '<p:ph type="title"/>')}` : `${text(2, slide.title)}${text(3, slide.body)}`
+    }${pictures}</p:spTree></p:cSld></p:sld>`
   );
 }
 
-export async function deckPptx(slides: SlideSpec[]): Promise<Buffer> {
+export async function deckPptx(slides: SlideSpec[], saved?: SavedThumbnail): Promise<Buffer> {
   const zip = new JSZip();
   const file = (name: string, data: string | Buffer) => zip.file(name, data, { date: EPOCH });
   const slideTypes = slides
@@ -166,8 +174,10 @@ export async function deckPptx(slides: SlideSpec[]): Promise<Buffer> {
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
       `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
       `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>` +
+      (saved ? `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail" Target="${saved.name}"/>` : "") +
       `</Relationships>`,
   );
+  if (saved) file(saved.name, saved.data);
   const ids = slides.map((_, i) => `<p:sldId id="${256 + i}" r:id="rIdSlide${i + 1}"/>`).join("");
   file(
     "ppt/presentation.xml",

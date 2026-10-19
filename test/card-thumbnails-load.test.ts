@@ -16,7 +16,7 @@ async function simulate({ cards, perCard, decodeMs }: { cards: number; perCard: 
   vi.resetModules();
   const { thumbnailCached } = await import("../server/thumbnails");
   const { cardThumbnailIndices, createCardThumbnails } = await import("../client/card-thumbnails");
-  const { createThumbnailLoader, thumbnailCache } = await import("../client/thumbnails");
+  const { createThumbnailLoader, thumbnailAnswer, thumbnailCache } = await import("../client/thumbnails");
   let decodes = 0;
   const serve = (input: DocThumbnailInput, ms: number) => Promise.resolve().then(() =>
     thumbnailCached({ path: input.path, revision: "r", passwordKey: "" }, input, async () => {
@@ -37,7 +37,7 @@ async function simulate({ cards, perCard, decodeMs }: { cards: number; perCard: 
   const pageMap = createThumbnailLoader({
     identify: (index) => ({ key: `open.pdf\0${index}`, revision: "r" }),
     cache: thumbnailCache,
-    fetch: (index) => serve({ workspaceId: "w", path: "open.pdf", index, width: 160 }, 200),
+    fetch: (index) => serve({ workspaceId: "w", path: "open.pdf", index, width: 160 }, 200).then(thumbnailAnswer),
   });
   pageMap.want([0, 1, 2, 3, 4, 5]);
   await vi.advanceTimersByTimeAsync(5_000);
