@@ -57,7 +57,7 @@ export const ScrollView = forwardRef<any, any>(function ScrollView({ children, s
 export const TextInput = ({ value, onChangeText, onSubmitEditing, accessibilityLabel, style, placeholder, maxLength, autoFocus, multiline }: any) => multiline
   ? <textarea autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />
   : <input autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onSubmitEditing?.(); }} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />;
-export const Image = ({ source, style, accessibilityLabel }: any) => <img src={source.uri} style={css(style)} alt={accessibilityLabel} />;
+export const Image = ({ source, style, accessibilityLabel, resizeMode }: any) => <img src={source.uri} style={{ objectFit: resizeMode === "contain" ? "contain" : undefined, ...css(style) }} alt={accessibilityLabel} />;
 export const ActivityIndicator = ({ accessibilityLabel = "Loading" }: any) => <span aria-label={accessibilityLabel}>…</span>;
 export const FlatList = ({ data, renderItem, keyExtractor, ListFooterComponent, contentContainerStyle }: any) => <div style={{ overflow: "auto", ...css(contentContainerStyle) }}>{data.map((item: any, index: number) => <div key={keyExtractor?.(item, index) ?? index}>{renderItem({ item, index })}</div>)}{ListFooterComponent}</div>;
 // Same box as the host icon at size 14, so toolbar widths match the app.
