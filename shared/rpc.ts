@@ -396,6 +396,7 @@ export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;
 export type DocPageInput = RpcInput<typeof docPageRpc>;
 export type DocPageOutput = RpcOutput<typeof docPageRpc>;
+export type DocThumbnailInput = RpcInput<typeof docThumbnailRpc>;
 export type DocThumbnailOutput = RpcOutput<typeof docThumbnailRpc>;
 export type DocTextInput = RpcInput<typeof docTextRpc>;
 export type DocTextOutput = RpcOutput<typeof docTextRpc>;

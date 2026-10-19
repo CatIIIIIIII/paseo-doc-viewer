@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { cardThumbnail, cardThumbnailRetry, hasThumbnail, TURN_THUMBNAIL_MAX_BYTES } from "../client/turn-docs";
+import { cardThumbnail, cardThumbnailRetry, TURN_THUMBNAIL_MAX_BYTES } from "../client/turn-docs";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { CARD_THUMBNAILS_IN_FLIGHT } from "../client/card-thumbnails";
-import { createRequestQueue, createThumbnailCache, createThumbnailLoader, gridLayout, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
+import { createRequestQueue, createThumbnailCache, createThumbnailLoader, gridLayout, hasThumbnail, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
 import { DOCUMENT_KINDS } from "../shared/kinds";
 import type { TurnDocsFile } from "../shared/turn-docs";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
@@ -132,7 +132,7 @@ describe("thumbnail loader", () => {
 
   it("does not show a card the page 1 a password unlocked in the page map", () => {
     const cache = createThumbnailCache(100, 1_000_000);
-    cache.set(`${pageThumbnailKey("w", "locked.pdf", 80, 0, true)}\0r`, image("unlocked"));
+    cache.set(`${pageThumbnailKey("w", "locked.pdf", 80, 0, true)}\0r`, { image: image("unlocked") });
     const card = createThumbnailLoader({
       identify: () => ({ key: pageThumbnailKey("w", "locked.pdf", 80, 0), revision: "r" }),
       cache,
@@ -200,18 +200,18 @@ describe("thumbnail loader", () => {
 describe("thumbnail cache", () => {
   it("evicts the least recently used entries by count and by size", () => {
     const cache = createThumbnailCache(2, 1_000);
-    cache.set("a", image("a"));
-    cache.set("b", image("b"));
+    cache.set("a", { image: image("a") });
+    cache.set("b", { image: image("b") });
     cache.get("a");
-    cache.set("c", image("c"));
+    cache.set("c", { image: image("c") });
     expect(cache.get("b")).toBeUndefined();
     expect(cache.get("a")).toBeDefined();
     const small = createThumbnailCache(10, 10);
-    small.set("big", image("x".repeat(8)));
-    small.set("next", image("y".repeat(8)));
+    small.set("big", { image: image("x".repeat(8)) });
+    small.set("next", { image: image("y".repeat(8)) });
     expect(small.get("big")).toBeUndefined();
     expect(small.get("next")).toBeDefined();
-    small.set("huge", image("z".repeat(50)));
+    small.set("huge", { image: image("z".repeat(50)) });
     expect(small.get("huge")).toBeUndefined();
   });
 });

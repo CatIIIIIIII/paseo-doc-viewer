@@ -1,5 +1,5 @@
 import { ERROR_MESSAGES, isError } from "../shared/errors";
-import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
+import { hasThumbnail } from "./thumbnails";
 import { revisionChangedAt } from "../shared/revision";
 import type { TurnDocs, TurnDocsFile, TurnDocsGroup } from "../shared/turn-docs";
 
@@ -26,8 +26,6 @@ export const TURN_THUMBNAIL_WIDTH = 80;
 export const TURN_THUMBNAIL_MAX_BYTES = 64 * 1024 * 1024;
 const TURN_THUMBNAIL_RETRIES = 3;
 const TURN_THUMBNAIL_RETRY_MS = 4_000;
-
-export const hasThumbnail = (kind: DocumentKind) => KIND_REGISTRY[kind].rpcs.includes("doc.thumbnail");
 
 export const cardThumbnail = (file: Pick<TurnDocsFile, "kind" | "size">) => hasThumbnail(file.kind) && file.size <= TURN_THUMBNAIL_MAX_BYTES;
 

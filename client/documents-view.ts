@@ -19,11 +19,13 @@ export function useDocumentView(layout: LayoutClass): [DocumentView, (view: Docu
   const stored = useQuery({ queryKey: VIEW_QUERY_KEY, queryFn: () => read({}), staleTime: 60_000, retry: false });
   const view = stored.data?.views[layout] ?? DEFAULT_DOCUMENT_VIEW;
   const choose = (next: DocumentView) => {
-    queryClient.setQueryData(VIEW_QUERY_KEY, (current: { views: DocumentViews } | undefined) => ({ views: { ...current?.views, [layout]: next } }));
-    write({ layout, view: next }).then(
-      (answer) => queryClient.setQueryData(VIEW_QUERY_KEY, answer),
-      () => void queryClient.invalidateQueries({ queryKey: VIEW_QUERY_KEY }),
-    );
+    void queryClient.cancelQueries({ queryKey: VIEW_QUERY_KEY }).then(() => {
+      queryClient.setQueryData(VIEW_QUERY_KEY, (current: { views: DocumentViews } | undefined) => ({ views: { ...current?.views, [layout]: next } }));
+      return write({ layout, view: next }).then(
+        (answer) => queryClient.setQueryData(VIEW_QUERY_KEY, answer),
+        () => void queryClient.invalidateQueries({ queryKey: VIEW_QUERY_KEY }),
+      );
+    });
   };
   return [view, choose];
 }

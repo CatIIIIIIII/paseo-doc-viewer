@@ -2,17 +2,19 @@ import { type PluginOpenScreenInput, type PluginWorkspacePanelProps, useRpc } fr
 import { FlatList, Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { type LayoutChangeEvent, Pressable, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type LayoutChangeEvent, PixelRatio, Pressable, Text, View } from "react-native";
 import type { DocumentView } from "../shared/documents-view";
 import { layoutClass } from "../shared/viewer-state";
-import { type DocumentGroup, filterEntries, queryTerms } from "../shared/browse";
-import { docsRecentRpc, docsVisitRpc } from "../shared/rpc";
+import { countGroups, type DocumentGroup, filterEntries, queryTerms } from "../shared/browse";
+import { docsRecentRpc, docsVisitRpc, docThumbnailRpc } from "../shared/rpc";
 import { viewerSettingsRpc } from "../shared/settings";
 import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, parentDir, relativeTime } from "./format";
 import { kindColor, type KindPalette } from "./kind-colors";
-import { detailsColumns } from "./panel-layout";
+import { detailsColumns, previewGrid } from "./panel-layout";
 import { DetailsHeader, DetailsRow } from "./documents-details";
+import { pageCountText, PreviewTile, TileRow, usePreviews } from "./documents-previews";
+import { type PreviewRow, previewRowKey, previewRows } from "./previews";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
 import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, listFooter, noMatchDetail, type RecentEntry, unsupportedDetail } from "./recent";
@@ -25,6 +27,7 @@ import { documentsVisits } from "./visits";
 const SEARCH_DEBOUNCE_MS = 250;
 const SWITCH_LABELS_MIN_WIDTH = 520;
 const NO_GROUPS: ReadonlySet<DocumentGroup> = new Set();
+const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -92,10 +95,42 @@ function DocumentsList({
     () => (recent.data ? filterEntries(recent.data.entries, { query, group, needsReview, newOnly }) : []),
     [recent.data, query, group, needsReview, newOnly],
   );
+  const grid = view === "previews" && width > 0 ? previewGrid(width, layout.compact, PixelRatio.get()) : null;
+  const previewHeadings = grid !== null && (needsReview || newOnly);
   const rows = useMemo(
-    () => (recent.data ? browseRows(entries, { counts: recent.data.counts, collapsed, headers: group === null && !needsReview && !newOnly }) : []),
-    [entries, recent.data, collapsed, group, needsReview, newOnly],
+    () =>
+      recent.data
+        ? browseRows(entries, {
+            counts: previewHeadings ? countGroups(entries) : recent.data.counts,
+            collapsed,
+            headers: group === null && (previewHeadings || (!needsReview && !newOnly)),
+          })
+        : [],
+    [entries, recent.data, collapsed, group, needsReview, newOnly, previewHeadings],
   );
+  const columnsCount = grid?.columns ?? 0;
+  const items: readonly PreviewRow[] = useMemo(() => (columnsCount > 0 ? previewRows(rows, columnsCount) : rows), [rows, columnsCount]);
+  const tileEntries = useMemo(() => items.flatMap((item) => (item.type === "tiles" ? item.entries : [])), [items]);
+  const [visible, setVisible] = useState<ReadonlySet<string> | null>(null);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: { index: number | null }[] }) => {
+    const shown = new Set<number>();
+    for (const { index } of viewableItems) {
+      if (index === null) continue;
+      shown.add(index);
+      const after = itemsRef.current.findIndex((item, at) => at > index && item.type === "tiles");
+      if (after >= 0) shown.add(after);
+    }
+    const paths = new Set([...shown].flatMap((index) => {
+      const item = itemsRef.current[index];
+      return item?.type === "tiles" ? item.entries.map((entry) => entry.path) : [];
+    }));
+    setVisible((current) => (current && current.size === paths.size && [...paths].every((path) => current.has(path)) ? current : paths));
+  }).current;
+  const readThumbnail = useRpc(docThumbnailRpc);
+  const preview = usePreviews(workspaceId, tileEntries, grid, visible, readThumbnail);
+  const openPath = useCallback((path: string) => openScreen(documentScreen(workspaceId, path)), [openScreen, workspaceId]);
   const now = recent.dataUpdatedAt || Date.now();
   const tips = useTips();
   const readSettings = useRpc(viewerSettingsRpc.read);
@@ -203,12 +238,36 @@ function DocumentsList({
         )
       ) : (
         <FlatList
-          data={rows}
-          keyExtractor={(row: BrowseRow) => (row.type === "header" ? `group:${row.group}` : row.entry.path)}
+          data={items}
+          keyExtractor={previewRowKey}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ padding: 8, paddingBottom: 8 + styles.bottomInset }}
-          renderItem={({ item }: { item: BrowseRow }) =>
-            item.type === "header" ? (
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={VIEWABILITY}
+          renderItem={({ item }: { item: PreviewRow }) =>
+            item.type === "tiles" && grid ? (
+              <TileRow grid={grid}>
+                {item.entries.map((entry) => {
+                  const { thumbnail, loading } = preview(entry);
+                  const pages = thumbnail?.pageCount;
+                  return (
+                    <PreviewTile
+                      key={entry.path}
+                      theme={theme}
+                      styles={styles}
+                      palette={palette}
+                      entry={entry}
+                      thumbnail={thumbnail}
+                      loading={loading}
+                      size={grid.cellWidth}
+                      label={entryLabel(entry, now, pages === undefined ? [] : [pageCountText(pages)])}
+                      when={relativeTime(entry.mtimeMs, now)}
+                      onOpen={openPath}
+                    />
+                  );
+                })}
+              </TileRow>
+            ) : item.type === "tiles" ? null : item.type === "header" ? (
               <GroupHeader
                 theme={theme}
                 styles={styles}

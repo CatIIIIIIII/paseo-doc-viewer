@@ -26,3 +26,27 @@ export function detailsColumns(width: number, compact: boolean): DetailsColumns 
     nameSize: 13,
   };
 }
+
+export const PREVIEWS_MIN_WIDTH = 240;
+const LIST_PADDING = 8;
+const PREVIEW_CELL = 140;
+export const PREVIEW_CAPTION_HEIGHT = 44;
+const MAX_PIXEL_RATIO = 2;
+
+export interface PreviewGrid {
+  columns: number;
+  gap: number;
+  cellWidth: number;
+  frameSize: number;
+  requestWidth: 160 | 240;
+}
+
+export function previewGrid(width: number, compact: boolean, pixelRatio: number): PreviewGrid | null {
+  if (!compact && width < PREVIEWS_MIN_WIDTH) return null;
+  const usable = Math.max(0, width - 2 * LIST_PADDING);
+  const gap = compact ? 8 : 12;
+  const columns = compact ? (usable >= 420 ? 3 : 2) : Math.max(2, Math.round((usable + gap) / (PREVIEW_CELL + gap)));
+  const cellWidth = Math.max(1, Math.floor((usable - gap * (columns - 1)) / columns));
+  const requestWidth = cellWidth * Math.min(pixelRatio, MAX_PIXEL_RATIO) <= 160 ? 160 : 240;
+  return { columns, gap, cellWidth, frameSize: cellWidth, requestWidth };
+}
