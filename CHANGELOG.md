@@ -6,6 +6,7 @@
 
 - Turn cards show a thumbnail of each PDF (page 1) and image as the turn left it, in place of the file icon. Other files, files over 64 MiB and files rewritten since keep the icon. `doc.thumbnail` now answers for images too, bounded on both edges: a PNG or JPEG that already fits is sent as it is, others as JPEG, or PNG where there is transparency.
 - A document opened from a turn card has Previous and Next buttons that step through the card's files. The screen takes an optional `siblings` param (a JSON list of paths).
+- Turn cards fold the files of a new Git checkout (clone, worktree or submodule) into one row with a Show button, and do the same for any other new folder with more than 12 changed files. Repositories that existed when the turn started stay listed file by file. No Git process runs: the workspace scan notes folders that hold a `.git` entry. Cards are timeline data version 2 (`groups` beside `files`); version 1 cards still render.
 - Turn card rows say Opened once the file was opened in the viewer at the card's version or a later one, instead of keeping New or Changed forever. New `viewer-state.opened-revisions` RPC reads the opened mark of up to 50 files at once.
 
 ### Changed
