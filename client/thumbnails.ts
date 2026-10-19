@@ -101,12 +101,15 @@ export interface ThumbnailLoader {
 }
 
 // One loader per open grid or card. Closing it stops new requests; answers already on the way only fill the cache.
-export function createThumbnailLoader({ identify, cache, fetch }: {
+export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
   identify(index: number): { key: string; revision: string };
   cache: ThumbnailCache;
   fetch(index: number): Promise<{ revision: string; image: EncodedImage }>;
+  retryAfter?(error: unknown, failures: number): number | null;
 }): ThumbnailLoader {
   const states = new Map<number, ThumbnailState>();
+  const failures = new Map<number, number>();
+  const timers = new Set<ReturnType<typeof setTimeout>>();
   const listeners = new Set<() => void>();
   let wanted: number[] = [];
   let inFlight = 0;
@@ -142,7 +145,18 @@ export function createThumbnailLoader({ identify, cache, fetch }: {
         cache.set(cacheKey(index), answer.image);
         settle(index, cache.get(cacheKey(index)) ? undefined : { status: "ready", image: answer.image });
       },
-      (error: unknown) => settle(index, { status: "failed", error }),
+      (error: unknown) => {
+        const failed = (failures.get(index) ?? 0) + 1;
+        failures.set(index, failed);
+        settle(index, { status: "failed", error });
+        const delay = closed ? null : retryAfter?.(error, failed) ?? null;
+        if (delay === null) return;
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+          loader.retry(index);
+        }, delay);
+        timers.add(timer);
+      },
     );
   };
 
@@ -153,7 +167,7 @@ export function createThumbnailLoader({ identify, cache, fetch }: {
     }
   };
 
-  return {
+  const loader: ThumbnailLoader = {
     state,
     want(indices) {
       wanted = [...indices];
@@ -173,6 +187,9 @@ export function createThumbnailLoader({ identify, cache, fetch }: {
       closed = true;
       wanted = [];
       listeners.clear();
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
     },
   };
+  return loader;
 }

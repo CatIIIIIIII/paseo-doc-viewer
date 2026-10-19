@@ -1,3 +1,4 @@
+import { errorCode } from "../shared/errors";
 import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
 import { revisionModifiedAt } from "../shared/revision";
 import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
@@ -21,8 +22,18 @@ export function turnDocsNote(data: Pick<TurnDocs, "outcome" | "partial">): strin
 export const TURN_CARDS_SETTING_HINT = "Turn these cards off in Settings, Document viewer.";
 
 export const TURN_THUMBNAIL_SIZE = { compact: 36, wide: 40 } as const;
+export const TURN_THUMBNAIL_WIDTH = 80;
+export const TURN_THUMBNAIL_MAX_BYTES = 64 * 1024 * 1024;
+const TURN_THUMBNAIL_RETRIES = 3;
+const TURN_THUMBNAIL_RETRY_MS = 4_000;
 
 export const hasThumbnail = (kind: DocumentKind) => KIND_REGISTRY[kind].rpcs.includes("doc.thumbnail");
+
+export const cardThumbnail = (file: Pick<TurnDocsFile, "kind" | "size">) => hasThumbnail(file.kind) && file.size <= TURN_THUMBNAIL_MAX_BYTES;
+
+export function cardThumbnailRetry(error: unknown, failures: number): number | null {
+  return errorCode(error) === "timeout" && failures <= TURN_THUMBNAIL_RETRIES ? TURN_THUMBNAIL_RETRY_MS * failures : null;
+}
 
 export type TurnFilePill = "new" | "changed" | "opened";
 

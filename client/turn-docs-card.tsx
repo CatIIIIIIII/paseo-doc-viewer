@@ -1,20 +1,18 @@
 import type { PluginClientContext, PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Image, PixelRatio, Pressable, Text, View } from "react-native";
+import { Image, Pressable, Text, View } from "react-native";
 import { docThumbnailRpc, viewerStateOpenedRevisionsRpc } from "../shared/rpc";
 import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
-import { hasThumbnail, TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
+import { cardThumbnail, cardThumbnailRetry, TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_THUMBNAIL_SIZE, TURN_THUMBNAIL_WIDTH, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir } from "./format";
 import { openedMarks } from "./opened-marks";
 import { DOCUMENTS_PANEL_ID, documentScreen, SETTINGS_SCREEN_ID } from "./recent";
-import { createThumbnailLoader, pageThumbnailKey, thumbnailCache, type ThumbnailLoader, type ThumbnailState, thumbnailWidth } from "./thumbnails";
+import { createThumbnailLoader, pageThumbnailKey, thumbnailCache, type ThumbnailLoader, type ThumbnailState } from "./thumbnails";
 import { makeStyles, StatusPill, ToolbarButton, type Styles } from "./ui";
 
 type CardClient = Pick<PluginClientContext, "openScreen" | "openPanel" | "openSettings" | "rpc">;
 type Theme = PluginTimelineItemProps["theme"];
-
-const MAX_THUMBNAIL_PIXEL_RATIO = 2;
 
 // Closes over the client: timeline item props carry no navigation or RPC provider in this SDK.
 export function createTurnDocsCard(client: CardClient) {
@@ -22,7 +20,7 @@ export function createTurnDocsCard(client: CardClient) {
     const data = item.data;
     const styles = useMemo(() => makeStyles(theme, layout.compact), [theme, layout.compact]);
     const size = layout.compact ? TURN_THUMBNAIL_SIZE.compact : TURN_THUMBNAIL_SIZE.wide;
-    const thumbnails = useCardThumbnails(client, data, thumbnailWidth(size, Math.min(MAX_THUMBNAIL_PIXEL_RATIO, PixelRatio.get())));
+    const thumbnails = useCardThumbnails(client, data);
     const opened = useOpenedRevisions(client, data);
     const siblings = data.files.map((file) => file.path);
     const [settingsFailed, setSettingsFailed] = useState(false);
@@ -103,7 +101,8 @@ function SettingsLink({ theme, styles, onPress }: { theme: Theme; styles: Styles
   );
 }
 
-function useCardThumbnails(client: CardClient, data: TurnDocs, width: number): ThumbnailLoader | null {
+function useCardThumbnails(client: CardClient, data: TurnDocs): ThumbnailLoader | null {
+  const width = TURN_THUMBNAIL_WIDTH;
   const [loader, setLoader] = useState<ThumbnailLoader | null>(null);
   const [, refresh] = useReducer((tick: number) => tick + 1, 0);
   const files = data.files;
@@ -112,17 +111,18 @@ function useCardThumbnails(client: CardClient, data: TurnDocs, width: number): T
     const next = createThumbnailLoader({
       identify: (index) => ({ key: pageThumbnailKey(data.workspaceId, files[index]!.path, width, 0), revision: files[index]!.revision }),
       cache: thumbnailCache,
-      fetch: (index) => client.rpc(docThumbnailRpc, { workspaceId: data.workspaceId, path: files[index]!.path, index: 0, width }),
+      fetch: (index) => client.rpc(docThumbnailRpc, { workspaceId: data.workspaceId, path: files[index]!.path, index: 0, width, keepOpen: false }),
+      retryAfter: cardThumbnailRetry,
     });
     const stop = next.subscribe(refresh);
-    next.want(files.flatMap((file, index) => (hasThumbnail(file.kind) ? [index] : [])));
+    next.want(files.flatMap((file, index) => (cardThumbnail(file) ? [index] : [])));
     setLoader(next);
     return () => {
       stop();
       next.close();
     };
     // `identity` stands for `files`, which the host may hand over as a new array on every render.
-  }, [data.workspaceId, identity, width]);
+  }, [data.workspaceId, identity]);
   return loader;
 }
 

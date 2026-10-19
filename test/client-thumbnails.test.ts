@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { hasThumbnail } from "../client/turn-docs";
+import { describe, expect, it, vi } from "vitest";
+import { cardThumbnail, cardThumbnailRetry, hasThumbnail, TURN_THUMBNAIL_MAX_BYTES } from "../client/turn-docs";
+import { ERROR_MESSAGES } from "../shared/errors";
 import { createThumbnailCache, createThumbnailLoader, gridLayout, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
 import { DOCUMENT_KINDS } from "../shared/kinds";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
@@ -127,6 +128,32 @@ describe("thumbnail loader", () => {
     expect(pageMap.state(1)).toBeUndefined();
   });
 
+  it("asks again by itself after a failure the caller calls retryable, until it gives up or closes", async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: number[] = [];
+      const make = () => createThumbnailLoader({
+        identify: (index) => ({ key: `doc\0${index}`, revision: "r1" }),
+        cache: createThumbnailCache(10, 1_000_000),
+        fetch: async (index) => { calls.push(index); throw new Error(ERROR_MESSAGES.busy()); },
+        retryAfter: (_error, failures) => (failures < 3 ? 1_000 : null),
+      });
+      const loader = make();
+      loader.want([0]);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(calls).toEqual([0, 0, 0]);
+      expect(loader.state(0)).toMatchObject({ status: "failed" });
+      const closing = make();
+      closing.want([1]);
+      await vi.advanceTimersByTimeAsync(0);
+      closing.close();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(calls).toEqual([0, 0, 0, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("notifies subscribers when a thumbnail settles", async () => {
     const { loader, calls } = harness();
     let notified = 0;
@@ -161,5 +188,15 @@ describe("thumbnail cache", () => {
 describe("turn card thumbnails", () => {
   it("are drawn for PDFs and images only", () => {
     expect(DOCUMENT_KINDS.filter(hasThumbnail)).toEqual(["pdf", "image-raster", "image-decoded"]);
+    expect(cardThumbnail({ kind: "pdf", size: TURN_THUMBNAIL_MAX_BYTES })).toBe(true);
+    expect(cardThumbnail({ kind: "pdf", size: TURN_THUMBNAIL_MAX_BYTES + 1 })).toBe(false);
+  });
+
+  it("retry a busy daemon a few times, later each time, and give up on anything else", () => {
+    const busy = new Error(ERROR_MESSAGES.busy());
+    const delays = [1, 2, 3, 4].map((failures) => cardThumbnailRetry(busy, failures));
+    expect(delays.slice(0, 3).every((delay, i) => delay !== null && (i === 0 || delay > delays[i - 1]!))).toBe(true);
+    expect(delays[3]).toBeNull();
+    expect(cardThumbnailRetry(new Error(ERROR_MESSAGES.pdfPasswordRequired()), 1)).toBeNull();
   });
 });
