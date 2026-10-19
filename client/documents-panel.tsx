@@ -9,7 +9,7 @@ import { layoutClass } from "../shared/viewer-state";
 import { countGroups, type DocumentGroup, filterEntries, queryTerms } from "../shared/browse";
 import { docsRecentRpc, docsVisitRpc, docThumbnailRpc } from "../shared/rpc";
 import { viewerSettingsRpc } from "../shared/settings";
-import { baseName, GROUP_FILES, GROUP_LABEL, humanSize, KIND_ICON, parentDir, relativeTime } from "./format";
+import { baseName, GROUP_FILES, GROUP_ICON, GROUP_LABEL, humanSize, KIND_ICON, parentDir, relativeTime } from "./format";
 import { kindColor, type KindPalette } from "./kind-colors";
 import { detailsColumns, previewGrid } from "./panel-layout";
 import { DetailsHeader, DetailsRow } from "./documents-details";
@@ -19,7 +19,7 @@ import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
 import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, listFooter, noMatchDetail, type RecentEntry, unsupportedDetail } from "./recent";
 import { TipsCard, TipsLink, useTips } from "./tips-card";
-import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, type Styles } from "./ui";
+import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, statusIcon, type Styles } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
 import { useKindPalette } from "./use-kind-colors";
 import { documentsVisits } from "./visits";
@@ -206,16 +206,25 @@ function DocumentsList({
           contentContainerStyle={{ gap: 6, paddingHorizontal: styles.gutter }}
         >
           {recent.data.needsReview > 0 || needsReview ? (
-            <Chip theme={theme} styles={styles} label="Needs review" count={recent.data.needsReview} selected={needsReview} onPress={() => setNeedsReview(!needsReview)} />
+            <Chip
+              theme={theme}
+              styles={styles}
+              icon={statusIcon(theme, "changed")}
+              label="Needs review"
+              count={recent.data.needsReview}
+              selected={needsReview}
+              onPress={() => setNeedsReview(!needsReview)}
+            />
           ) : null}
           {recent.data.newCount > 0 || newOnly ? (
-            <Chip theme={theme} styles={styles} label="New" count={recent.data.newCount} selected={newOnly} onPress={() => setNewOnly(!newOnly)} />
+            <Chip theme={theme} styles={styles} icon={statusIcon(theme, "new")} label="New" count={recent.data.newCount} selected={newOnly} onPress={() => setNewOnly(!newOnly)} />
           ) : null}
           {filterChips(recent.data.counts, group).map((chip) => (
             <Chip
               key={chip.group ?? "all"}
               theme={theme}
               styles={styles}
+              icon={chip.group ? { name: GROUP_ICON[chip.group], color: palette[chip.group] } : { name: "Files", color: theme.colors.foregroundMuted }}
               label={chip.group ? GROUP_LABEL[chip.group] : "All"}
               count={chip.count}
               selected={chip.group === group}
@@ -414,11 +423,13 @@ function ViewSwitch({
 function Chip({
   theme,
   styles,
+  icon,
   label,
   count,
   selected,
   onPress,
 }: ChromeProps & {
+  icon: { name: string; color: string };
   label: string;
   count: number;
   selected: boolean;
@@ -437,13 +448,17 @@ function Chip({
         alignItems: "center",
         gap: 6,
         height: styles.controlSize,
-        paddingHorizontal: 12,
+        paddingLeft: 10,
+        paddingRight: 12,
         borderRadius: styles.controlSize / 2,
         borderWidth: 1,
         borderColor: selected ? theme.colors.surface2 : theme.colors.border,
         backgroundColor: selected ? theme.colors.surface2 : pressed || hovered ? theme.colors.surface1 : "transparent",
       })}
     >
+      <View aria-hidden>
+        <Icon name={icon.name} size={styles.compact ? 14 : 12} color={icon.color} />
+      </View>
       <Text style={{ color, fontSize: 12, fontWeight: selected ? "600" : "400" }} numberOfLines={1}>
         {label}
       </Text>

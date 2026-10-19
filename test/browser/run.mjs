@@ -436,6 +436,8 @@ try {
   await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible({ timeout: 15000 });
   // Needs review leads the filter row, so it is not scrolled off on a phone.
   await expect(page.getByRole("button", { name: /^(Needs review|All), / }).first()).toHaveAttribute("aria-label", "Needs review, 1 document");
+  const chipIcon = (target, name, icon) => target.getByRole("button", { name, exact: typeof name === "string" }).locator(`[aria-hidden="true"] [data-icon="${icon}"]`);
+  await expect(chipIcon(page, "Needs review, 1 document", "TriangleAlert")).toHaveCSS("color", "rgb(251, 191, 36)");
   await page.getByRole("button", { name: "Needs review, 1 document", exact: true }).click();
   await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(1);
   await page.screenshot({ path: `${directory}/needs-review.png`, fullPage: true });
@@ -570,6 +572,11 @@ try {
   await phone.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ })).toBeVisible();
   await expect(phone.getByRole("button", { name: /^statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible();
+  await expect(chipIcon(phone, "New, 1 document", "Sparkles")).toHaveCSS("color", "rgb(99, 102, 241)");
+  const chipRow = phone.getByRole("button", { name: /^All, / }).locator("xpath=../..");
+  expect(await chipRow.evaluate((row) => row.scrollWidth > row.clientWidth)).toBe(true);
+  expect(await phone.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
+  await phone.screenshot({ path: `${directory}/phone-chips.png` });
   await phone.getByRole("button", { name: "New, 1 document", exact: true }).click();
   await expect(phone.getByRole("button", { name: /, changed / })).toHaveCount(1);
   await phone.screenshot({ path: `${directory}/documents-new.png` });
@@ -844,6 +851,10 @@ try {
   const rowIcon = (row, name) => page.getByRole("button", { name: row }).locator(`[data-icon="${name}"]`);
   await expect(rowIcon(/^report\.pdf, PDF, /, "FileText")).toHaveCSS("color", "rgb(234, 152, 147)");
   await expect(rowIcon(/^invoices\.xlsx, Spreadsheet, /, "FileSpreadsheet")).toHaveCSS("color", "rgb(143, 249, 156)");
+  await expect(chipIcon(page, /^PDF, \d+ documents$/, "FileText")).toHaveCSS("color", "rgb(234, 152, 147)");
+  await expect(chipIcon(page, /^Spreadsheets and data, \d+ documents$/, "FileSpreadsheet")).toHaveCSS("color", "rgb(143, 249, 156)");
+  await expect(chipIcon(page, /^All, \d+ documents$/, "Files")).toHaveCSS("color", "rgb(156, 163, 175)");
+  await page.screenshot({ path: `${shots}/harness-chips.png` });
   await page.getByRole("button", { name: "Turn card", exact: true }).click();
   await expect(cardFrame.locator('[data-icon="FileSpreadsheet"]')).toHaveCSS("color", "rgb(143, 249, 156)");
   await page.getByRole("button", { name: "Checkout card", exact: true }).click();
@@ -855,6 +866,8 @@ try {
   await page.goto(`http://127.0.0.1:${port}`);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(rowIcon(/^report\.pdf, PDF, /, "FileText")).toHaveCSS("color", "rgb(156, 163, 175)");
+  await expect(chipIcon(page, /^PDF, \d+ documents$/, "FileText")).toHaveCSS("color", "rgb(156, 163, 175)");
+  await page.screenshot({ path: `${shots}/harness-chips-colors-off.png` });
   await fetch(`http://127.0.0.1:${port}/settings?kindColors=1`);
   await page.goto(`http://127.0.0.1:${port}`);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
@@ -942,6 +955,8 @@ try {
   await expect(viewButton("Preview view")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: /^report\.pdf, PDF, / })).toBeVisible();
   await expect(page.getByRole("button", { name: /^report\.pdf, PDF, / }).locator("img")).toHaveCount(0);
+  await expect(chipIcon(page, /^PDF, \d+ documents$/, "FileText")).toBeVisible();
+  expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(230);
   await page.screenshot({ path: `${shots}/harness-sidebar-previews.png` });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://127.0.0.1:${port}/?compact`);
@@ -959,6 +974,6 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await viewButton("List view").click();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide, thumbnails and stepper only once shown, phone fit), kind colors and their setting, view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns).");
   console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { clearTimeout(watchdog); await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }

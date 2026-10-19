@@ -217,11 +217,18 @@ const STATUS_PILL = {
   opened: { icon: "Eye", label: "Opened", short: "Opened", tone: "foregroundMuted" },
 } as const;
 
+export type PillStatus = keyof typeof STATUS_PILL;
+
+export function statusIcon(theme: PluginTheme, status: PillStatus): { name: string; color: string } {
+  const pill = STATUS_PILL[status];
+  return { name: pill.icon, color: theme.colors[pill.tone] };
+}
+
 // Review status as an icon and label on a tint of the status color. The tint is the color itself
 // at low opacity, since the theme has no tinted tokens. The label stays in the foreground color:
 // 12 px text in the status colors falls under 4.5:1 on several built-in themes.
 export function StatusPill({ theme, styles, status, label = "full" }: ChromeProps & {
-  status: keyof typeof STATUS_PILL; label?: "full" | "short" | "none";
+  status: PillStatus; label?: "full" | "short" | "none";
 }) {
   const pill = STATUS_PILL[status];
   const color = theme.colors[pill.tone];

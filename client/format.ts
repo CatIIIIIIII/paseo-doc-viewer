@@ -109,6 +109,16 @@ export const GROUP_LABEL: { readonly [G in DocumentGroup]: string } = {
   audio: "Audio",
 };
 
+export const GROUP_ICON: { readonly [G in DocumentGroup]: string } = {
+  pdf: "FileText",
+  word: "FileType",
+  excel: "FileSpreadsheet",
+  powerpoint: "Presentation",
+  image: "FileImage",
+  video: "FileVideoCamera",
+  audio: "FileAudio",
+};
+
 export const GROUP_FILES: { readonly [G in DocumentGroup]: string } = {
   pdf: "PDF files",
   word: "Word files",
