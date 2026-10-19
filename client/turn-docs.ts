@@ -1,5 +1,6 @@
 import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
-import type { TurnDocs } from "../shared/turn-docs";
+import { revisionModifiedAt } from "../shared/revision";
+import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
 
 // "Changed while this turn ran", never "written by this agent": the card comes from file times,
 // so another agent or the user editing the same workspace shows up here too.
@@ -22,3 +23,19 @@ export const TURN_CARDS_SETTING_HINT = "Turn these cards off in Settings, Docume
 export const TURN_THUMBNAIL_SIZE = { compact: 36, wide: 40 } as const;
 
 export const hasThumbnail = (kind: DocumentKind) => KIND_REGISTRY[kind].rpcs.includes("doc.thumbnail");
+
+export type TurnFilePill = "new" | "changed" | "opened";
+
+export function turnFilePill(file: Pick<TurnDocsFile, "status" | "revision">, opened: string | undefined): TurnFilePill {
+  if (opened === undefined) return file.status;
+  if (opened === file.revision) return "opened";
+  const openedAt = revisionModifiedAt(opened);
+  const changedAt = revisionModifiedAt(file.revision);
+  return openedAt !== null && changedAt !== null && openedAt >= changedAt ? "opened" : file.status;
+}
+
+export const TURN_FILE_PILL = {
+  new: { status: "new", spoken: "new" },
+  changed: { status: "modified", spoken: "changed during this turn" },
+  opened: { status: "opened", spoken: "opened since this turn" },
+} as const satisfies Record<TurnFilePill, { status: string; spoken: string }>;

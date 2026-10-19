@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createTurnDocs, type TurnDocsHost } from "../server/turn-docs";
-import { turnDocsNote, turnDocsTitle } from "../client/turn-docs";
+import { sharedOpenedMarks } from "../client/opened-marks";
+import { turnDocsNote, turnDocsTitle, turnFilePill } from "../client/turn-docs";
+import { documentRevision } from "../shared/revision";
 import {
   changedDuringTurn,
   TIMELINE_DATA_MAX_BYTES,
@@ -88,6 +90,33 @@ describe("card labels", () => {
     expect(turnDocsTitle({ files: [{} as TurnDocsFile, {} as TurnDocsFile], moreCount: 3 })).toBe("5 documents changed while this turn ran");
     expect(turnDocsNote({ outcome: "completed", partial: false })).toBeNull();
     expect(turnDocsNote({ outcome: "canceled", partial: true })).toBe("Turn was stopped · Large workspace: only part of it was scanned");
+  });
+});
+
+describe("card row pill", () => {
+  const atTurn = documentRevision(100, T0, T0);
+  const row = (status: "new" | "changed") => ({ status, revision: atTurn });
+
+  it("keeps the turn's verdict until the file is opened at the card's revision or a later one", () => {
+    expect(turnFilePill(row("new"), undefined)).toBe("new");
+    expect(turnFilePill(row("changed"), undefined)).toBe("changed");
+    expect(turnFilePill(row("new"), atTurn)).toBe("opened");
+    expect(turnFilePill(row("changed"), documentRevision(120, T0 + 5_000, T0 + 5_000))).toBe("opened");
+    expect(turnFilePill(row("new"), documentRevision(90, T0 - 5_000, T0 - 5_000))).toBe("new");
+    expect(turnFilePill(row("changed"), "not-a-revision")).toBe("changed");
+  });
+
+  it("hears marks through one emitter per global object, and stops after unsubscribing", () => {
+    const global = {};
+    const marks = sharedOpenedMarks(global);
+    expect(sharedOpenedMarks(global)).toBe(marks);
+    expect(sharedOpenedMarks({})).not.toBe(marks);
+    const heard: string[] = [];
+    const stop = marks.subscribe((event) => heard.push(`${event.workspaceId}:${event.path}`));
+    marks.notify({ workspaceId: "w", path: "a.pdf" });
+    stop();
+    marks.notify({ workspaceId: "w", path: "b.pdf" });
+    expect(heard).toEqual(["w:a.pdf"]);
   });
 });
 

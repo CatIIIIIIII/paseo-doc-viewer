@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { errorText } from "../shared/errors";
 import { viewerStateOpenedRpc, viewerStatePinRpc, viewerStateReadRpc, viewerStateReviewRpc, type ViewerStateReadOutput } from "../shared/rpc";
+import { openedMarks } from "./opened-marks";
 import { viewerMarksQueryKey } from "./queries";
 
 // Pins and the review mark for one document; positions keep their own read in useViewerPosition.
@@ -65,7 +66,10 @@ export function useOpenedMark(workspaceId: string, path: string, revision: strin
     if (sent.current === document) return;
     sent.current = document;
     mark({ workspaceId, path, revision }).then(
-      ({ marked }) => { if (marked) void queryClient.invalidateQueries({ queryKey: ["docs.recent", workspaceId] }); },
+      ({ marked }) => {
+        if (marked) void queryClient.invalidateQueries({ queryKey: ["docs.recent", workspaceId] });
+        openedMarks.notify({ workspaceId, path });
+      },
       () => {},
     );
   }, [mark, queryClient, workspaceId, path, revision]);

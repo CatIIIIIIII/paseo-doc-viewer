@@ -1,11 +1,12 @@
 import type { PluginClientContext, PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Image, PixelRatio, Pressable, Text, View } from "react-native";
-import { docThumbnailRpc } from "../shared/rpc";
+import { docThumbnailRpc, viewerStateOpenedRevisionsRpc } from "../shared/rpc";
 import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
-import { hasThumbnail, TURN_CARDS_SETTING_HINT, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle } from "./turn-docs";
+import { hasThumbnail, TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir } from "./format";
+import { openedMarks } from "./opened-marks";
 import { DOCUMENTS_PANEL_ID, documentScreen, SETTINGS_SCREEN_ID } from "./recent";
 import { createThumbnailLoader, pageThumbnailKey, thumbnailCache, type ThumbnailLoader, type ThumbnailState, thumbnailWidth } from "./thumbnails";
 import { makeStyles, StatusPill, ToolbarButton, type Styles } from "./ui";
@@ -22,6 +23,7 @@ export function createTurnDocsCard(client: CardClient) {
     const styles = useMemo(() => makeStyles(theme, layout.compact), [theme, layout.compact]);
     const size = layout.compact ? TURN_THUMBNAIL_SIZE.compact : TURN_THUMBNAIL_SIZE.wide;
     const thumbnails = useCardThumbnails(client, data, thumbnailWidth(size, Math.min(MAX_THUMBNAIL_PIXEL_RATIO, PixelRatio.get())));
+    const opened = useOpenedRevisions(client, data);
     const [settingsFailed, setSettingsFailed] = useState(false);
     const note = turnDocsNote(data);
     // The host throws when it cannot open the screen; an exception in a press handler is fatal on native.
@@ -46,6 +48,7 @@ export function createTurnDocsCard(client: CardClient) {
             key={file.path}
             file={file}
             thumbnail={thumbnails?.state(index)}
+            pill={turnFilePill(file, opened[file.path])}
             size={size}
             styles={styles}
             theme={theme}
@@ -122,6 +125,32 @@ function useCardThumbnails(client: CardClient, data: TurnDocs, width: number): T
   return loader;
 }
 
+function useOpenedRevisions(client: CardClient, data: TurnDocs): Readonly<Record<string, string>> {
+  const [opened, setOpened] = useState<Readonly<Record<string, string>>>({});
+  const latest = useRef(0);
+  const paths = data.files.map((file) => file.path);
+  const identity = paths.join("\0");
+  useEffect(() => {
+    if (paths.length === 0) return;
+    const read = () => {
+      const request = ++latest.current;
+      client.rpc(viewerStateOpenedRevisionsRpc, { workspaceId: data.workspaceId, paths }).then(
+        (answer) => { if (request === latest.current) setOpened(answer.opened); },
+        () => {},
+      );
+    };
+    read();
+    const stop = openedMarks.subscribe((event) => {
+      if (event.workspaceId === data.workspaceId && paths.includes(event.path)) read();
+    });
+    return () => {
+      latest.current++;
+      stop();
+    };
+  }, [data.workspaceId, identity]);
+  return opened;
+}
+
 function FileThumbnail({ file, state, size, theme }: { file: TurnDocsFile; state: ThumbnailState | undefined; size: number; theme: Theme }) {
   const image = state?.status === "ready" ? state.image : null;
   return (
@@ -137,11 +166,11 @@ function FileThumbnail({ file, state, size, theme }: { file: TurnDocsFile; state
   );
 }
 
-function FileRow({ file, thumbnail, size, styles, theme, onOpen }: {
-  file: TurnDocsFile; thumbnail: ThumbnailState | undefined; size: number; styles: Styles; theme: Theme; onOpen(): void;
+function FileRow({ file, thumbnail, pill, size, styles, theme, onOpen }: {
+  file: TurnDocsFile; thumbnail: ThumbnailState | undefined; pill: TurnFilePill; size: number; styles: Styles; theme: Theme; onOpen(): void;
 }) {
   const folder = parentDir(file.path);
-  const status = file.status === "new" ? "new" : "changed during this turn";
+  const { status, spoken } = TURN_FILE_PILL[pill];
   return (
     <View
       accessible={false}
@@ -153,7 +182,7 @@ function FileRow({ file, thumbnail, size, styles, theme, onOpen }: {
           <Text style={[styles.text, { flexShrink: 1 }]} numberOfLines={1}>
             {baseName(file.path)}
           </Text>
-          <StatusPill theme={theme} styles={styles} status={file.status === "new" ? "new" : "modified"} label="short" />
+          <StatusPill theme={theme} styles={styles} status={status} label="short" />
         </View>
         <Text style={styles.muted} numberOfLines={1}>
           {folder ? `${folder} · ` : ""}
@@ -164,7 +193,7 @@ function FileRow({ file, thumbnail, size, styles, theme, onOpen }: {
         theme={theme}
         styles={styles}
         label="Open"
-        accessibilityLabel={`Open ${file.path}, ${KIND_LABEL[file.kind]}, ${status}`}
+        accessibilityLabel={`Open ${file.path}, ${KIND_LABEL[file.kind]}, ${spoken}`}
         onPress={onOpen}
       />
     </View>

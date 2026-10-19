@@ -214,6 +214,7 @@ const STATUS_PILL = {
   changed: { icon: "TriangleAlert", label: "Changed since review", short: "Changed", tone: "statusWarning" },
   new: { icon: "Sparkles", label: "New", short: "New", tone: "accent" },
   modified: { icon: "Pencil", label: "Changed", short: "Changed", tone: "foregroundMuted" },
+  opened: { icon: "Eye", label: "Opened", short: "Opened", tone: "foregroundMuted" },
 } as const;
 
 // Review status as an icon and label on a tint of the status color. The tint is the color itself
