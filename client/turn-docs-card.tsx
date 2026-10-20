@@ -1,13 +1,12 @@
 import type { PluginClientContext, PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
-import { viewerStateOpenedRevisionsRpc } from "../shared/rpc";
 import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
 import { createCardThumbnails } from "./card-thumbnails";
 import { TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir } from "./format";
-import { openedMarks } from "./opened-marks";
+import { watchOpenedRevisions } from "./opened-marks";
 import { DOCUMENTS_PANEL_ID, documentScreen, SETTINGS_SCREEN_ID } from "./recent";
 import type { ThumbnailLoader, ThumbnailState } from "./thumbnails";
 import { makeStyles, StatusPill, ToolbarButton, type Styles } from "./ui";
@@ -121,27 +120,9 @@ function useCardThumbnails(client: CardClient, data: TurnDocs): ThumbnailLoader 
 
 function useOpenedRevisions(client: CardClient, data: TurnDocs): Readonly<Record<string, string>> {
   const [opened, setOpened] = useState<Readonly<Record<string, string>>>({});
-  const latest = useRef(0);
   const paths = data.files.map((file) => file.path);
   const identity = paths.join("\0");
-  useEffect(() => {
-    if (paths.length === 0) return;
-    const read = () => {
-      const request = ++latest.current;
-      client.rpc(viewerStateOpenedRevisionsRpc, { workspaceId: data.workspaceId, paths }).then(
-        (answer) => { if (request === latest.current) setOpened(answer.opened); },
-        () => {},
-      );
-    };
-    read();
-    const stop = openedMarks.subscribe((event) => {
-      if (event.workspaceId === data.workspaceId && paths.includes(event.path)) read();
-    });
-    return () => {
-      latest.current++;
-      stop();
-    };
-  }, [data.workspaceId, identity]);
+  useEffect(() => watchOpenedRevisions(client, data.workspaceId, paths, setOpened), [data.workspaceId, identity]);
   return opened;
 }
 

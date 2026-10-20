@@ -1,3 +1,6 @@
+import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { viewerStateOpenedRevisionsRpc } from "../shared/rpc";
+
 // Like the visits memory it hangs off the global object, so a bundle re-evaluated on reconnect keeps
 // the cards' subscriptions.
 
@@ -32,3 +35,31 @@ export function sharedOpenedMarks(global: object = globalThis): OpenedMarks {
 }
 
 export const openedMarks = sharedOpenedMarks();
+
+// Reads the revision each file was last opened at, and again when one of them is opened on this
+// client. Only the latest read is passed on, and nothing after the returned stop.
+export function watchOpenedRevisions(
+  client: Pick<PluginClientContext, "rpc">,
+  workspaceId: string,
+  paths: readonly string[],
+  onChange: (opened: Readonly<Record<string, string>>) => void,
+  marks: OpenedMarks = openedMarks,
+): () => void {
+  if (paths.length === 0) return () => {};
+  let latest = 0;
+  const read = () => {
+    const request = ++latest;
+    client.rpc(viewerStateOpenedRevisionsRpc, { workspaceId, paths: [...paths] }).then(
+      (answer) => { if (request === latest) onChange(answer.opened); },
+      () => {},
+    );
+  };
+  read();
+  const stop = marks.subscribe((event) => {
+    if (event.workspaceId === workspaceId && paths.includes(event.path)) read();
+  });
+  return () => {
+    latest++;
+    stop();
+  };
+}
