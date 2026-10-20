@@ -1446,7 +1446,7 @@ try {
   await page.screenshot({ path: `${shots}/harness-open-chooser.png` });
   await page.getByRole("button", { name: "Side by side, next to the chat", exact: true }).click();
   await expect(page.getByText("Documents open side by side from now on. Change it in Settings, Document viewer.", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "OK", exact: true }).click();
   await expect(page.getByText(/^Documents open side by side/)).toHaveCount(0);
   await page.goto(`http://127.0.0.1:${port}`);
   await expect(page.getByRole("button", { name: "Download original", exact: true })).toBeVisible();

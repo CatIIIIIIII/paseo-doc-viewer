@@ -33,7 +33,7 @@ export function OpenChooser({ theme, styles }: { theme: PluginTheme; styles: Sty
         <Text style={[styles.muted, { flex: 1, fontSize: 13 }]}>
           {saved === "failed" ? "Could not save the choice. Set it in Settings, Document viewer." : `${SAVED_TEXT[saved]} Change it in Settings, Document viewer.`}
         </Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={styles.hitSlop} onPress={() => setSaved(null)}
+        <Pressable accessibilityRole="button" accessibilityLabel="OK" hitSlop={styles.hitSlop} onPress={() => setSaved(null)}
           style={{ paddingHorizontal: 10, height: styles.controlSize, justifyContent: "center", borderRadius: 6, borderWidth: 1, borderColor: theme.colors.border }}>
           <Text style={[styles.text, { fontSize: 13 }]}>OK</Text>
         </Pressable>
