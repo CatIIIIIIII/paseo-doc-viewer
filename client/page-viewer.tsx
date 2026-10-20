@@ -7,7 +7,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, type ImageStyle, type LayoutChangeEvent, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Image, type ImageStyle, type LayoutChangeEvent, Platform, ScrollView, Text, View } from "react-native";
 import { docPageRpc, docTextRpc, mediaChunkRpc, type DocPageOutput, type DocTextOutput } from "../shared/rpc";
 import { type ImageAnimation, animationFormat, loadAnimation } from "./animation";
 import {
@@ -295,8 +295,8 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   );
 }
 
-// Phones show `< n / N >`. Wider layouts keep the page chips
-// between previous and next, and scroll the current chip into view.
+// Phones show `< n / N >`. Wider layouts keep the page chips between previous and next, and scroll the
+// current chip into view.
 function PageStrip({ active, count, noun, theme, styles, onChange }: {
   active: number; count: number; noun: string; theme: PluginTheme; styles: Styles; onChange(index: number): void;
 }) {

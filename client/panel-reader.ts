@@ -1,7 +1,5 @@
-// One store per plugin client, shared by its panel and document-opening actions. The client is bound to
-// one host, so a workspace id names one workspace here.
-// Keep the selected document when switching tabs or temporarily unmounting the panel.
-// `siblings` is the encoded documentScreen param, so the embedded reader keeps Previous and Next.
+// The document each workspace's Documents panel shows, kept per plugin client (one host) so it survives
+// tab switches and unmounts, and set by the openers too. `siblings` is the encoded documentScreen param.
 export interface PanelSelection {
   path: string;
   siblings?: string;

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DocumentScreen } from "../../client/document-screen";
 import { createDocumentsPanel } from "../../client/documents-panel";
 import { setHostClient } from "../../client/host-client";
+import { createPanelReader } from "../../client/panel-reader";
 import { ReviewScreen } from "../../client/review-screen";
 import { createTurnDocsCard, legacyTurnDocsCard } from "../../client/turn-docs-card";
 import { callRpc, recordCall } from "./plugin-shim";
@@ -60,7 +61,7 @@ function App() {
   useEffect(() => { void fetch("/turn-docs-checkout").then((response) => response.json()).then(setCheckoutDocs); }, []);
   const [opened, setOpened] = useState(true);
   const [browsing, setBrowsing] = useState(false);
-  const [Panel] = useState(() => createDocumentsPanel((input) => { (window as any).__openedScreen = input; setPath(input.params!.path!); setSiblings(input.params!.siblings); setBrowsing(false); setOpened(true); }));
+  const [Panel] = useState(() => createDocumentsPanel((input) => { (window as any).__openedScreen = input; setPath(input.params!.path!); setSiblings(input.params!.siblings); setBrowsing(false); setOpened(true); }, createPanelReader()));
   const [screen, setScreen] = useState("document");
   useEffect(() => {
     openScreen = (input) => {

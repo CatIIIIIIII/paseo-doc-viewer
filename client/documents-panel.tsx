@@ -25,7 +25,7 @@ import { siblingWindow } from "./siblings";
 import { TipsCard, TipsLink, useTips } from "./tips-card";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, statusIcon, type Styles, ToolbarButton } from "./ui";
 import { DocumentScreen } from "./document-screen";
-import { createPanelReader, type PanelReader, type PanelSelection } from "./panel-reader";
+import type { PanelReader, PanelSelection } from "./panel-reader";
 import { useBottomInset } from "./use-bottom-inset";
 import { useKindPalette } from "./use-kind-colors";
 import { documentsVisits } from "./visits";
@@ -34,7 +34,7 @@ import { onWindowFocus } from "./web";
 const SEARCH_DEBOUNCE_MS = 250;
 const SWITCH_LABELS_MIN_WIDTH = 600;
 const SWITCH_INLINE_MIN_WIDTH = 360;
-// Narrower than this, as in the explorer, the embedded reader takes the phone toolbar so it fits.
+// Narrower than this, as in the explorer, the reader keeps one toolbar row with the rest behind More.
 const READER_COMPACT_MAX_WIDTH = 480;
 const NO_GROUPS: ReadonlySet<DocumentGroup> = new Set();
 const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
@@ -71,7 +71,7 @@ function useDebounced<T>(value: T, delayMs: number): T {
 
 // Documents reads every file in place; the list stays mounted under the reader, so Back finds its filters,
 // view, folders and scroll as they were. Open in tab hands the document to the standalone screen.
-export function createDocumentsPanel(openTab: (input: PluginOpenScreenInput) => void, reader: PanelReader = createPanelReader()) {
+export function createDocumentsPanel(openTab: (input: PluginOpenScreenInput) => void, reader: PanelReader) {
   return function DocumentsPanel(props: PluginWorkspacePanelProps) {
     const { ref, onLayout, bottomInset } = useBottomInset();
     const styles = useMemo(() => makeStyles(props.theme, props.layout.compact, bottomInset), [props.theme, props.layout.compact, bottomInset]);
@@ -88,7 +88,6 @@ export function createDocumentsPanel(openTab: (input: PluginOpenScreenInput) => 
       const path = input.params?.path;
       if (path) reader.select(props.workspaceId, { path, siblings: input.params?.siblings });
     }, [props.workspaceId]);
-    const screen = selection ? panelDocument(props.workspaceId, selection) : null;
     const queryClient = useQueryClient();
     // Marks set in the reader (reviewed, opened) show at once, not at the list's next poll.
     const back = () => {
@@ -106,7 +105,7 @@ export function createDocumentsPanel(openTab: (input: PluginOpenScreenInput) => 
             <DocumentsList {...props} styles={styles} openScreen={open} />
           </View>
         ) : null}
-        {selection && screen ? (
+        {selection ? (
           <>
             <View style={styles.toolbar}>
               <ToolbarButton theme={props.theme} styles={styles} icon="ChevronLeft" label="Documents"
@@ -116,10 +115,10 @@ export function createDocumentsPanel(openTab: (input: PluginOpenScreenInput) => 
                 {parentDir(selection.path) ? <Text style={styles.muted}>{`  ${parentDir(selection.path)}`}</Text> : null}
               </Text>
               <ToolbarButton theme={props.theme} styles={styles} icon="ExternalLink" label={narrow || props.layout.compact ? undefined : "Open in tab"}
-                accessibilityLabel="Open in tab" onPress={() => openTab(screen)} />
+                accessibilityLabel="Open in tab" onPress={() => openTab({ screenId: DOCUMENT_SCREEN_ID, params: selectionParams(props.workspaceId, selection) })} />
             </View>
             <DocumentScreen key={`${props.workspaceId}\0${selection.path}`} host={props.host} theme={props.theme} layout={readerLayout} phone={props.layout.compact} openDocument={open}
-              params={screen.params ?? {}} />
+              params={selectionParams(props.workspaceId, selection)} />
           </>
         ) : null}
       </View>
@@ -127,8 +126,8 @@ export function createDocumentsPanel(openTab: (input: PluginOpenScreenInput) => 
   };
 }
 
-function panelDocument(workspaceId: string, { path, siblings }: PanelSelection): PluginOpenScreenInput {
-  return { screenId: DOCUMENT_SCREEN_ID, params: siblings ? { workspaceId, path, siblings } : { workspaceId, path } };
+function selectionParams(workspaceId: string, { path, siblings }: PanelSelection): Record<string, string> {
+  return siblings ? { workspaceId, path, siblings } : { workspaceId, path };
 }
 
 // The previous time Documents was opened here, or null the first time; undefined until known.

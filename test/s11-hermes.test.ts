@@ -80,7 +80,7 @@ var opened = [];
 var context = {
   args: "", context: "workspace", workspace: { id: "ws" },
   openScreen: function (input) { opened.push(input); }, openPanel: noop,
-  rpc: function () { return Promise.resolve({ entries: [{ path: "a.pdf", kind: "pdf", mtimeMs: 1, size: 1 }, { path: "b/new.docx", kind: "docx", mtimeMs: 9, size: 1 }], truncated: false }); }
+  rpc: function () { return Promise.resolve({ entries: [{ path: "a.pdf", kind: "pdf", mtimeMs: 1, size: 1 }, { path: "b/new.pdf", kind: "pdf", mtimeMs: 9, size: 1 }], truncated: false }); }
 };
 log(JSON.stringify({ step: "contribute", cleanup: typeof cleanup, screens: registered.screen.length, commands: registered.cc.length, panels: registered.panel.length, slash: registered.slash.length, timeline: registered.timeline.map(function (c) { return c.kind + "@" + c.version; }), settings: registered.settings.length, title: registered.screen[0].title({ path: "report/main.pdf" }) }));
 // setTimeout is stubbed, so let the header probe's promise chain settle before reading buttons.
@@ -109,7 +109,7 @@ describe("S11: client bundle runs on the Hermes VM", () => {
     const steps = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
     expect(steps).toEqual([
       { step: "contribute", cleanup: "function", screens: 2, commands: 3, panels: 1, slash: 1, timeline: ["turn-docs@1", "turn-docs@2"], settings: 1, title: "main.pdf · report" },
-      { step: "slash", opened: [{ screenId: "document", params: { workspaceId: "ws", path: "b/new.docx" } }], headerButtons: ["ws:FileText"] },
+      { step: "slash", opened: [{ screenId: "document", params: { workspaceId: "ws", path: "b/new.pdf" } }], headerButtons: ["ws:FileText"] },
     ]);
   }, 120_000);
 });

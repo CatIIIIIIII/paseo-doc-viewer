@@ -1,7 +1,9 @@
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
-import type { PluginOpenScreenInput } from "@getpaseo/plugin/client";
+import type { PluginClientOpenPanelOptions, PluginOpenScreenInput } from "@getpaseo/plugin/client";
 import { useEffect, useState } from "react";
 import { viewerSettings, viewerSettingsRpc } from "../shared/settings";
+import type { PanelReader } from "./panel-reader";
+import { DOCUMENT_SCREEN_ID, DOCUMENTS_PANEL_ID } from "./recent";
 
 export type OpenPreference = "auto" | "side" | "full";
 // The Open documents setting as the daemon holds it: "unset" until the first-open chooser is answered.
@@ -106,3 +108,44 @@ export function useOpenChoice(read: ReadSettings): OpenChoice | undefined {
 
 // Openers that render (turn cards) pass their layout; commands and /doc have none and go by the window.
 export type DocumentOpener = (input: PluginOpenScreenInput, layout?: { compact: boolean }) => void;
+
+export interface OpenHost {
+  openScreen(input: PluginOpenScreenInput): void;
+  openPanel(id: string, options: PluginClientOpenPanelOptions): void;
+  readSettings: ReadSettings;
+  windowWidth(): number;
+}
+
+export function createDocumentRouting(host: OpenHost, reader: PanelReader) {
+  const openDocument: DocumentOpener = (input, layout) => {
+    const { workspaceId, path, siblings } = input.params ?? {};
+    if (input.screenId !== DOCUMENT_SCREEN_ID || !workspaceId || !path) {
+      host.openScreen(input);
+      return;
+    }
+    const windowWidth = host.windowWidth();
+    const compact = layout?.compact ?? windowWidth < COMPACT_WINDOW_MAX;
+    const route = (known: OpenChoice | undefined) => {
+      const target = openTarget({ compact, panelVisible: reader.visible(workspaceId), choice: known, windowWidth });
+      if (target === "screen") {
+        host.openScreen(input);
+      } else {
+        reader.select(workspaceId, { path, siblings });
+        if (target === "explorer") host.openPanel(DOCUMENTS_PANEL_ID, { workspaceId, location: "explorer" });
+      }
+    };
+    // A phone needs no choice. Elsewhere one already known keeps the press immediate, and the read picks up
+    // a change made on another client.
+    const known = openPreference.current();
+    if (compact) return route(known);
+    const reading = openPreference.read(host.readSettings);
+    if (known !== undefined) route(known);
+    else void reading.then(route);
+  };
+  // Show documents means the list, not the last document read there.
+  const showDocuments = (workspaceId: string) => {
+    reader.select(workspaceId, null);
+    host.openPanel(DOCUMENTS_PANEL_ID, { workspaceId });
+  };
+  return { openDocument, showDocuments };
+}

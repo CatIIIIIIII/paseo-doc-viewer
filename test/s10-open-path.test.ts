@@ -29,7 +29,8 @@ function hostStub(): object {
         if (key === "__esModule") return true;
         if (key === "Platform") return { OS: "ios", select: (options: Record<string, unknown>) => options.ios ?? options.default };
         if (key === "StyleSheet") return { create: <T>(styles: T) => styles };
-        if (key === "Dimensions") return { get: () => ({ width: 1440, height: 900 }) };
+        // Under 1,100 pt, where Auto opens a document in its own tab.
+        if (key === "Dimensions") return { get: () => ({ width: 1000, height: 800 }) };
         return () => null;
       },
     },
@@ -50,7 +51,7 @@ interface Registered {
   icons: string[];
 }
 
-async function loadClient(openPanel: (...args: unknown[]) => void = () => {}): Promise<Registered> {
+async function loadClient(client: Record<string, unknown> = {}): Promise<Registered> {
   const bundle = await compileLikePaseo("client");
   const host: Record<string, unknown> = {
     react,
@@ -88,7 +89,7 @@ async function loadClient(openPanel: (...args: unknown[]) => void = () => {}): P
           return { update() {}, remove() {} };
         },
         paseo: { workspaces: { list: async () => ({ entries: [], subscription }) } },
-        openPanel,
+        ...client,
       },
       { get: (target, key) => (key in target ? target[key as keyof typeof target] : record([])) },
     ),
@@ -107,26 +108,23 @@ describe("S10: open a document by path despite the missing Files-tree hook", () 
   });
 
   it("S10: a workspace Command Center item opens the most recently changed document in one tap", async () => {
-    const clientOpenPanel = vi.fn();
-    const { commands } = await loadClient(clientOpenPanel);
+    const openScreen = vi.fn();
+    const { commands } = await loadClient({ openScreen });
     const command = commands.find((candidate) => candidate.context === "workspace");
     expect(command, "workspace command center item").toBeDefined();
 
-    const openScreen = vi.fn();
     const rpc = vi.fn(async (contract: { name: string }) => {
       if (contract.name !== "docs.recent") throw new Error(`unexpected rpc ${contract.name}`);
       return {
         entries: [
-          { path: "build/main.pdf", kind: "pdf", mtimeMs: 1, size: 10 },
-          { path: "notes.docx", kind: "docx", mtimeMs: 3, size: 10 },
+          { path: "build/main.pdf", kind: "pdf", mtimeMs: 3, size: 10 },
+          { path: "notes.docx", kind: "docx", mtimeMs: 1, size: 10 },
         ],
         truncated: false,
       };
     });
     await command!.onSelect({ context: "workspace", workspace: { id: "ws-1" }, rpc, openScreen, openPanel: vi.fn() });
-    // On a wide window with no Documents on screen, auto opens it side by side, for every kind.
-    await vi.waitFor(() => expect(clientOpenPanel).toHaveBeenCalledWith("documents", { workspaceId: "ws-1", location: "explorer" }));
-    expect(openScreen).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(openScreen).toHaveBeenCalledWith({ screenId: "document", params: { workspaceId: "ws-1", path: "build/main.pdf" } }));
   });
 
   it.skipIf(!LUCIDE_ICONS)(

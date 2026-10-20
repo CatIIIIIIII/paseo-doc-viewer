@@ -14,7 +14,7 @@ export function PageNavigation({ active, count, theme, styles, onChange }: {
   const submit = () => {
     editing.current = false;
     const value = draft.trim();
-    if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+    if (!/^\d+$/.test(value)) {
       setDraft(String(active + 1));
       return;
     }

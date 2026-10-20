@@ -1,6 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { Dimensions } from "react-native";
-import { COMPACT_WINDOW_MAX, type DocumentOpener, type OpenChoice, openPreference, openTarget } from "./client/open-target";
+import { createDocumentRouting, type DocumentOpener } from "./client/open-target";
 import { viewerSettingsRpc } from "./shared/settings";
 import { createPanelReader } from "./client/panel-reader";
 import { DocumentScreen } from "./client/document-screen";
@@ -18,36 +18,12 @@ import { TURN_DOCS_KIND, turnDocsSchema, turnDocsV1Schema } from "./shared/turn-
 export default function contribute(client: PluginClientContext) {
   setHostClient(client);
   const reader = createPanelReader();
-  const readSettings = () => client.rpc(viewerSettingsRpc.read, {});
-  const openDocument: DocumentOpener = (input, layout) => {
-    const { workspaceId, path, siblings } = input.params ?? {};
-    if (input.screenId !== DOCUMENT_SCREEN_ID || !workspaceId || !path) {
-      client.openScreen(input);
-      return;
-    }
-    const windowWidth = Dimensions.get("window").width;
-    const compact = layout?.compact ?? windowWidth < COMPACT_WINDOW_MAX;
-    const route = (choice: OpenChoice | undefined) => {
-      const target = openTarget({ compact, panelVisible: reader.visible(workspaceId), choice, windowWidth });
-      if (target === "screen") {
-        client.openScreen(input);
-        return;
-      }
-      reader.select(workspaceId, { path, siblings });
-      if (target === "explorer") client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId, location: "explorer" });
-    };
-    // A choice already known keeps the press immediate, and phones need none; the read picks up a change
-    // made on another client.
-    const known = openPreference.current();
-    const reading = openPreference.read(readSettings);
-    if (known !== undefined || compact) route(known);
-    else void reading.then(route);
-  };
-  // Show documents means the list, not the last document read there.
-  const showDocuments = (workspaceId: string) => {
-    reader.select(workspaceId, null);
-    client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId });
-  };
+  const { openDocument, showDocuments } = createDocumentRouting({
+    openScreen: (input) => client.openScreen(input),
+    openPanel: (id, options) => client.openPanel(id, options),
+    readSettings: () => client.rpc(viewerSettingsRpc.read, {}),
+    windowWidth: () => Dimensions.get("window").width,
+  }, reader);
   const cleanups = [
     client.addScreen({ id: DOCUMENT_SCREEN_ID, title: documentTitle, Component: DocumentScreen }),
     client.addCommandCenterItem({
