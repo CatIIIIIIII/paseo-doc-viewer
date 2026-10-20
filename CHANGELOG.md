@@ -31,6 +31,7 @@
 ### Fixed
 
 - A backslash in a file name (allowed on macOS and Linux) no longer splits it into a folder and a name in titles and Documents.
+- Times in Documents ("5 min ago") are read again when the window gets focus or the app comes to the front, instead of waiting for the next minute tick, which a hidden window or a background app does not run.
 
 ## 0.5.2 (2026-10-19)
 

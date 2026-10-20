@@ -7,6 +7,15 @@ declare const URL: { createObjectURL(blob: object): string; revokeObjectURL(url:
 
 export const canPlayMedia = Platform.OS === "web";
 
+declare const window: { addEventListener(type: "focus", listener: () => void): void; removeEventListener(type: "focus", listener: () => void): void };
+
+// The host gives panels no focus event; on the web the window has one. Native apps report through AppState.
+export function onWindowFocus(listener: () => void): () => void {
+  if (Platform.OS !== "web") return () => {};
+  window.addEventListener("focus", listener);
+  return () => window.removeEventListener("focus", listener);
+}
+
 export function createMediaUrl(parts: readonly Uint8Array[], mimeType: string): string | null {
   if (Platform.OS !== "web") return null;
   return URL.createObjectURL(new Blob(parts, { type: mimeType }));

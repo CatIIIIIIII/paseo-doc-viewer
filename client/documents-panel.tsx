@@ -3,7 +3,7 @@ import { FlatList, Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/r
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type LayoutChangeEvent, PixelRatio, Pressable, Text, View } from "react-native";
+import { AppState, type LayoutChangeEvent, PixelRatio, Pressable, Text, View } from "react-native";
 import type { DocumentView } from "../shared/documents-view";
 import { layoutClass } from "../shared/viewer-state";
 import { countGroups, type DocumentGroup, filterEntries, queryTerms } from "../shared/browse";
@@ -27,6 +27,7 @@ import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, statusI
 import { useBottomInset } from "./use-bottom-inset";
 import { useKindPalette } from "./use-kind-colors";
 import { documentsVisits } from "./visits";
+import { onWindowFocus } from "./web";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const SWITCH_LABELS_MIN_WIDTH = 600;
@@ -35,12 +36,22 @@ const NO_GROUPS: ReadonlySet<DocumentGroup> = new Set();
 const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
 const CLOCK_TICK_MS = 60_000;
 
-// Times read in minutes, so rows redraw once a minute instead of on every poll.
+// Times read in minutes, so rows redraw once a minute instead of on every poll. A timer does not run while the
+// window is hidden or the app is in the background, so the time is read again when either is back.
 function useClock(): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
-    return () => clearInterval(timer);
+    const tick = () => setNow(Date.now());
+    const timer = setInterval(tick, CLOCK_TICK_MS);
+    const app = AppState.addEventListener("change", (state) => {
+      if (state === "active") tick();
+    });
+    const unfocus = onWindowFocus(tick);
+    return () => {
+      clearInterval(timer);
+      app?.remove();
+      unfocus();
+    };
   }, []);
   return now;
 }

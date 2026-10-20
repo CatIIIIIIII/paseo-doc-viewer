@@ -14,6 +14,12 @@ export const PixelRatio = { get: () => 1 };
 export const Dimensions = { get: () => ({ width: 900, height: 700 }) };
 export const TurboModuleRegistry = { get: () => null };
 export const Keyboard = { addListener: () => ({ remove() {} }) };
+// As in React Native Web: "change" follows the page's visibility.
+export const AppState = { addEventListener: (_type: "change", handler: (state: "active" | "background") => void) => {
+  const changed = () => handler(document.visibilityState === "hidden" ? "background" : "active");
+  document.addEventListener("visibilitychange", changed);
+  return { remove: () => document.removeEventListener("visibilitychange", changed) };
+} };
 export const useWindowDimensions = () => ({ width: 900, height: 700 });
 // Views do not shrink by default in React Native, unlike CSS flex items.
 export const View = forwardRef<any, any>(function View({ children, style, onLayout, accessibilityLabel, accessibilityRole, pointerEvents, "aria-hidden": ariaHidden, ...props }, ref) {
