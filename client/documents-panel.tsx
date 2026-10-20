@@ -450,6 +450,7 @@ function ViewSwitch({
             accessibilityRole="button"
             accessibilityLabel={option.spoken}
             accessibilityState={{ selected }}
+            aria-pressed={selected}
             hitSlop={styles.hitSlop}
             onPress={() => onChange(option.view)}
             style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
@@ -494,6 +495,7 @@ function Chip({
       accessibilityRole="button"
       accessibilityLabel={`${label}, ${count} ${count === 1 ? "document" : "documents"}`}
       accessibilityState={{ selected }}
+      aria-pressed={selected}
       hitSlop={styles.hitSlop}
       onPress={onPress}
       style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
@@ -550,6 +552,7 @@ function GroupHeader({
         accessibilityRole="button"
         accessibilityLabel={`${label}, ${count}`}
         accessibilityState={{ expanded: !row.collapsed }}
+        aria-expanded={!row.collapsed}
         onPress={onToggle}
         style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8, paddingVertical: look.paddingVertical, minHeight }}
       >

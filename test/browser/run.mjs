@@ -531,7 +531,10 @@ try {
   await expect(page.getByRole("button", { name: /^(Needs review|All), / }).first()).toHaveAttribute("aria-label", "Needs review, 1 document");
   const chipIcon = (target, name, icon) => target.getByRole("button", { name, exact: typeof name === "string" }).locator(`[aria-hidden="true"] [data-icon="${icon}"]`);
   await expect(chipIcon(page, "Needs review, 1 document", "TriangleAlert")).toHaveCSS("color", "rgb(251, 191, 36)");
+  await expect(page.getByRole("button", { name: /^All, / })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Needs review, 1 document", exact: true })).toHaveAttribute("aria-pressed", "false");
   await page.getByRole("button", { name: "Needs review, 1 document", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Needs review, 1 document", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(1);
   await page.screenshot({ path: `${directory}/needs-review.png`, fullPage: true });
   await page.getByRole("button", { name: /^statement\.pdf, PDF, / }).click();
@@ -988,9 +991,15 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   const viewButton = (name) => page.getByRole("button", { name, exact: true });
   await expect(viewButton("List view")).toHaveAttribute("aria-pressed", "true");
+  await expect(viewButton("Details view")).toHaveAttribute("aria-pressed", "false");
+  const pdfHeader = page.getByRole("button", { name: /^PDF, \d+( of \d+)?$/ });
+  await expect(pdfHeader).toHaveAttribute("aria-expanded", "true");
+  await pdfHeader.click();
+  await expect(pdfHeader).toHaveAttribute("aria-expanded", "false");
+  await pdfHeader.click();
   await expect(viewButton("Details view")).toContainText("Details");
   const searchBox = await page.getByRole("textbox", { name: "Search documents", exact: true }).boundingBox();
-  const switchBox = await viewButton("Preview view").boundingBox();
+  const switchBox = await viewButton("Previews view").boundingBox();
   expect(Math.abs(switchBox.y + switchBox.height / 2 - (searchBox.y + searchBox.height / 2))).toBeLessThanOrEqual(1);
   expect(switchBox.x).toBeGreaterThan(searchBox.x + searchBox.width);
   await viewButton("Details view").click();
@@ -1020,7 +1029,7 @@ try {
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await page.screenshot({ path: `${shots}/harness-phone-details.png` });
   await viewButton("List view").click();
-  for (const option of ["List view", "Details view", "Preview view"]) {
+  for (const option of ["List view", "Details view", "Previews view"]) {
     await expect(viewButton(option)).not.toContainText(/List|Details|Previews/);
     expect((await viewButton(option).boundingBox()).height).toBeGreaterThanOrEqual(40);
   }
@@ -1039,13 +1048,13 @@ try {
   await viewButton("List view").click();
   await expect.poll(() => Boolean(heldWrite)).toBe(true);
   const previewsFrom = await rpcCallCount();
-  await viewButton("Preview view").click();
-  await expect(viewButton("Preview view")).toHaveAttribute("aria-pressed", "true");
+  await viewButton("Previews view").click();
+  await expect(viewButton("Previews view")).toHaveAttribute("aria-pressed", "true");
   await heldWrite.continue();
   await expect.poll(() => page.evaluate(() => window.__rpcCalls.filter((call) => call.method === "documents-view.write").slice(-2).map((call) => `${call.input.view} ${call.settled}`)))
     .toEqual(["list true", "previews true"]);
   await page.unroute("**/rpc", holdListWrite);
-  await expect(viewButton("Preview view")).toHaveAttribute("aria-pressed", "true");
+  await expect(viewButton("Previews view")).toHaveAttribute("aria-pressed", "true");
   const reportTile = page.getByRole("button", { name: /^report\.pdf, PDF, .*, \d+ pages?$/ });
   // A tile's picture is drawn once its thumbnail call is answered, and a busy answer is asked again later.
   await rpcAnswered(previewsFrom, "doc.thumbnail", { path: "report.pdf" });
@@ -1072,7 +1081,7 @@ try {
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("");
   await page.goto(`http://127.0.0.1:${port}/?width=230`);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
-  await expect(viewButton("Preview view")).toHaveAttribute("aria-pressed", "true");
+  await expect(viewButton("Previews view")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: /^report\.pdf, PDF, / })).toBeVisible();
   await expect(page.getByRole("button", { name: /^report\.pdf, PDF, / }).locator("img")).toHaveCount(0);
   await expect(chipIcon(page, /^PDF, \d+ documents$/, "FileText")).toBeVisible();
@@ -1082,7 +1091,7 @@ try {
   await page.goto(`http://127.0.0.1:${port}/?compact`);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   const sincePhonePreviews = await rpcCallCount();
-  await viewButton("Preview view").click();
+  await viewButton("Previews view").click();
   await rpcAnswered(sincePhonePreviews, "doc.thumbnail", { path: "report.pdf" });
   await expect(page.getByRole("button", { name: /^report\.pdf, PDF, / }).locator("img")).toBeVisible();
   const phoneTiles = await Promise.all(["report", "long"].map((name) => page.getByRole("button", { name: new RegExp(`^${name}\\.pdf, PDF, `) }).boundingBox()));
@@ -1165,7 +1174,7 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await viewButton("Tree view").click();
   const phoneSearch = await page.getByRole("textbox", { name: "Search documents", exact: true }).boundingBox();
-  for (const option of ["List view", "Details view", "Preview view", "Tree view"]) {
+  for (const option of ["List view", "Details view", "Previews view", "Tree view"]) {
     const box = await viewButton(option).boundingBox();
     expect(box.x + box.width, option).toBeLessThanOrEqual(390);
     expect(Math.abs(box.y + box.height / 2 - (phoneSearch.y + phoneSearch.height / 2)), option).toBeLessThanOrEqual(1);
