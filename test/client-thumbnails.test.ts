@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { cardThumbnail, cardThumbnailRetry, TURN_THUMBNAIL_MAX_BYTES, TURN_THUMBNAIL_WIDTH } from "../client/turn-docs";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { CARD_THUMBNAILS_IN_FLIGHT } from "../client/card-thumbnails";
-import { createRequestQueue, createThumbnailCache, createThumbnailLoader, gridLayout, hasThumbnail, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
+import { createPageMapThumbnails, createRequestQueue, createThumbnailCache, createThumbnailLoader, gridLayout, hasThumbnail, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
 import { DOCUMENT_KINDS } from "../shared/kinds";
 import type { TurnDocsFile } from "../shared/turn-docs";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
@@ -175,6 +175,37 @@ describe("thumbnail loader", () => {
       await vi.advanceTimersByTimeAsync(0);
       closing.close();
       await vi.advanceTimersByTimeAsync(120_000);
+      expect(calls).toEqual([2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks a busy daemon again for a page map within a few seconds, a few times, stops once closed, and keeps Retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: number[] = [];
+      const pageMap = (path: string, errors: Record<number, string>) => createPageMapThumbnails({ workspaceId: "w", path, revision: "r", width: 160 }, async ({ index }) => {
+        calls.push(index);
+        throw new Error(errors[index]);
+      });
+      const map = pageMap("retried.pdf", { 0: ERROR_MESSAGES.busy(), 1: ERROR_MESSAGES.tooSlow() });
+      map.want([0, 1]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(calls.filter((index) => index === 0)).toHaveLength(4);
+      expect(calls.filter((index) => index === 1)).toHaveLength(1);
+      expect(map.state(0)).toMatchObject({ status: "failed" });
+      map.retry(0);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(calls.filter((index) => index === 0)).toHaveLength(5);
+      calls.length = 0;
+      const closing = pageMap("closed.pdf", { 2: ERROR_MESSAGES.busy() });
+      closing.want([2]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(1);
+      closing.close();
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(60_000);
       expect(calls).toEqual([2]);
     } finally {
       vi.useRealTimers();

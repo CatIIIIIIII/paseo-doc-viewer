@@ -219,6 +219,14 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
   return loader;
 }
 
+// Only a busy daemon is asked again, later each time and at a random point, so loaders do not come
+// back together. Work that ran out of time is not: it would again, and on a PDF it restarts PDFium.
+export const retryBusy = (retries: number, stepMs: number) => (error: unknown, failures: number, random = Math.random): number | null =>
+  !isError(error, ERROR_MESSAGES.busy()) || failures > retries ? null : Math.round(stepMs * failures * (0.5 + random()));
+
+// A page map is on screen, so it asks again sooner than a card.
+export const pageMapThumbnailRetry = retryBusy(3, 500);
+
 // One per open page map. Pages drawn with a password are kept apart, so a card never shows them.
 export function createPageMapThumbnails(
   { workspaceId, path, password, revision, width }: Pick<DocThumbnailInput, "workspaceId" | "path" | "password" | "width"> & { revision: string },
@@ -228,6 +236,7 @@ export function createPageMapThumbnails(
     identify: (index) => ({ key: pageThumbnailKey(workspaceId, path, width, index, password !== undefined), revision }),
     cache: thumbnailCache,
     fetch: (index) => fetch({ workspaceId, path, password, index, width }).then(thumbnailAnswer),
+    retryAfter: pageMapThumbnailRetry,
   });
 }
 

@@ -1,7 +1,6 @@
-import { ERROR_MESSAGES, isError } from "../shared/errors";
-import { hasThumbnail } from "./thumbnails";
 import { revisionChangedAt } from "../shared/revision";
 import type { TurnDocs, TurnDocsFile, TurnDocsGroup } from "../shared/turn-docs";
+import { hasThumbnail, retryBusy } from "./thumbnails";
 
 // "Changed while this turn ran", never "written by this agent": the card comes from file times,
 // so another agent or the user editing the same workspace shows up here too.
@@ -29,12 +28,7 @@ const TURN_THUMBNAIL_RETRY_MS = 4_000;
 
 export const cardThumbnail = (file: Pick<TurnDocsFile, "kind" | "size">) => hasThumbnail(file.kind) && file.size <= TURN_THUMBNAIL_MAX_BYTES;
 
-// Only a busy daemon is asked again, later each time and at a random point, so cards do not come back
-// together. Work that ran out of time is not: it would again, and on a PDF it restarts PDFium.
-export function cardThumbnailRetry(error: unknown, failures: number, random = Math.random): number | null {
-  if (!isError(error, ERROR_MESSAGES.busy()) || failures > TURN_THUMBNAIL_RETRIES) return null;
-  return Math.round(TURN_THUMBNAIL_RETRY_MS * failures * (0.5 + random()));
-}
+export const cardThumbnailRetry = retryBusy(TURN_THUMBNAIL_RETRIES, TURN_THUMBNAIL_RETRY_MS);
 
 export type TurnFilePill = "new" | "changed" | "opened";
 
