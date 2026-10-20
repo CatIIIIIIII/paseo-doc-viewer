@@ -1147,7 +1147,7 @@ try {
   await viewButton("List view").click();
   await viewButton("Tree view").click();
   await expect(viewButton("Tree view")).toHaveAttribute("aria-pressed", "true");
-  const folderRow = (name) => page.getByRole("button", { name: new RegExp(`^${name}, folder, \\d+ documents?$`) });
+  const folderRow = (name) => page.getByRole("button", { name: new RegExp(`^${name}, folder(?: in [^,]+)?, \\d+ documents?$`) });
   const fileRow = (name) => page.getByRole("button", { name: new RegExp(`^${name.replace(".", "\\.")}, `) });
   await expect(folderRow("archive/2025/q4")).toHaveAttribute("aria-label", "archive/2025/q4, folder, 1 document");
   await expect(folderRow("archive/2025/q4")).toHaveAttribute("aria-expanded", "true");
@@ -1155,6 +1155,7 @@ try {
   await expect(folderRow("exports")).toHaveAttribute("aria-label", "exports, folder, 12 documents");
   await expect(folderRow("paseo-doc-viewer-gallery")).toHaveAttribute("aria-label", "paseo-doc-viewer-gallery, folder, 12 documents");
   await expect(folderRow("docs")).toHaveAttribute("aria-expanded", "false");
+  await expect(folderRow("docs")).toHaveAttribute("aria-label", "docs, folder in paseo-doc-viewer-gallery, 1 document");
   await expect(fileRow("guide.pdf")).toHaveCount(0);
   expect((await folderRow("screenshots").boundingBox()).y).toBeLessThan((await fileRow("animated.webp").boundingBox()).y);
   expect((await fileRow("animated.webp").boundingBox()).y).toBeLessThan((await fileRow("statement.pdf").boundingBox()).y);

@@ -122,6 +122,15 @@ export function treeRows<T>(root: TreeFolder<T>, expanded: (chain: readonly stri
   return rows;
 }
 
+// Names the folder and where it sits; `level` is spoken only where no tree role carries it.
+export function folderLabel({ name, parent, count }: { name: string; parent: string; count: number }, level?: number): string {
+  return [
+    parent ? `${name}, folder in ${parent}` : `${name}, folder`,
+    ...(level === undefined ? [] : [`level ${level}`]),
+    `${count} ${count === 1 ? "document" : "documents"}`,
+  ].join(", ");
+}
+
 export function folderFiles<T extends { path: string }>(rows: readonly TreeRow<T>[], path: string): string[] {
   const folder = parentDir(path);
   return rows.flatMap((row) => (row.type === "file" && parentDir(row.entry.path) === folder ? [row.entry.path] : []));

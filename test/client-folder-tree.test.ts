@@ -4,6 +4,7 @@ import {
   ALL_EXPANDED,
   byName,
   folderFiles,
+  folderLabel,
   folderTree,
   isExpanded,
   setExpanded,
@@ -143,6 +144,15 @@ describe("folder tree", () => {
     expect(parentDir("dir/we\\ird.pdf")).toBe("dir");
     expect(folderFiles(rows, "dir/we\\ird.pdf")).toEqual(["dir/plain.pdf", "dir/we\\ird.pdf"]);
     expect(documentTitle({ path: "dir/we\\ird.pdf" })).toBe("we\\ird.pdf · dir");
+  });
+
+  it("names a folder row with the folder it sits in, and its level where no tree role says it", () => {
+    const row = treeRows(folderTree(files), () => true).find((each) => each.type === "folder" && each.name === "q2");
+    expect(row).toMatchObject({ parent: "reports/2026", depth: 1, count: 1 });
+    if (row?.type !== "folder") throw new Error("no q2 row");
+    expect(folderLabel(row)).toBe("q2, folder in reports/2026, 1 document");
+    expect(folderLabel(row, row.depth + 1)).toBe("q2, folder in reports/2026, level 2, 1 document");
+    expect(folderLabel({ name: "out/reports", parent: "", count: 2 }, 1)).toBe("out/reports, folder, level 1, 2 documents");
   });
 
   it("gives a file the files of its own folder as they are shown", () => {

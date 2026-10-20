@@ -1,9 +1,9 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { FlatList, Icon } from "@getpaseo/plugin/client/react-native";
 import { memo, type ReactElement, useCallback, useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { baseName, humanSize, KIND_ICON, relativeTime } from "./format";
-import { treeExpansions, type TreeExpansion, type TreeRow } from "./folder-tree";
+import { folderLabel, treeExpansions, type TreeExpansion, type TreeRow } from "./folder-tree";
 import { kindColor, type KindPalette } from "./kind-colors";
 import { type TreeLayout, treeIndent } from "./panel-layout";
 import { entryLabel, type RecentEntry } from "./recent";
@@ -16,6 +16,11 @@ interface ChromeProps {
 }
 
 const ROW_PADDING = 8;
+
+// On the web the rows form a tree: react-native-web passes role and aria-level through. React Native has
+// no tree role, so there the rows stay buttons and a folder's label speaks its level.
+const WEB = Platform.OS === "web";
+const treeItem = (depth: number) => (WEB ? { role: "treeitem" as const, "aria-level": depth + 1 } : {});
 
 const expansions = treeExpansions(50);
 
@@ -94,6 +99,7 @@ export function TreeList({
           layout={layout}
           path={item.path}
           name={item.name}
+          parent={item.parent}
           depth={item.depth}
           count={item.count}
           expanded={item.expanded}
@@ -106,6 +112,7 @@ export function TreeList({
   );
   return (
     <FlatList
+      {...(WEB ? { role: "tree" as const, accessibilityLabel: "Documents by folder" } : {})}
       data={rows}
       keyExtractor={rowKey}
       keyboardShouldPersistTaps="handled"
@@ -134,15 +141,17 @@ const FolderRow = memo(function FolderRow({
   layout,
   path,
   name,
+  parent,
   depth,
   count,
   expanded,
   onToggle,
-}: ChromeProps & { path: string; name: string; depth: number; count: number; expanded: boolean; onToggle(path: string, open: boolean): void }) {
+}: ChromeProps & { path: string; name: string; parent: string; depth: number; count: number; expanded: boolean; onToggle(path: string, open: boolean): void }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${name}, folder, ${count} ${count === 1 ? "document" : "documents"}`}
+      {...treeItem(depth)}
+      accessibilityLabel={folderLabel({ name, parent, count }, WEB ? undefined : depth + 1)}
       aria-expanded={expanded}
       onPress={() => onToggle(path, !expanded)}
       style={rowStyle(theme, layout, depth)}
@@ -176,6 +185,7 @@ const FileRow = memo(function FileRow({
   return (
     <Pressable
       accessibilityRole="button"
+      {...treeItem(depth)}
       accessibilityLabel={entryLabel(entry, now, [humanSize(entry.size)])}
       onPress={() => onOpen(entry.path)}
       style={rowStyle(theme, layout, depth)}
