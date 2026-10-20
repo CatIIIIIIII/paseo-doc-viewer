@@ -382,11 +382,16 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
     },
     thumbnail: async (file, request) => {
       inRange(request.index, 1, "Slide");
-      const slides = await deck(file);
       const edge = Math.min(request.width, THUMBNAIL_MAX_WIDTH_PX);
       const fit = { maxWidth: edge, maxEdge: edge, maxBytes: THUMBNAIL_MAX_BYTES, jpeg: true };
-      const preview = await thumbnailCached(file, request, () => firstSlidePreview(slides, fit));
-      return { kind: "pptx", revision: file.revision, slideCount: slides.slides.length, preview };
+      // The deck is read in the thumbnail's lane and kept only as the answer, so a grid of decks takes no
+      // foreground slot and leaves the shared cache to the documents being read.
+      const { slideCount, preview } = await thumbnailCached(file, request, async (signal) => {
+        const slides = await loadDeck(await readZipIndex(file.path, file.size, "pptx", OFFICE_LIMITS));
+        signal.throwIfAborted();
+        return { slideCount: slides.slides.length, preview: await firstSlidePreview(slides, fit) };
+      });
+      return { kind: "pptx", revision: file.revision, slideCount, preview };
     },
   },
   video: {

@@ -2,11 +2,18 @@ import { utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { decode, type Image } from "imagescript";
 import { describe, expect, it, vi } from "vitest";
+import { cacheKeys } from "../server/cache";
 import { renderThumbnail } from "../server/documents";
+import { heavy } from "../server/heavy";
 import { thumbnailCacheKeys } from "../server/thumbnails";
 import { thumbnailAnswer } from "../client/thumbnails";
 import { deckPptx, noisePng, solidPng } from "./fixtures/generators";
 import { workspace, workspaceWithFixtures } from "./helpers";
+
+vi.mock("../server/heavy", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../server/heavy")>();
+  return { ...actual, heavy: vi.fn(actual.heavy) };
+});
 
 vi.mock("node:child_process", () => {
   const refuse = () => {
@@ -56,6 +63,15 @@ describe("pptx first-slide previews", () => {
     const later = new Date(Date.now() + 60_000);
     utimesSync(join(root, "deck.pptx"), later, later);
     expect((await deckThumbnail(root, "deck.pptx")).preview).toEqual({ type: "title", title: "New" });
+  });
+
+  it("read the deck in a thumbnail lane, leaving foreground slots and the shared cache to the documents being read", async () => {
+    const root = workspace({ "lane.pptx": await deckPptx([{ title: "Lane", body: "x" }, { title: "Two", body: "y" }]) });
+    const calls = vi.mocked(heavy).mock.calls.length;
+    expect(await deckThumbnail(root, "lane.pptx")).toMatchObject({ slideCount: 2, preview: { type: "title", title: "Lane" } });
+    await renderThumbnail({ root, path: "lane.pptx" }, { index: 0, width: 120, keepOpen: false });
+    expect(vi.mocked(heavy).mock.calls.slice(calls).map(([, options]) => options?.lane)).toEqual(["background", "idle"]);
+    expect(cacheKeys().filter((key) => key.includes("lane.pptx"))).toEqual([]);
   });
 
   it("reach the client as a picture or a title, with the slide count", async () => {
