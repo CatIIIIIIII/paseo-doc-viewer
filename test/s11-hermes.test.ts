@@ -75,7 +75,7 @@ function record(kind) { return function (c) { registered[kind].push(c); return n
 var subscription = { subscribe: function (observer) { observer.snapshot({ entries: [{ id: "ws" }] }); return noop; }, release: function () { return Promise.resolve(); } };
 var paseo = { workspaces: { list: function () { return Promise.resolve({ entries: [], subscription: subscription }); } } };
 function addHeaderButton(c) { registered.header.push(c); return { update: noop, remove: noop }; }
-var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addTimelineRenderer: record("timeline"), addSettingsScreen: record("settings"), addHeaderButton: addHeaderButton, openScreen: noop, openPanel: noop, paseo: paseo, rpc: function (contract) { return Promise.resolve(contract.name === "docs.any" ? { found: true } : { entries: [{ path: "a.pdf" }] }); } });
+var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addTimelineRenderer: record("timeline"), addSettingsScreen: record("settings"), addHeaderButton: addHeaderButton, openScreen: noop, openPanel: function (id, options) { opened.push({ panel: id, options: options }); }, paseo: paseo, rpc: function (contract) { return Promise.resolve(contract.name === "docs.any" ? { found: true } : { entries: [{ path: "a.pdf" }] }); } });
 var opened = [];
 var context = {
   args: "", context: "workspace", workspace: { id: "ws" },
@@ -109,7 +109,7 @@ describe("S11: client bundle runs on the Hermes VM", () => {
     const steps = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
     expect(steps).toEqual([
       { step: "contribute", cleanup: "function", screens: 2, commands: 3, panels: 1, slash: 1, timeline: ["turn-docs@1", "turn-docs@2"], settings: 1, title: "main.pdf · report" },
-      { step: "slash", opened: [{ screenId: "document", params: { workspaceId: "ws", path: "b/new.pdf" } }], headerButtons: ["ws:FileText"] },
+      { step: "slash", opened: [{ panel: "documents", options: { workspaceId: "ws" } }], headerButtons: ["ws:FileText"] },
     ]);
   }, 120_000);
 });

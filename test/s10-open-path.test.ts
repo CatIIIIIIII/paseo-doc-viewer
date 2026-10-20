@@ -49,7 +49,7 @@ interface Registered {
   icons: string[];
 }
 
-async function loadClient(): Promise<Registered> {
+async function loadClient(openPanel: (...args: unknown[]) => void = () => {}): Promise<Registered> {
   const bundle = await compileLikePaseo("client");
   const host: Record<string, unknown> = {
     react,
@@ -87,6 +87,7 @@ async function loadClient(): Promise<Registered> {
           return { update() {}, remove() {} };
         },
         paseo: { workspaces: { list: async () => ({ entries: [], subscription }) } },
+        openPanel,
       },
       { get: (target, key) => (key in target ? target[key as keyof typeof target] : record([])) },
     ),
@@ -105,7 +106,8 @@ describe("S10: open a document by path despite the missing Files-tree hook", () 
   });
 
   it("S10: a workspace Command Center item opens the most recently changed document in one tap", async () => {
-    const { commands } = await loadClient();
+    const clientOpenPanel = vi.fn();
+    const { commands } = await loadClient(clientOpenPanel);
     const command = commands.find((candidate) => candidate.context === "workspace");
     expect(command, "workspace command center item").toBeDefined();
 
@@ -121,7 +123,9 @@ describe("S10: open a document by path despite the missing Files-tree hook", () 
       };
     });
     await command!.onSelect({ context: "workspace", workspace: { id: "ws-1" }, rpc, openScreen, openPanel: vi.fn() });
-    expect(openScreen).toHaveBeenCalledWith({ screenId: "document", params: { workspaceId: "ws-1", path: "build/main.pdf" } });
+    // A PDF reads inside the workspace's Documents panel.
+    expect(openScreen).not.toHaveBeenCalled();
+    expect(clientOpenPanel).toHaveBeenCalledWith("documents", { workspaceId: "ws-1" });
   });
 
   it.skipIf(!LUCIDE_ICONS)(
