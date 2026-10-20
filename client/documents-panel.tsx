@@ -148,7 +148,7 @@ function DocumentsList({
   const now = recent.dataUpdatedAt || Date.now();
   const tips = useTips();
   const readSettings = useRpc(viewerSettingsRpc.read);
-  const palette = useKindPalette(theme, () => readSettings({}));
+  const palette = useKindPalette(theme, () => readSettings({}), recent.dataUpdatedAt);
   const tipsCard = tips.step !== null ? <TipsCard theme={theme} styles={styles} step={tips.step} onNext={tips.next} onSkip={tips.skip} /> : null;
   const tipsLink = tips.canReopen ? <TipsLink theme={theme} styles={styles} onPress={tips.reopen} /> : null;
 
