@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browseRows, filterChips, noMatchDetail, recentCuts, truncationNotice, unsupportedDetail } from "../client/recent";
+import { browseRows, emptyDetail, filterChips, noMatchDetail, recentCuts, truncationNotice, unsupportedDetail } from "../client/recent";
 import { countGroups, DOCUMENT_GROUPS, filterEntries, groupEntries, matchesQuery, queryTerms } from "../shared/browse";
 import { DOCUMENT_KINDS, type DocumentKind } from "../shared/kinds";
 
@@ -159,6 +159,14 @@ describe("documents panel empty and footer text", () => {
     expect(noMatchDetail({ query: "q4", group: null }, ["depth"])).toBe('No files match "q4". Folders more than 16 levels deep were not scanned');
     expect(noMatchDetail({ query: "q4", group: null }, ["folder", "depth"])).toBe(
       'No files match "q4". Folders with more than 5,000 entries were only partly scanned. Folders more than 16 levels deep were not scanned');
+  });
+
+  it("says which part of the workspace an empty Documents could not reach, as a search does", () => {
+    const types = "PDF, Word, Excel, CSV, JSON Lines, Parquet, PowerPoint, image, video, and audio files in this workspace appear here";
+    expect(emptyDetail([])).toBe(types);
+    expect(emptyDetail(["limit", "bytes"])).toBe(types);
+    expect(emptyDetail(["entries", "folder", "depth"])).toBe(
+      `${types}. Only the first 50,000 entries of this workspace were scanned. Folders with more than 5,000 entries were only partly scanned. Folders more than 16 levels deep were not scanned`);
   });
 
   it("describes a capped list as recent documents or recent matches, with every reason it was cut", () => {

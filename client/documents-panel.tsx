@@ -20,7 +20,7 @@ import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, holdOpenChains, i
 import { type PreviewRow, previewRowKey, previewRows, visibleTilePaths } from "./previews";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
-import { type BrowseRow, browseRows, documentScreen, entryLabel, fetchRecent, filterChips, noMatchDetail, type RecentEntry, recentCuts, truncationNotice, unsupportedDetail } from "./recent";
+import { type BrowseRow, browseRows, documentScreen, emptyDetail, entryLabel, fetchRecent, filterChips, noMatchDetail, type RecentEntry, recentCuts, truncationNotice, unsupportedDetail } from "./recent";
 import { siblingWindow } from "./siblings";
 import { TipsCard, TipsLink, useTips } from "./tips-card";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, statusIcon, type Styles } from "./ui";
@@ -202,7 +202,7 @@ function DocumentsList({
           styles={styles}
           icon="FileText"
           title="No documents yet"
-          detail="PDF, Word, Excel, CSV, JSON Lines, Parquet, PowerPoint, image, video, and audio files in this workspace appear here"
+          detail={emptyDetail(recentCuts(recent.data))}
         >
           {tipsLink}
         </MessageState>

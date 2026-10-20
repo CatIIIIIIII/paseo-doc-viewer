@@ -99,6 +99,10 @@ export function noMatchDetail({ query = "", group = null, needsReview = false, n
   return [detail, ...scanNotes(cuts)].join(". ");
 }
 
+// What a workspace without documents says: what appears here, and what the scan did not reach.
+export const emptyDetail = (cuts: readonly RecentCut[]): string =>
+  ["PDF, Word, Excel, CSV, JSON Lines, Parquet, PowerPoint, image, video, and audio files in this workspace appear here", ...scanNotes(cuts)].join(". ");
+
 // A search that only matched files the viewer cannot open says so instead of "No files match".
 export function unsupportedDetail(paths: readonly string[]): string | null {
   if (paths.length === 0) return null;
