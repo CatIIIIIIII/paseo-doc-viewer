@@ -13,7 +13,7 @@ import { decodeEntities } from "../server/html";
 import { ERROR_MESSAGES, errorCode } from "../shared/errors";
 import { MAX_RESPONSE_BYTES, RPC_DEADLINE_MS } from "../shared/limits";
 import { blankGrayPng, deckPptx, noisePng, textPdf } from "./fixtures/generators.ts";
-import { cpuTimed, responseBytes, workspace } from "./helpers";
+import { bytesRead, cpuTimed, responseBytes, workspace } from "./helpers";
 import { docxEntries, pptxEntries, rawZip, worksheetXml, xlsxEntries } from "./zip-builder";
 
 const MiB = 1024 * 1024;
@@ -47,9 +47,10 @@ describe("R1a: per-kind file size caps are checked before reading", () => {
   ])("%s is rejected as too large", async (name, head, size) => {
     const root = workspace();
     sparse(root, name, head, size);
-    const { value, ms } = await cpuTimed(() => failure(() => openDocument({ root, path: name })));
+    // Not a byte, not even the head that tells the content type.
+    const { value, bytes } = await bytesRead(join(root, name), () => failure(() => openDocument({ root, path: name })));
     expect(errorCode(value)).toBe("too_large");
-    expect(ms).toBeLessThan(500);
+    expect(bytes).toBe(0);
   });
 });
 
