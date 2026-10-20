@@ -164,7 +164,7 @@ describe("turnDocsRow", () => {
   });
 
   const group = (path: string, count: number, pathLength = 10): TurnDocsGroup =>
-    ({ reason: "checkout", path, count, files: files(count, pathLength).map((entry) => ({ ...entry, path: `${path}/${entry.path}` })) });
+    ({ reason: "checkout", path, count, files: files(count, pathLength).map((entry) => ({ ...entry, path: `${path}/${entry.path}`, status: "new" })) });
 
   it("shows folder rows with the first 12 of their files, and keeps every file in the title count", () => {
     const row = turnDocsRow({ ...base, files: files(2), groups: [group("gallery", 65)] })!;
@@ -221,7 +221,7 @@ describe("card labels", () => {
 });
 
 describe("card folder rows", () => {
-  const entry = (path: string): TurnDocsFile => ({ path, kind: "pdf", size: 1, revision: "r", status: "new" });
+  const entry = (path: string) => ({ path, kind: "pdf" as const, size: 1, revision: "r", status: "new" as const });
   const data = {
     files: [entry("a.pdf")],
     groups: [
@@ -240,6 +240,13 @@ describe("card folder rows", () => {
     expect(TURN_GROUP.checkout.detail(65)).toBe("New checkout · 65 documents");
     expect(TURN_GROUP.checkout.detail(1)).toBe("New checkout · 1 document");
     expect(TURN_GROUP.folder.detail(13)).toBe("New folder · 13 documents");
+  });
+
+  it("can hold only new files, so the row's New pill is right", () => {
+    const card = { workspaceId: "w", startedAt: T0, endedAt: T0 + 1, outcome: "completed", partial: false, moreCount: 0, files: [] };
+    const group = (status: string) => ({ reason: "folder", path: "out", count: 1, files: [{ ...entry("out/a.pdf"), status }] });
+    expect(turnDocsSchema.safeParse({ ...card, groups: [group("new")] }).success).toBe(true);
+    expect(turnDocsSchema.safeParse({ ...card, groups: [group("changed")] }).success).toBe(false);
   });
 });
 

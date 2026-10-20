@@ -23,7 +23,8 @@ export const turnDocsGroupSchema = z.object({
   reason: z.enum(["checkout", "folder"]),
   path: z.string(),
   count: z.number(),
-  files: z.array(turnDocsFileSchema),
+  // Only new files fold (groupChanges), so a folder row reads New.
+  files: z.array(turnDocsFileSchema.extend({ status: z.literal("new") })),
 });
 
 export const turnDocsV1Schema = z.object({
@@ -114,10 +115,10 @@ export function groupChanges(
     return known;
   };
 
-  const buckets = new Map<string, { reason: "checkout" | "folder"; files: TurnDocsFile[] }>();
+  const buckets = new Map<string, { reason: "checkout" | "folder"; files: TurnDocsGroup["files"] }>();
   for (const file of files) {
     // A changed file is news even inside a new folder, so it keeps its own row.
-    if (file.status !== "new") continue;
+    if (!isNewFile(file)) continue;
     const dirs = ancestors(file.path);
     const checkout = dirs.find((dir) => newness(dir) === "checkout");
     const folder = checkout ?? dirs.find((dir) => newness(dir) !== null);
@@ -129,9 +130,11 @@ export function groupChanges(
   const groups = [...buckets]
     .filter(([, bucket]) => bucket.reason === "checkout" || bucket.files.length > TURN_DOCS_MAX_FILES)
     .map(([path, bucket]): TurnDocsGroup => ({ reason: bucket.reason, path, count: bucket.files.length, files: bucket.files }));
-  const grouped = new Set(groups.flatMap((group) => group.files));
+  const grouped = new Set<TurnDocsFile>(groups.flatMap((group) => group.files));
   return { files: files.filter((file) => !grouped.has(file)), groups };
 }
+
+const isNewFile = (file: TurnDocsFile): file is TurnDocsGroup["files"][number] => file.status === "new";
 
 function ancestors(path: string): string[] {
   const parts = path.split("/").slice(0, -1);

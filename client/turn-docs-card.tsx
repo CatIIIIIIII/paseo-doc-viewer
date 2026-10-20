@@ -189,6 +189,7 @@ function FileThumbnail({ file, state, size, palette, theme }: { file: TurnDocsFi
   );
 }
 
+// A folder row holds only new files (turnDocsGroupSchema), so it always reads New.
 function GroupRow({ group, open, size, styles, theme, onToggle }: {
   group: TurnDocsGroup; open: boolean; size: number; styles: Styles; theme: Theme; onToggle(): void;
 }) {
