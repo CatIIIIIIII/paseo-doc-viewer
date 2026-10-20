@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { stateDirectory, ViewerStateStore } from "../server/viewer-state";
+import { markOpened, openedRevisions, stateDirectory, ViewerStateStore } from "../server/viewer-state";
+import { revisionOf } from "../server/revision";
 import { zoomFor } from "../shared/viewer-state";
 import { workspace } from "./helpers";
 
@@ -119,5 +120,27 @@ describe("durable viewer positions", () => {
     expect(stateDirectory({ PASEO_DOC_VIEWER_STATE_DIR: "/custom", XDG_STATE_HOME: "/xdg" }, "/home/me")).toBe("/custom");
     expect(stateDirectory({ XDG_STATE_HOME: "/xdg" }, "/home/me")).toBe(join("/xdg", "paseo-doc-viewer"));
     expect(stateDirectory({ XDG_STATE_HOME: "relative", PASEO_DOC_VIEWER_STATE_DIR: "relative" }, "/home/me")).toBe(join("/home/me", ".local", "state", "paseo-doc-viewer"));
+  });
+});
+
+describe("opened and review marks", () => {
+  it("reads positions.json again only after a write, by this daemon or another", async () => {
+    const directory = workspace();
+    const root = workspace({ "a.pdf": "a", "b.pdf": "b" });
+    const revision = (path: string) => revisionOf(statSync(join(root, path)));
+    const store = new ViewerStateStore(directory);
+    const other = new ViewerStateStore(directory);
+    await markOpened(store, root, "a.pdf", revision("a.pdf"));
+    const first = await store.marks();
+    expect(await store.marks()).toBe(first);
+    expect(await openedRevisions(store, root, ["a.pdf", "b.pdf"])).toEqual({ "a.pdf": revision("a.pdf") });
+    await markOpened(other, root, "b.pdf", revision("b.pdf"));
+    expect(await store.marks()).not.toBe(first);
+    expect(await openedRevisions(store, root, ["a.pdf", "b.pdf"])).toEqual({ "a.pdf": revision("a.pdf"), "b.pdf": revision("b.pdf") });
+    const second = await store.marks();
+    writeFileSync(join(root, "a.pdf"), "a, rewritten");
+    await markOpened(store, root, "a.pdf", revision("a.pdf"));
+    expect(await store.marks()).not.toBe(second);
+    expect(await openedRevisions(store, root, ["a.pdf"])).toEqual({ "a.pdf": revision("a.pdf") });
   });
 });

@@ -62,6 +62,7 @@ export class ViewerStateStore {
   private tail: Promise<unknown> = Promise.resolve();
   private secret: Promise<Buffer> | null = null;
   private prepared: Promise<void> | null = null;
+  private cachedMarks: { file: string; marks: Map<string, DocumentMarks> } | null = null;
   constructor(private directory: string) {}
 
   // Keys are salted with a per-install secret, so the file does not reveal which paths were opened.
@@ -82,13 +83,21 @@ export class ViewerStateStore {
     return this.queue(async () => (await this.load()).entries[key] ?? null);
   }
 
-  // The reviewed and last opened revision of every document that has either, for the Documents list.
-  marks(): Promise<Map<string, DocumentMarks>> {
+  // The reviewed and last opened revision of every document that has either, for the Documents list
+  // and turn cards. Kept until positions.json changes: every write, here or by another daemon, renames
+  // a new file into place.
+  marks(): Promise<ReadonlyMap<string, DocumentMarks>> {
     return this.queue(async () => {
+      const file = await stat(join(this.directory, "positions.json")).then(
+        (info) => `${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`,
+        () => null,
+      );
+      if (file !== null && this.cachedMarks?.file === file) return this.cachedMarks.marks;
       const marks = new Map<string, DocumentMarks>();
       for (const [key, { review, opened }] of Object.entries((await this.load()).entries)) {
         if (review || opened) marks.set(key, { reviewed: review?.revision, opened: opened?.revision });
       }
+      this.cachedMarks = file === null ? null : { file, marks };
       return marks;
     });
   }
