@@ -71,7 +71,6 @@ export interface ScannedFolders {
 export interface Baseline {
   revisions: ReadonlyMap<string, string>;
   dirs: ReadonlySet<string>;
-  repos: ReadonlySet<string>;
   complete: boolean;
 }
 
@@ -84,12 +83,11 @@ export interface ScannedWorkspace extends ScannedFolders {
 // agent made in that first moment. Files changed and folders born within the slack before startedAt are
 // left out and judged by the end scan alone: such a file is new, and such a folder (an early git worktree
 // add) is new, which folds its new files. A folder with no trusted birth time stays, as it cannot be placed.
-export function baselineAt({ entries, complete, dirs, repos }: ScannedWorkspace, startedAt: number): Baseline {
+export function baselineAt({ entries, complete, dirs }: ScannedWorkspace, startedAt: number): Baseline {
   const from = startedAt - TURN_WINDOW_SLACK_MS;
   return {
     revisions: new Map(entries.filter((entry) => entry.changedMs < from).map((entry) => [entry.path, entry.revision])),
     dirs: new Set([...dirs].filter(([, born]) => born === null || born < from).map(([dir]) => dir)),
-    repos,
     complete,
   };
 }

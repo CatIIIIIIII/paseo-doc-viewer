@@ -39,8 +39,8 @@ const file = (path: string, changedMs: number, revision = `r-${path}-${changedMs
 });
 
 const NO_FOLDERS = { dirs: new Map<string, number>(), repos: new Set<string>() };
-const known = (revisions: [string, string][], complete = true, { dirs = [] as string[], repos = [] as string[] } = {}): Baseline =>
-  ({ revisions: new Map(revisions), dirs: new Set(dirs), repos: new Set(repos), complete });
+const known = (revisions: [string, string][], complete = true, { dirs = [] as string[] } = {}): Baseline =>
+  ({ revisions: new Map(revisions), dirs: new Set(dirs), complete });
 
 describe("changedDuringTurn", () => {
   it("tells new from changed against the baseline and skips untouched files", () => {
@@ -94,7 +94,7 @@ describe("groupChanges", () => {
   it("folds a new worktree, whose .git is a file, into one row and lists the rest", () => {
     const files = changed("docs/report.pdf", ...many("gallery", 40), "gallery/assets/shot.pdf", "metrics.pdf");
     const after = folders({ docs: old, gallery: born, "gallery/assets": born }, ["", "gallery"]);
-    expect(summary(groupChanges(files, after, known([], true, { dirs: ["docs"], repos: [""] }), T0))).toEqual({
+    expect(summary(groupChanges(files, after, known([], true, { dirs: ["docs"] }), T0))).toEqual({
       files: ["docs/report.pdf", "metrics.pdf"],
       groups: ["checkout:gallery:41"],
     });
@@ -103,14 +103,14 @@ describe("groupChanges", () => {
   it("keeps listing new files of nested repos that existed, and never folds the workspace root", () => {
     const files = changed("proj/report.pdf", "proj/out/a.pdf", "root.pdf");
     const after = folders({ proj: 0, "proj/out": born }, ["", "proj"]);
-    const result = groupChanges(files, after, known([], true, { dirs: ["proj"], repos: ["", "proj"] }), T0);
+    const result = groupChanges(files, after, known([], true, { dirs: ["proj"] }), T0);
     expect(summary(result)).toEqual({ files: ["proj/report.pdf", "proj/out/a.pdf", "root.pdf"], groups: [] });
   });
 
   it("folds a new submodule of an existing repo, and a new checkout with its submodules as one row", () => {
     const files = changed("proj/lib/a.pdf", "proj/b.pdf", "clone/c.pdf", "clone/deps/sub/d.pdf");
     const after = folders({ proj: old, "proj/lib": born, clone: born, "clone/deps": born, "clone/deps/sub": born }, ["proj", "proj/lib", "clone", "clone/deps/sub"]);
-    const baseline = known([], true, { dirs: ["proj"], repos: ["proj"] });
+    const baseline = known([], true, { dirs: ["proj"] });
     expect(summary(groupChanges(files, after, baseline, T0))).toEqual({ files: ["proj/b.pdf"], groups: ["checkout:proj/lib:1", "checkout:clone:2"] });
   });
 
@@ -130,7 +130,7 @@ describe("groupChanges", () => {
   it("with a complete baseline, folds no folder that existed, even one deleted and made again during the turn", () => {
     const files = changed(...many("out", 13), "again/a.pdf");
     const after = folders({ out: born, again: born }, ["again"]);
-    const baseline = known([], true, { dirs: ["out", "again"], repos: ["again"] });
+    const baseline = known([], true, { dirs: ["out", "again"] });
     expect(summary(groupChanges(files, after, baseline, T0))).toEqual({ files: [...many("out", 13), "again/a.pdf"], groups: [] });
   });
 
@@ -143,7 +143,7 @@ describe("groupChanges", () => {
   it("lists the files of a repo initialized in a folder that existed", () => {
     const files = changed("init/b.pdf");
     const after = folders({ init: old }, ["init"]);
-    expect(summary(groupChanges(files, after, known([], true, { dirs: ["init", "gone"], repos: ["gone"] }), T0))).toEqual({ files: ["init/b.pdf"], groups: [] });
+    expect(summary(groupChanges(files, after, known([], true, { dirs: ["init", "gone"] }), T0))).toEqual({ files: ["init/b.pdf"], groups: [] });
     expect(summary(groupChanges(files, after, known([], false), T0))).toEqual({ files: ["init/b.pdf"], groups: [] });
   });
 
@@ -155,7 +155,7 @@ describe("groupChanges", () => {
 
   it("adds nothing for a repo the turn deleted", () => {
     const files = changed("kept.pdf");
-    const baseline = known([["gone/a.pdf", "r"]], true, { dirs: ["gone"], repos: ["gone"] });
+    const baseline = known([["gone/a.pdf", "r"]], true, { dirs: ["gone"] });
     expect(summary(groupChanges(files, folders({}), baseline, T0))).toEqual({ files: ["kept.pdf"], groups: [] });
   });
 });
