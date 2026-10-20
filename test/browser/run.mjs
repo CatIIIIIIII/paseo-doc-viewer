@@ -1157,15 +1157,28 @@ try {
   await viewButton("List view").click();
   await viewButton("Tree view").click();
   await expect(viewButton("Tree view")).toHaveAttribute("aria-pressed", "true");
-  const folderRow = (name) => page.getByRole("button", { name: new RegExp(`^${name}, folder(?: in [^,]+)?, \\d+ documents?$`) });
-  const fileRow = (name) => page.getByRole("button", { name: new RegExp(`^${name.replace(".", "\\.")}, `) });
+  const folderRow = (name) => page.getByRole("treeitem", { name: new RegExp(`^${name}, folder(?: in [^,]+)?, \\d+ documents?$`) });
+  const fileRow = (name) => page.getByRole("treeitem", { name: new RegExp(`^${name.replace(".", "\\.")}, `) });
+  // On the web the rows are the items of a tree, each with its level.
+  await expect(page.getByRole("tree", { name: "Documents by folder", exact: true })).toBeVisible();
   await expect(folderRow("archive/2025/q4")).toHaveAttribute("aria-label", "archive/2025/q4, folder, 1 document");
   await expect(folderRow("archive/2025/q4")).toHaveAttribute("aria-expanded", "true");
+  await expect(folderRow("archive/2025/q4")).toHaveAttribute("aria-level", "1");
   await expect(fileRow("ledger.pdf")).toBeVisible();
+  await expect(fileRow("ledger.pdf")).toHaveAttribute("aria-level", "2");
   await expect(folderRow("exports")).toHaveAttribute("aria-label", "exports, folder, 12 documents");
   await expect(folderRow("paseo-doc-viewer-gallery")).toHaveAttribute("aria-label", "paseo-doc-viewer-gallery, folder, 12 documents");
   await expect(folderRow("docs")).toHaveAttribute("aria-expanded", "false");
   await expect(folderRow("docs")).toHaveAttribute("aria-label", "docs, folder in paseo-doc-viewer-gallery, 1 document");
+  await expect(fileRow("guide.pdf")).toHaveCount(0);
+  // Space presses a row like Enter does. The host presses on Space only for role="button", so the rows handle it.
+  await folderRow("docs").focus();
+  await page.keyboard.press("Space");
+  await expect(folderRow("docs")).toHaveAttribute("aria-expanded", "true");
+  await expect(fileRow("guide.pdf")).toBeVisible();
+  await expect(fileRow("guide.pdf")).toHaveAttribute("aria-level", "3");
+  await page.keyboard.press("Space");
+  await expect(folderRow("docs")).toHaveAttribute("aria-expanded", "false");
   await expect(fileRow("guide.pdf")).toHaveCount(0);
   expect((await folderRow("screenshots").boundingBox()).y).toBeLessThan((await fileRow("animated.webp").boundingBox()).y);
   expect((await fileRow("animated.webp").boundingBox()).y).toBeLessThan((await fileRow("statement.pdf").boundingBox()).y);
@@ -1190,7 +1203,7 @@ try {
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("guide");
   await expect(folderRow("paseo-doc-viewer-gallery/docs")).toHaveAttribute("aria-label", "paseo-doc-viewer-gallery/docs, folder, 1 document");
   await expect(fileRow("guide.pdf")).toBeVisible();
-  await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(1);
+  await expect(page.getByRole("treeitem", { name: /, changed / })).toHaveCount(1);
   await page.screenshot({ path: `${shots}/harness-tree-search.png` });
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("");
   await expect(fileRow("guide.pdf")).toHaveCount(0);
@@ -1202,6 +1215,10 @@ try {
   await expect(page.getByText("Document 2 of 12", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next document", exact: true }).click();
   await expect(page.getByText("Document 3 of 12", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await fileRow("run-2.csv").focus();
+  await page.keyboard.press("Space");
+  await expect(page.getByText("Document 2 of 12", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(fileRow("run-2.csv")).toBeVisible();
   await expect(fileRow("ledger.pdf")).toHaveCount(0);
@@ -1250,5 +1267,5 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await viewButton("List view").click();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, current page marked, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, one button name in both states, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide under one name with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains, toggle, Expand all and Collapse all, search opens matches, folder siblings for the stepper, kept per layout class, sidebar row, phone fit).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, current page marked, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, one button name in both states, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide under one name with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains, tree items with levels, toggle, Space on rows, Expand all and Collapse all, search opens matches, folder siblings for the stepper, kept per layout class, sidebar row, phone fit).");
 } catch (error) { await saveFailure(); throw timedOut ? new Error(overLimit, { cause: error }) : error; } finally { await cleanUp(); }

@@ -19,10 +19,22 @@ const ROW_PADDING = 8;
 // The notice keeps this much room beside Expand all and Collapse all, or takes a row of its own above them.
 const NOTICE_MIN_WIDTH = 240;
 
-// On the web the rows form a tree: react-native-web passes role and aria-level through. React Native has
-// no tree role, so there the rows stay buttons and a folder's label speaks its level.
+// On the web the rows form a tree: react-native-web passes role and aria-level through. It presses on Space
+// only for role="button", so a tree item takes Space itself, as in a tree. React Native has no tree role,
+// so there the rows stay buttons and a folder's label speaks its level.
 const WEB = Platform.OS === "web";
-const treeItem = (depth: number) => (WEB ? { role: "treeitem" as const, "aria-level": depth + 1 } : {});
+const treeItem = (depth: number, activate: () => void) =>
+  WEB
+    ? {
+        role: "treeitem" as const,
+        "aria-level": depth + 1,
+        onKeyDown: (event: { key: string; repeat: boolean; preventDefault(): void }) => {
+          if (event.key !== " ") return;
+          event.preventDefault();
+          if (!event.repeat) activate();
+        },
+      }
+    : {};
 
 const expansions = treeExpansions(50);
 
@@ -151,13 +163,14 @@ const FolderRow = memo(function FolderRow({
   expanded,
   onToggle,
 }: ChromeProps & { path: string; name: string; parent: string; depth: number; count: number; expanded: boolean; onToggle(path: string, open: boolean): void }) {
+  const toggle = () => onToggle(path, !expanded);
   return (
     <Pressable
       accessibilityRole="button"
-      {...treeItem(depth)}
+      {...treeItem(depth, toggle)}
       accessibilityLabel={folderLabel({ name, parent, count }, WEB ? undefined : depth + 1)}
       aria-expanded={expanded}
-      onPress={() => onToggle(path, !expanded)}
+      onPress={toggle}
       style={rowStyle(theme, layout, depth)}
     >
       <Icon name={expanded ? "ChevronDown" : "ChevronRight"} size={layout.iconSize} color={theme.colors.foregroundMuted} />
@@ -186,12 +199,13 @@ const FileRow = memo(function FileRow({
   now,
   onOpen,
 }: ChromeProps & { entry: RecentEntry; depth: number; palette: KindPalette; now: number; onOpen(path: string): void }) {
+  const open = () => onOpen(entry.path);
   return (
     <Pressable
       accessibilityRole="button"
-      {...treeItem(depth)}
+      {...treeItem(depth, open)}
       accessibilityLabel={entryLabel(entry, now, [humanSize(entry.size)])}
-      onPress={() => onOpen(entry.path)}
+      onPress={open}
       style={rowStyle(theme, layout, depth)}
     >
       <Icon name={KIND_ICON[entry.kind]} size={layout.iconSize} color={kindColor(palette, entry.kind)} />
