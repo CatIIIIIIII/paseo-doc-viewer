@@ -822,11 +822,14 @@ try {
   await mkdir(shots, { recursive: true });
   await page.setViewportSize({ width: 1100, height: 1000 });
   await page.goto(`http://127.0.0.1:${port}/`);
+  const sinceCard = await rpcCallCount();
   await page.getByRole("button", { name: "Turn card", exact: true }).click();
   const cardFrame = page.getByLabel("Turn card frame", { exact: true });
+  // The card asks for the next thumbnail as soon as one answers, so once all are answered it wants no more.
+  await rpcAnswered(sinceCard, "doc.thumbnail");
   await expect(cardFrame.locator("img")).toHaveCount(3);
   for (const image of await cardFrame.locator("img").all()) {
-    await expect.poll(() => image.evaluate((element) => element.naturalWidth)).toBeGreaterThan(0);
+    await image.evaluate((element) => element.decode());
     expect(await image.boundingBox()).toMatchObject({ width: 40, height: 40 });
   }
   const pdfRow = /^Open reports\/quarterly-report-with-a-long-file-name\.pdf, PDF, /;
@@ -845,21 +848,20 @@ try {
   await expect(page.getByRole("button", { name: /^Open finance\/forecast\.xlsx, .*, changed during this turn$/ })).toBeVisible();
   await cardFrame.screenshot({ path: `${shots}/harness-desktop-card-opened.png` });
   // A document is marked opened once it has loaded, so the stepper waits for each mark before moving on.
-  const openedOnScreen = () => page.evaluate(() => window.__rpcCalls.some((call) => call.method === "viewer-state.opened" && call.settled && call.input.path === window.__openedScreen.params.path));
+  const step = async (button, position) => {
+    const since = await rpcCallCount();
+    await page.getByRole("button", { name: button, exact: true }).click();
+    await expect(page.getByText(`Document ${position} of 4`, { exact: true })).toBeVisible();
+    await rpcAnswered(since, "viewer-state.opened", { path: await page.evaluate(() => window.__openedScreen.params.path) });
+  };
   await page.getByRole("button", { name: pdfRow }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Find in document", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("Document 2 of 4", { exact: true })).toBeVisible();
-  await expect.poll(openedOnScreen).toBe(true);
+  await step("Next document", 2);
   await expect(page.getByRole("textbox", { name: "Find in document", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Page map", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("Document 3 of 4", { exact: true })).toBeVisible();
-  await expect.poll(openedOnScreen).toBe(true);
-  await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("Document 4 of 4", { exact: true })).toBeVisible();
-  await expect.poll(openedOnScreen).toBe(true);
+  await step("Next document", 3);
+  await step("Next document", 4);
   await expect(page.getByRole("button", { name: "Next document", exact: true })).toHaveAttribute("aria-disabled", "true");
   await page.getByRole("button", { name: "Previous document", exact: true }).click();
   await expect(page.getByText("Document 3 of 4", { exact: true })).toBeVisible();
@@ -871,9 +873,14 @@ try {
   await expect(page.getByRole("button", { name: "Next document", exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://127.0.0.1:${port}/?compact`);
+  const sincePhoneCard = await rpcCallCount();
   await page.getByRole("button", { name: "Turn card", exact: true }).click();
+  await rpcAnswered(sincePhoneCard, "doc.thumbnail");
   await expect(cardFrame.locator("img")).toHaveCount(3);
-  for (const image of await cardFrame.locator("img").all()) expect(await image.boundingBox()).toMatchObject({ width: 36, height: 36 });
+  for (const image of await cardFrame.locator("img").all()) {
+    await image.evaluate((element) => element.decode());
+    expect(await image.boundingBox()).toMatchObject({ width: 36, height: 36 });
+  }
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await cardFrame.screenshot({ path: `${shots}/harness-phone-card-opened.png` });
   await page.getByRole("button", { name: pdfRow }).click();
