@@ -25,7 +25,10 @@ function file(root: string, name: string, revision = "1") {
 
 describe("audit: PDFium isolation", () => {
   it("keeps the event loop responsive while rendering a 3 KB nested-form PDF", async () => {
-    const root = workspace({ "nested.pdf": nestedFormPdf(9) });
+    const root = workspace({ "nested.pdf": nestedFormPdf(9), "ok.pdf": await textPdf(["hello"]) });
+    // The first render loads PDFium, decoding its WASM on this thread; done here, that stays out of the
+    // window measured below, which holds only the nested render.
+    await renderPdfPage(file(root, "ok.pdf"), 0, fit);
     // CPU this thread spent between ticks: work that held the event loop, which a busy machine does not
     // inflate the way it delays the timer itself.
     const cpuMs = () => { const { user, system } = process.threadCpuUsage(); return (user + system) / 1000; };
