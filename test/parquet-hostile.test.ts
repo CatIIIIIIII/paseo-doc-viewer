@@ -56,7 +56,8 @@ describe("Parquet: hostile input", () => {
     const window = await readRows({ root, path: "wide.parquet" }, { sheet: 0, rowOffset: 0, columnOffset: 0 });
     expect(window.rows).toHaveLength(1);
     expect(responseBytes(window)).toBeLessThan(MAX_RESPONSE_BYTES);
-    const found = await searchDocument({ root, path: "wide.parquet" }, "42");
+    let found = await searchDocument({ root, path: "wide.parquet" }, "42");
+    while (found.matches.length === 0 && found.next) found = await searchDocument({ root, path: "wide.parquet" }, "42", found.next);
     expect(found.matches.length).toBeGreaterThan(0);
   }, 30_000);
 });
