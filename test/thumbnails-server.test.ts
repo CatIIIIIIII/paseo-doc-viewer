@@ -162,6 +162,7 @@ describe("PDF thumbnails", () => {
     expect(again.image).toEqual(first.image);
     expect(opens()).toBe(before + 1);
     expect(cacheKeys().length).toBe(pages);
+    expect((await pageThumbnail({ root, path: "cached.pdf" }, { index: 0, width: 120, keepOpen: false })).image.width).toBe(120);
   });
 
   it("does not try a card thumbnail PDFium was still drawing at its deadline again for a while, so PDFium restarts once", async () => {
@@ -232,9 +233,11 @@ describe("PDF thumbnails", () => {
     expect(thumbnail.image).toMatchObject({ width: 8, height: 160 });
   });
 
-  it("asks for the password on a card although the page map unlocked the file", async () => {
+  it("asks for the password on a card, or a page map without it, although another page map unlocked the file", async () => {
     const root = workspaceWithFixtures("locked.pdf");
     await renderThumbnail({ root, path: "locked.pdf", password: "secret" }, { index: 0, width: 80 });
+    const pageMap = renderThumbnail({ root, path: "locked.pdf" }, { index: 0, width: 80 });
+    await expect(pageMap).rejects.toThrow(errorText(ERROR_MESSAGES.pdfPasswordRequired()));
     const card = renderThumbnail({ root, path: "locked.pdf" }, { index: 0, width: 80, keepOpen: false });
     await expect(card).rejects.toThrow(errorText(ERROR_MESSAGES.pdfPasswordRequired()));
   });
