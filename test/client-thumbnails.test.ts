@@ -272,12 +272,14 @@ describe("turn card thumbnail requests", () => {
     vi.resetModules();
     const module = await import("../client/card-thumbnails");
     const calls: { path: string; resolve(): void }[] = [];
+    const asked: string[] = [];
     let inFlight = 0;
     let peak = 0;
     const client = {
       rpc: (_contract: unknown, input: { path: string }) => new Promise((resolve) => {
         inFlight++;
         peak = Math.max(peak, inFlight);
+        asked.push(input.path);
         calls.push({ path: input.path, resolve: () => { inFlight--; resolve({ kind: "pdf", revision: `r${input.path.match(/\d+/)![0]}`, index: 0, pageCount: 1, image: image(input.path) }); } });
       }),
     } as unknown as Parameters<typeof module.createCardThumbnails>[0];
@@ -286,10 +288,10 @@ describe("turn card thumbnail requests", () => {
       card.want(module.cardThumbnailIndices(list));
       return card;
     };
-    return { mount, calls, peak: () => peak };
+    return { mount, calls, asked, peak: () => peak };
   }
 
-  it("ask for two thumbnails at a time across every card, the card mounted last first", async () => {
+  it("ask for one thumbnail at a time across every card, the card mounted last first", async () => {
     const { mount, calls, peak } = await cards();
     const older = mount(files("old", 12));
     const newer = mount(files("new", 12));
@@ -306,15 +308,16 @@ describe("turn card thumbnail requests", () => {
   });
 
   it("drop a closed card's waiting requests, so a card scrolled away stops asking", async () => {
-    const { mount, calls } = await cards();
+    const { mount, calls, asked } = await cards();
     const gone = mount(files("gone", 12));
     const kept = mount(files("kept", 2));
     await flush();
-    expect(calls.map((call) => call.path)).toEqual(["kept0.pdf", "kept1.pdf"]);
     gone.close();
-    calls.splice(0).forEach((call) => call.resolve());
-    await flush();
-    expect(calls).toEqual([]);
+    while (calls.length > 0) {
+      calls.splice(0).forEach((call) => call.resolve());
+      await flush();
+    }
+    expect(asked).toEqual(["kept0.pdf", "kept1.pdf"]);
     expect(kept.state(1)?.status).toBe("ready");
   });
 });

@@ -103,26 +103,30 @@ describe("turn card thumbnails", () => {
     await flush();
     before.close();
     mount(files("new", 1));
-    for (const call of calls.splice(0, 2)) call.resolve(answer(call.input.path!));
+    for (const call of calls.splice(0)) call.resolve(answer(call.input.path!));
     await flush();
     expect(notified).toBe(0);
     expect(calls.map((call) => call.input.path)).toEqual(["new0.pdf"]);
-    expect(mount(files("old", 2)).state(1)?.status).toBe("ready");
+    expect(mount(files("old", 1)).state(0)?.status).toBe("ready");
   });
 
   it("notify nobody when an answer arrives after the card unmounted", async () => {
     const { client, calls } = rpcHarness();
     const mount = await fresh(client);
-    const card = mount(files("gone", 2));
     const listener = vi.fn();
-    card.subscribe(listener);
+    const unmountWhileAsking = async (prefix: string) => {
+      const card = mount(files(prefix, 2));
+      card.subscribe(listener);
+      await flush();
+      card.close();
+      return calls.at(-1)!;
+    };
+    (await unmountWhileAsking("answered")).resolve(answer("answered0.pdf"));
     await flush();
-    card.close();
-    calls[0]!.resolve(answer("gone0.pdf"));
-    calls[1]!.reject(new Error(ERROR_MESSAGES.busy()));
+    (await unmountWhileAsking("busy")).reject(new Error(ERROR_MESSAGES.busy()));
     await flush();
     expect(listener).not.toHaveBeenCalled();
-    expect(calls).toHaveLength(2);
+    expect(calls.map((call) => call.input.path)).toEqual(["answered0.pdf", "busy0.pdf"]);
   });
 
   it("keep the icon of a file whose thumbnail failed, without asking again", async () => {

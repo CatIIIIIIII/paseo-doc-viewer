@@ -4,9 +4,9 @@ import type { TurnDocsFile } from "../shared/turn-docs";
 import { createRequestQueue, createThumbnailLoader, pageThumbnailKey, type RequestQueue, thumbnailAnswer, thumbnailCache, type ThumbnailLoader } from "./thumbnails";
 import { cardThumbnail, cardThumbnailRetry, TURN_THUMBNAIL_WIDTH } from "./turn-docs";
 
-// Every card of this client shares two requests, so a timeline of cards stays within what the
-// daemon queues for files nobody is reading, however many cards there are.
-export const CARD_THUMBNAILS_IN_FLIGHT = 2;
+// Every card of this client shares one request, as the daemon draws one thumbnail at a time for files
+// nobody is reading: a second request would only wait behind the first and give up while it decodes.
+export const CARD_THUMBNAILS_IN_FLIGHT = 1;
 export const cardThumbnailQueue = createRequestQueue(CARD_THUMBNAILS_IN_FLIGHT);
 let mounted = 0;
 
