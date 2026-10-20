@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { PluginLifecycleEvents } from "@getpaseo/plugin/server";
-import { changedDuringTurn, groupChanges, TURN_WINDOW_SLACK_MS, turnDocsRow, type Baseline, type ScannedFile, type ScannedFolders, type TurnDocsRow } from "../shared/turn-docs";
+import { baselineAt, changedDuringTurn, groupChanges, TURN_WINDOW_SLACK_MS, turnDocsRow, type Baseline, type ScannedFile, type ScannedWorkspace, type TurnDocsRow } from "../shared/turn-docs";
 
 type TurnStarted = PluginLifecycleEvents["agent.turn_started"];
 type TurnEnded = PluginLifecycleEvents["agent.turn_ended"];
@@ -14,7 +14,7 @@ export interface TurnDocsHost {
 
 export interface TurnDocsDeps {
   // `notBefore` lets a scan that began after it be reused; without it the scan is always new.
-  scan(root: string, notBefore?: number): Promise<{ entries: readonly ScannedFile[]; complete: boolean } & ScannedFolders>;
+  scan(root: string, notBefore?: number): Promise<ScannedWorkspace>;
   enabled(): Promise<boolean>;
   now?: () => number;
   log?: (message: string) => void;
@@ -40,22 +40,12 @@ export function createTurnDocs(deps: TurnDocsDeps) {
       if (!agent.workspaceId) return;
       const workspaceId = agent.workspaceId;
       const root = host.resolveRoot(workspaceId);
-      // The baseline tells new from changed. The hook reaches the plugin a little after the turn really
-      // starts, so files touched within the slack before startedAt are left out and judged by the end
-      // scan alone; so is a file the agent wrote before the baseline scan reached it. No scan when the
-      // setting is off. One that began within the slack before startedAt is reused, so turns starting
+      // The baseline tells new from changed. It leaves out what changed from the slack before startedAt on,
+      // so a file the agent wrote before the scan reached it is judged by the end scan alone. No scan when
+      // the setting is off. A scan begun within the slack before startedAt is reused, so turns starting
       // together share a walk, and it still holds every folder made before that.
       const baseline = root
-        .then(async (dir): Promise<Baseline | null> => {
-          if (!(await deps.enabled())) return null;
-          const { entries, complete, dirs, repos } = await deps.scan(dir, startedAt - TURN_WINDOW_SLACK_MS);
-          return {
-            revisions: new Map(entries.filter((entry) => entry.changedMs < startedAt - TURN_WINDOW_SLACK_MS).map((entry) => [entry.path, entry.revision])),
-            dirs: new Set(dirs.keys()),
-            repos,
-            complete,
-          };
-        })
+        .then(async (dir): Promise<Baseline | null> => ((await deps.enabled()) ? baselineAt(await deps.scan(dir, startedAt - TURN_WINDOW_SLACK_MS), startedAt) : null))
         .catch(() => null);
       root.catch(() => undefined);
       turns.set(agent.id, { startedAt, workspaceId, root, baseline });

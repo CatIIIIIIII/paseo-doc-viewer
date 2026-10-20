@@ -75,6 +75,25 @@ export interface Baseline {
   complete: boolean;
 }
 
+export interface ScannedWorkspace extends ScannedFolders {
+  entries: readonly ScannedFile[];
+  complete: boolean;
+}
+
+// The hook reaches the plugin a little after the turn really starts, so the scan can already hold what the
+// agent made in that first moment. Files changed and folders born within the slack before startedAt are
+// left out and judged by the end scan alone: such a file is new, and such a folder (an early git worktree
+// add) is new, which folds its new files. A folder with no trusted birth time stays, as it cannot be placed.
+export function baselineAt({ entries, complete, dirs, repos }: ScannedWorkspace, startedAt: number): Baseline {
+  const from = startedAt - TURN_WINDOW_SLACK_MS;
+  return {
+    revisions: new Map(entries.filter((entry) => entry.changedMs < from).map((entry) => [entry.path, entry.revision])),
+    dirs: new Set([...dirs].filter(([, born]) => born === null || born < from).map(([dir]) => dir)),
+    repos,
+    complete,
+  };
+}
+
 // Files whose content changed during the turn, newest first. A file that was in the baseline
 // with the same revision is skipped, so the slack never reports an untouched file.
 export function changedDuringTurn(after: readonly ScannedFile[], baseline: Baseline | null, startedAt: number): TurnDocsFile[] {

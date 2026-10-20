@@ -8,6 +8,7 @@ import { listedFiles, TURN_GROUP, turnDocsNote, turnDocsTitle, turnFilePill } fr
 import { documentRevision } from "../shared/revision";
 import { workspace } from "./helpers";
 import {
+  baselineAt,
   changedDuringTurn,
   groupChanges,
   TIMELINE_DATA_MAX_BYTES,
@@ -69,6 +70,17 @@ describe("changedDuringTurn", () => {
   });
 });
 
+describe("baselineAt", () => {
+  it("leaves out files changed and folders born from the slack before the start on, and keeps a folder with no birth time", () => {
+    const from = T0 - TURN_WINDOW_SLACK_MS;
+    const dirs = new Map<string, number | null>([["old", from - 1], ["early", from], ["unknown", null]]);
+    const baseline = baselineAt({ entries: [file("old.pdf", from - 1, "r1"), file("early.pdf", from, "r2")], complete: true, dirs, repos: new Set() }, T0);
+    expect([...baseline.revisions]).toEqual([["old.pdf", "r1"]]);
+    expect([...baseline.dirs]).toEqual(["old", "unknown"]);
+    expect(baseline.complete).toBe(true);
+  });
+});
+
 describe("groupChanges", () => {
   const changed = (...paths: string[]): TurnDocsFile[] => paths.map((path) => ({ path, kind: "pdf", size: 1, revision: "r", status: "new" }));
   const edited = (...paths: string[]): TurnDocsFile[] => changed(...paths).map((entry) => ({ ...entry, status: "changed" }));
@@ -120,6 +132,12 @@ describe("groupChanges", () => {
     const after = folders({ out: born, again: born }, ["again"]);
     const baseline = known([], true, { dirs: ["out", "again"], repos: ["again"] });
     expect(summary(groupChanges(files, after, baseline, T0))).toEqual({ files: [...many("out", 13), "again/a.pdf"], groups: [] });
+  });
+
+  it("folds a worktree added in the slack before the start, which the baseline scan saw, and not one added earlier", () => {
+    const after = folders({ wt: T0 - 500, earlier: T0 - 1_500 }, ["wt", "earlier"]);
+    const baseline = baselineAt({ entries: [], complete: true, ...after }, T0);
+    expect(summary(groupChanges(changed("wt/a.pdf", "earlier/b.pdf"), after, baseline, T0))).toEqual({ files: ["earlier/b.pdf"], groups: ["checkout:wt:1"] });
   });
 
   it("lists the files of a repo initialized in a folder that existed", () => {

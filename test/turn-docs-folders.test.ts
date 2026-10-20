@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -124,6 +124,20 @@ describe("turn card folder rows on a real workspace", () => {
     });
     expect(row!.version).toBe(1);
     expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["notes/plan.pdf", "changed"]]);
+  });
+
+  it("folds a worktree added just before the turn started, which the baseline scan already saw", async ({ skip }) => {
+    const { root, write } = workspace();
+    write("proj/.git/HEAD", "ref: refs/heads/main");
+    write("proj/a.pdf");
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    write("proj-wt/.git", "gitdir: ../proj/.git/worktrees/proj-wt");
+    write("proj-wt/a.pdf");
+    skip(folderBirthtime(statSync(join(root, "proj-wt"))) === null, "this filesystem gives no folder birth times");
+    const row = await turn(root, () => write("proj-wt/report.pdf"));
+    expect(row!.version).toBe(2);
+    expect(row!.data.files).toEqual([]);
+    expect(folderRows(row).map(({ reason, path, count }) => ({ reason, path, count }))).toEqual([{ reason: "checkout", path: "proj-wt", count: 2 }]);
   });
 
   it("lists a new file in a folder that git init turned into a repository, not as a new checkout", async () => {
