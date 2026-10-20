@@ -41,9 +41,13 @@ const expansions = treeExpansions(50);
 export function useTreeExpansion(scope: string, filterKey: string | null): [TreeExpansion, (change: (current: TreeExpansion) => TreeExpansion) => void] {
   const key = expansions.key(scope, filterKey);
   const [state, setState] = useState(() => ({ key, expansion: expansions.start(scope, filterKey) }));
+  // A change that leaves the expansion as it is leaves the state as it is, so it draws nothing.
   const update = useCallback(
     (change: (current: TreeExpansion) => TreeExpansion) =>
-      setState((current) => ({ key, expansion: change(current.key === key ? current.expansion : expansions.start(scope, filterKey)) })),
+      setState((current) => {
+        const expansion = change(current.key === key ? current.expansion : expansions.start(scope, filterKey));
+        return current.key === key && expansion === current.expansion ? current : { key, expansion };
+      }),
     [key, scope, filterKey],
   );
   useEffect(() => {

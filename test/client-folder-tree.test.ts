@@ -6,6 +6,7 @@ import {
   folderFiles,
   folderLabel,
   folderTree,
+  holdOpenChains,
   isExpanded,
   setExpanded,
   TOP_EXPANDED,
@@ -101,6 +102,26 @@ describe("folder tree", () => {
     expect(rowsOf(chained, setExpanded(closed, ["p/q"], true))).toEqual(["v p (2)", "  > q/r (1)", "  other.pdf"]);
     const top = setExpanded(TOP_EXPANDED, ["out", "out/reports"], false);
     expect(rowsOf([{ path: "out/reports/a.pdf" }, { path: "out/b.pdf" }], setExpanded(top, ["out"], true))).toEqual(["v out (2)", "  > reports (1)", "  b.pdf"]);
+  });
+
+  it("keeps a chain that opened by default open, both folders, when a new file splits it", () => {
+    const chained = [{ path: "out/reports/weekly.pdf" }, { path: "docs/a.pdf" }];
+    const split = [...chained, { path: "out/new.pdf" }];
+    const rowsOf = (paths: { path: string }[], expansion: TreeExpansion) =>
+      treeRows(folderTree(paths), (chain, depth) => isExpanded(expansion, chain, depth));
+    const held = holdOpenChains(TOP_EXPANDED, rowsOf(chained, TOP_EXPANDED));
+    expect(shown(rowsOf(chained, held))).toEqual(["v docs (1)", "  a.pdf", "v out/reports (1)", "  weekly.pdf"]);
+    expect(shown(rowsOf(split, held))).toEqual(["v docs (1)", "  a.pdf", "v out (2)", "  v reports (1)", "    weekly.pdf", "  new.pdf"]);
+    // Only the top level opens by default, so without it the folder below the split closes.
+    expect(shown(rowsOf(split, TOP_EXPANDED))).toEqual(["v docs (1)", "  a.pdf", "v out (2)", "  > reports (1)", "  new.pdf"]);
+    // A chain closed by hand stays closed, and nothing is held when no chain is open or Expand all is on.
+    const closed = setExpanded(TOP_EXPANDED, ["out", "out/reports"], false);
+    expect(holdOpenChains(closed, rowsOf(chained, closed))).toBe(closed);
+    expect(holdOpenChains(ALL_EXPANDED, rowsOf(chained, ALL_EXPANDED))).toBe(ALL_EXPANDED);
+    expect(holdOpenChains(ALL_COLLAPSED, rowsOf(chained, ALL_COLLAPSED))).toBe(ALL_COLLAPSED);
+    expect(holdOpenChains(held, rowsOf(chained, held))).toBe(held);
+    // A folder that is no chain keeps the default, which follows where it sits.
+    expect(holdOpenChains(TOP_EXPANDED, rowsOf([{ path: "docs/a.pdf" }], TOP_EXPANDED))).toBe(TOP_EXPANDED);
   });
 
   it("keeps open folders per host and workspace up to a cap, and a filter's apart in each", () => {

@@ -16,7 +16,7 @@ import { detailsColumns, previewGrid, treeLayout } from "./panel-layout";
 import { DetailsHeader, DetailsRow } from "./documents-details";
 import { countText, PreviewTile, TileRow, usePreviews } from "./documents-previews";
 import { TreeActions, TreeList, useTreeExpansion } from "./documents-tree";
-import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, isExpanded, setExpanded, treeRows } from "./folder-tree";
+import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, holdOpenChains, isExpanded, setExpanded, treeRows } from "./folder-tree";
 import { type PreviewRow, previewRowKey, previewRows, visibleTilePaths } from "./previews";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
@@ -134,6 +134,9 @@ function DocumentsList({
     () => (tree ? treeRows(folderTree(entries), (chain, depth) => isExpanded(expansion, chain, depth)) : []),
     [tree, entries, expansion],
   );
+  useEffect(() => {
+    updateExpansion((current) => holdOpenChains(current, folderRows));
+  }, [folderRows, updateExpansion]);
   const shape = useMemo(() => treeLayout(width, layout.compact), [width, layout.compact]);
   const folderRowsRef = useRef(folderRows);
   folderRowsRef.current = folderRows;

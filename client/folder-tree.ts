@@ -16,8 +16,9 @@ export type TreeRow<T> =
 
 export interface TreeExpansion {
   base: "top" | "all" | "none";
-  // Folders opened or closed by hand. A chained row sets every folder in it, so the choice holds
-  // when an agent splits the chain with a new file or the chain forms again.
+  // Folders opened or closed by hand, and the folders of a chained row that opened by default. A chained
+  // row sets every folder in it, so the state holds when an agent splits the chain with a new file or the
+  // chain forms again.
   chosen: ReadonlyMap<string, boolean>;
 }
 
@@ -35,6 +36,17 @@ export function setExpanded(expansion: TreeExpansion, chain: readonly string[], 
   const chosen = new Map(expansion.chosen);
   for (const path of chain) chosen.set(path, open);
   return { base: expansion.base, chosen };
+}
+
+// Only the top level opens by default, so the folders of a chain that opened that way, once split, would
+// leave all but the first closed. Choosing them keeps the chain open as it was.
+export function holdOpenChains(expansion: TreeExpansion, rows: readonly TreeRow<unknown>[]): TreeExpansion {
+  if (expansion.base !== "top") return expansion;
+  let held = expansion;
+  for (const row of rows) {
+    if (row.type === "folder" && row.chain.length > 1 && row.expanded && row.chain.some((path) => !held.chosen.has(path))) held = setExpanded(held, row.chain, true);
+  }
+  return held;
 }
 
 // Open folders per host and workspace until the app restarts, up to `max` workspaces, the least
