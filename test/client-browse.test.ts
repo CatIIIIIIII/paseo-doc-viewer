@@ -162,23 +162,31 @@ describe("documents panel empty and footer text", () => {
   });
 
   it("describes a capped list as recent documents or recent matches, with every reason it was cut", () => {
-    expect(truncationNotice(12, [], false)).toBeNull();
-    expect(truncationNotice(50, ["limit"], false)).toBe("Showing the 50 most recently changed documents");
-    expect(truncationNotice(1000, ["limit"], true)).toBe("Showing the 1,000 most recently changed matches");
-    expect(truncationNotice(1, ["depth"], false)).toBe("Folders more than 16 levels deep were not scanned");
-    expect(truncationNotice(12, ["folder"], false)).toBe("Folders with more than 5,000 entries were only partly scanned");
-    expect(truncationNotice(12, ["entries"], false)).toBe("Only the first 50,000 entries of this workspace were scanned");
-    expect(truncationNotice(1000, ["limit", "entries", "depth"], false)).toBe(
+    expect(truncationNotice(12, [], false, "list")).toBeNull();
+    expect(truncationNotice(50, ["limit"], false, "list")).toBe("Showing the 50 most recently changed documents");
+    expect(truncationNotice(1000, ["limit"], true, "list")).toBe("Showing the 1,000 most recently changed matches");
+    expect(truncationNotice(1, ["depth"], false, "list")).toBe("Folders more than 16 levels deep were not scanned");
+    expect(truncationNotice(12, ["folder"], false, "list")).toBe("Folders with more than 5,000 entries were only partly scanned");
+    expect(truncationNotice(12, ["entries"], false, "list")).toBe("Only the first 50,000 entries of this workspace were scanned");
+    expect(truncationNotice(1000, ["limit", "entries", "depth"], false, "list")).toBe(
       "Showing the 1,000 most recently changed documents. Only the first 50,000 entries of this workspace were scanned. Folders more than 16 levels deep were not scanned");
-    expect(truncationNotice(312, ["bytes"], false)).toBe("Showing the 312 most recently changed documents, as many names as fit in 8 MB");
-    expect(truncationNotice(312, ["limit", "bytes", "folder"], true)).toBe(
+    expect(truncationNotice(312, ["bytes"], false, "list")).toBe("Showing the 312 most recently changed documents, as many names as fit in 8 MB");
+    expect(truncationNotice(312, ["limit", "bytes", "folder"], true, "list")).toBe(
       "Showing the 312 most recently changed matches, as many names as fit in 8 MB. Folders with more than 5,000 entries were only partly scanned");
+  });
+
+  it("says in Tree that folder counts cover only the listed documents when the list was cut", () => {
+    expect(truncationNotice(1000, ["limit", "depth"], false, "tree")).toBe(
+      "Showing the 1,000 most recently changed documents. Folder counts include only these. Folders more than 16 levels deep were not scanned");
+    expect(truncationNotice(312, ["bytes"], true, "tree")).toBe("Showing the 312 most recently changed matches, as many names as fit in 8 MB. Folder counts include only these");
+    expect(truncationNotice(12, ["folder"], false, "tree")).toBe("Folders with more than 5,000 entries were only partly scanned");
+    expect(truncationNotice(12, [], false, "tree")).toBeNull();
   });
 
   it("reads a cut list from a daemon that gives no reason as cut at the limit", () => {
     expect(recentCuts({ truncated: true })).toEqual(["limit"]);
     expect(recentCuts({ truncated: false })).toEqual([]);
     expect(recentCuts({ truncated: true, truncatedBy: ["depth"] })).toEqual(["depth"]);
-    expect(truncationNotice(50, recentCuts({ truncated: true }), false)).toBe("Showing the 50 most recently changed documents");
+    expect(truncationNotice(50, recentCuts({ truncated: true }), false, "list")).toBe("Showing the 50 most recently changed documents");
   });
 });

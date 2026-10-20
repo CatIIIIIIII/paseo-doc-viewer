@@ -224,7 +224,7 @@ function DocumentsList({
     />
   );
   const cuts = recentCuts(recent.data);
-  const notice = truncationNotice(entries.length, cuts, filtering);
+  const notice = truncationNotice(entries.length, cuts, filtering, view);
   const footerNotice = tree ? null : notice;
   const footer =
     footerNotice || tipsLink ? (

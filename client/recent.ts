@@ -11,6 +11,7 @@ import {
   SCAN_CUTS,
   type ScanCut,
 } from "../shared/browse";
+import type { DocumentView } from "../shared/documents-view";
 import { extensionOf } from "../shared/kinds";
 import { MAX_RESPONSE_BYTES, RECENT_MAX_DEPTH, RECENT_MAX_FOLDER_ENTRIES, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { docsRecentRpc, type DocsRecentInput, type DocsRecentList, type DocsRecentOutput } from "../shared/rpc";
@@ -107,10 +108,13 @@ export function unsupportedDetail(paths: readonly string[]): string | null {
 }
 
 // Why the list may hold fewer documents than the workspace, one sentence per reason; null when it holds them all.
-export function truncationNotice(listed: number, cuts: readonly RecentCut[], filtered: boolean): string | null {
-  const shown = `Showing the ${formatCount(listed)} most recently changed ${filtered ? "matches" : "documents"}`;
+// Tree's folder counts then cover only the listed documents.
+export function truncationNotice(listed: number, cuts: readonly RecentCut[], filtered: boolean, view: DocumentView): string | null {
+  const things = filtered ? "matches" : "documents";
+  const shown = `Showing the ${formatCount(listed)} most recently changed ${things}`;
   const cut = cuts.includes("bytes") ? [`${shown}, as many names as fit in ${MAX_RESPONSE_BYTES / 1024 ** 2} MB`] : cuts.includes("limit") ? [shown] : [];
-  const notes = [...cut, ...scanNotes(cuts)];
+  const counted = cut.length > 0 && view === "tree" ? ["Folder counts include only these"] : [];
+  const notes = [...cut, ...counted, ...scanNotes(cuts)];
   return notes.length > 0 ? notes.join(". ") : null;
 }
 

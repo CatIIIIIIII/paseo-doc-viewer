@@ -43,9 +43,7 @@ export function TreeActions({
 }: ChromeProps & { notice: string | null; onExpandAll(): void; onCollapseAll(): void }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8 + ROW_PADDING, paddingTop: 8 }}>
-      <Text style={[styles.muted, { flex: 1 }]} numberOfLines={2}>
-        {notice ?? ""}
-      </Text>
+      <Text style={[styles.muted, { flex: 1 }]}>{notice ?? ""}</Text>
       <ToolbarButton
         theme={theme}
         styles={styles}
