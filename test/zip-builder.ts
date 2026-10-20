@@ -8,6 +8,9 @@ export interface RawEntry {
   flags?: number;
 }
 
+// Tests build zips with tens of thousands of empty entries; one deflate call each dominated their time.
+const EMPTY_DEFLATED = deflateRawSync(Buffer.alloc(0));
+
 export function rawZip(entries: RawEntry[]): Buffer {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
@@ -15,7 +18,7 @@ export function rawZip(entries: RawEntry[]): Buffer {
   for (const entry of entries) {
     const name = Buffer.from(entry.name, "utf8");
     const data = Buffer.from(entry.data ?? "");
-    const body = entry.deflated ?? deflateRawSync(data);
+    const body = entry.deflated ?? (data.length === 0 ? EMPTY_DEFLATED : deflateRawSync(data));
     const size = entry.declaredSize ?? data.length;
     const crc = crc32(data);
     const local = Buffer.alloc(30);

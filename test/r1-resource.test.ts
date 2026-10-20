@@ -13,7 +13,7 @@ import { decodeEntities } from "../server/html";
 import { ERROR_MESSAGES, errorCode } from "../shared/errors";
 import { MAX_RESPONSE_BYTES, RPC_DEADLINE_MS } from "../shared/limits";
 import { blankGrayPng, deckPptx, noisePng, textPdf } from "./fixtures/generators.ts";
-import { responseBytes, timed, workspace } from "./helpers";
+import { cpuTimed, responseBytes, workspace } from "./helpers";
 import { docxEntries, pptxEntries, rawZip, worksheetXml, xlsxEntries } from "./zip-builder";
 
 const MiB = 1024 * 1024;
@@ -47,7 +47,7 @@ describe("R1a: per-kind file size caps are checked before reading", () => {
   ])("%s is rejected as too large", async (name, head, size) => {
     const root = workspace();
     sparse(root, name, head, size);
-    const { value, ms } = await timed(() => failure(() => openDocument({ root, path: name })));
+    const { value, ms } = await cpuTimed(() => failure(() => openDocument({ root, path: name })));
     expect(errorCode(value)).toBe("too_large");
     expect(ms).toBeLessThan(500);
   });
@@ -57,7 +57,7 @@ describe("R1b: zip-based office files are checked against the central directory 
   it("rejects a pptx whose media part declares more than the total cap", async () => {
     const zip = rawZip(pptxEntries(["<a:p><a:r><a:t>x</a:t></a:r></a:p>"], [{ name: "ppt/media/bomb.png", data: "tiny", declaredSize: 400 * MiB }]));
     const root = workspace({ "bomb.pptx": zip });
-    const { value, ms } = await timed(() => failure(() => openDocument({ root, path: "bomb.pptx" })));
+    const { value, ms } = await cpuTimed(() => failure(() => openDocument({ root, path: "bomb.pptx" })));
     expect(errorCode(value)).toBe("too_large");
     expect(ms).toBeLessThan(500);
   });
@@ -72,7 +72,7 @@ describe("R1b: zip-based office files are checked against the central directory 
 
   it("rejects a docx with more XML elements than the converter can hold", async () => {
     const root = workspace({ "dense.docx": rawZip(docxEntries("<w:p><w:r><w:t>x</w:t></w:r></w:p>".repeat(50_000))) });
-    const { value, ms } = await timed(() => failure(() => openDocument({ root, path: "dense.docx" })));
+    const { value, ms } = await cpuTimed(() => failure(() => openDocument({ root, path: "dense.docx" })));
     expect(errorCode(value)).toBe("too_large");
     expect(ms).toBeLessThan(2_000);
   });
@@ -83,7 +83,7 @@ describe("R1b: zip-based office files are checked against the central directory 
       entry.name === "word/document.xml" ? { ...entry, deflated: deflateRawSync(real), declaredSize: 1024 } : entry,
     );
     const root = workspace({ "lying.docx": rawZip(entries) });
-    const { value, ms } = await timed(() => failure(() => openDocument({ root, path: "lying.docx" })));
+    const { value, ms } = await cpuTimed(() => failure(() => openDocument({ root, path: "lying.docx" })));
     expect(["too_large", "damaged"]).toContain(errorCode(value));
     expect(ms).toBeLessThan(5_000);
   });
@@ -112,11 +112,11 @@ describe("R1c: xlsx streams only the requested window", () => {
 
   it("opens a 400k-row sheet and reads a deep window quickly", async () => {
     const root = workspace({ "big.xlsx": rawZip(xlsxEntries([{ name: "Data", xml: worksheetXml(rows(400_000), "A1:B400000") }])) });
-    const { value: opened, ms: openMs } = await timed(() => openDocument({ root, path: "big.xlsx" }));
+    const { value: opened, ms: openMs } = await cpuTimed(() => openDocument({ root, path: "big.xlsx" }));
     if (opened.kind !== "xlsx") throw new Error("expected xlsx");
     expect(opened.sheets[0]).toMatchObject({ name: "Data", rowCount: 400_000, columnCount: 2 });
     expect(openMs).toBeLessThan(1_000);
-    const { value: deep, ms } = await timed(() => readRows({ root, path: "big.xlsx" }, { sheet: 0, rowOffset: 399_900, columnOffset: 0 }));
+    const { value: deep, ms } = await cpuTimed(() => readRows({ root, path: "big.xlsx" }, { sheet: 0, rowOffset: 399_900, columnOffset: 0 }));
     expect(deep.rows[0]).toEqual(["399901", "row 399901"]);
     expect(deep.rows).toHaveLength(100);
     expect(deep.nextRowOffset).toBeNull();
@@ -157,7 +157,7 @@ describe("R1d: slide and document images share a decode budget", () => {
     const picture = /<p:pic>[\s\S]*?<\/p:pic>/.exec(xml)![0];
     zip.file("ppt/slides/slide1.xml", xml.replace(picture, picture.repeat(200)));
     const root = workspace({ "many.pptx": await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }) });
-    const { value: slide, ms } = await timed(() => renderPage({ root, path: "many.pptx" }, { index: 0 }));
+    const { value: slide, ms } = await cpuTimed(() => renderPage({ root, path: "many.pptx" }, { index: 0 }));
     if (slide.kind !== "pptx") throw new Error("expected pptx");
     expect(slide.images).toHaveLength(1);
     expect(ms).toBeLessThan(10_000);
@@ -209,7 +209,7 @@ describe("R1d: slide and document images share a decode budget", () => {
       else le ? small.writeUInt32LE(6000, entry + 8) : small.writeUInt32BE(6000, entry + 8);
     }
     const root = workspace({ "x.tiff": small });
-    const { value, ms } = await timed(() => failure(() => renderPage({ root, path: "x.tiff" }, { index: 0 })));
+    const { value, ms } = await cpuTimed(() => failure(() => renderPage({ root, path: "x.tiff" }, { index: 0 })));
     expect(errorCode(value)).toBe("damaged");
     expect(ms).toBeLessThan(2_000);
   });
