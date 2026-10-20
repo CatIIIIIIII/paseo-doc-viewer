@@ -50,6 +50,30 @@ export async function cpuTimed<T>(run: () => Promise<T>): Promise<{ value: T; ms
   return { value, ms: (user + system) / 1000 };
 }
 
+// The most CPU this thread spent between two ticks of a 10 ms timer while `run` ran: the longest it held
+// the event loop. A busy machine delays the timer itself, but does not inflate this.
+export async function longestBlockMs(run: () => Promise<unknown>): Promise<number> {
+  const cpuMs = () => {
+    const { user, system } = process.threadCpuUsage();
+    return (user + system) / 1000;
+  };
+  let longest = 0;
+  let last = cpuMs();
+  const probe = setInterval(() => {
+    const now = cpuMs();
+    longest = Math.max(longest, now - last);
+    last = now;
+  }, 10);
+  try {
+    await run();
+    // One more tick, so a block just before `run` settled counts too.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  } finally {
+    clearInterval(probe);
+  }
+  return longest;
+}
+
 // Bytes read from `file` while `run` runs, through each way the server reads files: fs/promises readFile,
 // handles from fs/promises open, and createReadStream. Spying on the CommonJS objects, then syncing the
 // builtins' ESM exports, reaches the server's named imports too.
