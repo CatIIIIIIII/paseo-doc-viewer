@@ -100,6 +100,20 @@ describe("turn card folder rows on a real workspace", () => {
     expect(row!.data.moreCount).toBe(8);
   });
 
+  it("lists new files of a folder deleted and generated again with other names as new files, not as a new folder", async () => {
+    const { root, write } = workspace();
+    for (let index = 0; index < 20; index++) write(`out/report-${index}.pdf`);
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const row = await turn(root, () => {
+      rmSync(join(root, "out"), { recursive: true });
+      for (let index = 0; index < 20; index++) write(`out/summary-${index}.pdf`);
+    });
+    expect(row!.version).toBe(1);
+    expect(row!.data.files).toHaveLength(12);
+    expect(row!.data.files.every((file) => file.path.startsWith("out/summary-") && file.status === "new")).toBe(true);
+    expect(row!.data.moreCount).toBe(8);
+  });
+
   it("lists a file edited in a folder that git init turned into a repository", async () => {
     const { root, write } = workspace();
     write("notes/plan.pdf");
@@ -110,6 +124,18 @@ describe("turn card folder rows on a real workspace", () => {
     });
     expect(row!.version).toBe(1);
     expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["notes/plan.pdf", "changed"]]);
+  });
+
+  it("lists a new file in a folder that git init turned into a repository, not as a new checkout", async () => {
+    const { root, write } = workspace();
+    write("notes/plan.pdf");
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const row = await turn(root, () => {
+      write("notes/.git/HEAD", "ref: refs/heads/main");
+      write("notes/summary.pdf");
+    });
+    expect(row!.version).toBe(1);
+    expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["notes/summary.pdf", "new"]]);
   });
 
   it("scans again when the turn starts, so a worktree added after the Documents panel scanned is not a new checkout", async () => {
