@@ -39,7 +39,7 @@ import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, positi
 import { SharedFormulas } from "./formulas";
 import { fullCellText, issueDecoder, loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
 import { readZipIndex, type ZipIndex, type ZipLimits } from "./zip";
-import { ERROR_MESSAGES, errorText } from "../shared/errors";
+import { ERROR_MESSAGES, errorText, isError } from "../shared/errors";
 
 export interface DocumentRef {
   root: string;
@@ -148,9 +148,25 @@ const thumbnailLane = (keepOpen: boolean | undefined): Lane => (keepOpen === fal
 // Thumbnails have a cache of their own, so a page map or a timeline of cards cannot evict the pages
 // being read, and a card asking again, or another client, does not decode the file again.
 const thumbnails = createMemo({ maxBytes: 16 * MiB, maxEntries: 1024 });
-const thumbnailCached = <T>(file: DocumentFile, { index, width, keepOpen }: ThumbnailRequest, compute: (signal: AbortSignal) => Promise<T>) =>
-  thumbnails.memo({ path: file.path, revision: file.revision, name: `${index}\0${width}\0${file.passwordKey}` }, () =>
-    heavy(compute, { lane: thumbnailLane(keepOpen) }));
+// A file nobody is reading whose thumbnail ran out of time is not tried again at that revision: on a
+// PDF each try ends by restarting PDFium, which drops the document open in the viewer.
+const SLOW_THUMBNAILS_MAX = 256;
+const slowThumbnails = new Set<string>();
+
+async function thumbnailCached<T>(file: DocumentFile, { index, width, keepOpen }: ThumbnailRequest, compute: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const slow = keepOpen === false ? `${file.path}\0${file.revision}` : null;
+  if (slow !== null && slowThumbnails.has(slow)) throw new Error(ERROR_MESSAGES.tooSlow());
+  try {
+    return await thumbnails.memo({ path: file.path, revision: file.revision, name: `${index}\0${width}\0${file.passwordKey}` }, () =>
+      heavy(compute, { lane: thumbnailLane(keepOpen) }));
+  } catch (error) {
+    if (slow !== null && isError(error, ERROR_MESSAGES.tooSlow())) {
+      slowThumbnails.add(slow);
+      if (slowThumbnails.size > SLOW_THUMBNAILS_MAX) slowThumbnails.delete(slowThumbnails.values().next().value!);
+    }
+    throw error;
+  }
+}
 
 function fitFor(maxWidth: number | undefined): Fit {
   return { maxWidth: Math.min(maxWidth ?? DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX), maxBytes: IMAGE_BUDGET_BYTES };

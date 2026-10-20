@@ -1,3 +1,4 @@
+import { setTimeout as realDelay } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cacheKeys } from "../server/cache";
 import { renderPage, renderThumbnail } from "../server/documents";
@@ -8,6 +9,7 @@ import { docThumbnailRpc } from "../shared/rpc";
 import { RPC_DEADLINE_MS, THUMBNAIL_MAX_WIDTH_PX } from "../shared/limits";
 import { decode, type Image } from "imagescript";
 import { alphaRampPng, noisePng, textPdf } from "./fixtures/generators";
+import { nestedFormPdf } from "./fixtures/hostile";
 import { decodePng, workspace, workspaceWithFixtures } from "./helpers";
 
 const deferred = () => {
@@ -136,6 +138,23 @@ describe("PDF thumbnails", () => {
     expect(opens()).toBe(before + 1);
     expect(cacheKeys().length).toBe(pages);
   });
+
+  it("does not try a card thumbnail that ran out of time again at that revision, so PDFium restarts once", async () => {
+    const root = workspace({ "slow.pdf": nestedFormPdf(9) });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.resetModules();
+    const fresh = await import("../server/documents");
+    const { pdfiumStats: stats } = await import("../server/pdfium");
+    const card = () => fresh.renderThumbnail({ root, path: "slow.pdf" }, { index: 0, width: 80, keepOpen: false }).catch((error: Error) => error);
+    const slow = card();
+    await realDelay(300);
+    await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
+    expect(errorText(await slow)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
+    vi.useRealTimers();
+    const { opens, spawns } = stats();
+    expect(errorText(await card())).toBe(errorText(ERROR_MESSAGES.tooSlow()));
+    expect(stats()).toMatchObject({ opens, spawns });
+  }, 30_000);
 
   it("bounds the requested width in the RPC schema", () => {
     const input = { workspaceId: "w", path: "a.pdf", index: 0 };

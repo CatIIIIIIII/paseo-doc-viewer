@@ -43,6 +43,11 @@ export function errorText(error: unknown): string {
   return match ? message.slice(match.index + match[0].length) : message;
 }
 
+// Tells apart errors that share a code, such as a busy daemon and work that ran out of time.
+export function isError(error: unknown, message: string): boolean {
+  return errorText(error) === errorText(message);
+}
+
 export const ERROR_MESSAGES = {
   outsideWorkspace: () => tagged("outside_workspace", "Path is outside the workspace"),
   invalidPath: () => tagged("invalid_request", "Invalid path"),
