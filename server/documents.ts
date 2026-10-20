@@ -18,14 +18,14 @@ import type {
   DocsRecentOutput,
   MediaChunkOutput,
 } from "../shared/rpc";
-import { createMemo, estimateBytes, memo } from "./cache";
+import { estimateBytes, memo } from "./cache";
 import { isEncryptedOoxml } from "./cfb";
 import { csvCells, csvFullCell, csvWindow, indexCsv } from "./csv";
 import { recordCells, type FullValue } from "./data-table";
 import { indexJsonl, jsonlFullValue, jsonlRecords, jsonlWindow } from "./jsonl";
 import { openParquet, parquetFullValue, parquetModelBytes, parquetRecords, parquetWindow } from "./parquet";
 import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, verifyDocx, type DocxModel, type SourceBlock } from "./docx";
-import { heavy, type Lane } from "./heavy";
+import { heavy } from "./heavy";
 import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
 import { readChunk, sliceChunk, videoMimeType, audioMimeType } from "./media";
 import { resolveInside } from "./paths";
@@ -34,12 +34,13 @@ import { loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
 import { IMAGE_BUDGET_BYTES, base64Capacity, decodeBudget, type Fit } from "./raster";
 import { recentDocuments, type RecentEntry } from "./recent";
 import { revisionOf } from "./revision";
+import { thumbnailCached, type ThumbnailRequest } from "./thumbnails";
 import { viewerStateStore } from "./viewer-state";
 import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, position, takeStream, type SearchPosition } from "./search";
 import { SharedFormulas } from "./formulas";
 import { fullCellText, issueDecoder, loadSharedStrings, loadWorkbook, rowWindow, sheetRows, textDecoder, type Workbook } from "./xlsx";
 import { readZipIndex, type ZipIndex, type ZipLimits } from "./zip";
-import { ERROR_MESSAGES, errorText, isError } from "../shared/errors";
+import { ERROR_MESSAGES, errorText } from "../shared/errors";
 
 export interface DocumentRef {
   root: string;
@@ -58,7 +59,6 @@ interface DocumentFile {
 }
 
 type PageRequest = { index: number; maxWidth?: number };
-type ThumbnailRequest = { index: number; width: number; keepOpen?: boolean };
 type TextRequest = { index: number };
 type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number; maxRows?: number; detail?: boolean };
 type BlocksRequest = { cursor: number };
@@ -141,32 +141,6 @@ const cached = <T>(file: DocumentFile, name: string, compute: () => Promise<T>, 
 
 const heavyCached = <T>(file: DocumentFile, name: string, compute: (signal: AbortSignal) => Promise<T>, sizeOf?: (value: T) => number) =>
   cached(file, name, () => heavy(compute), sizeOf);
-
-// A thumbnail not kept open is for a file nobody is reading; it waits behind the page map.
-const thumbnailLane = (keepOpen: boolean | undefined): Lane => (keepOpen === false ? "idle" : "background");
-
-// Thumbnails have a cache of their own, so a page map or a timeline of cards cannot evict the pages
-// being read, and a card asking again, or another client, does not decode the file again.
-const thumbnails = createMemo({ maxBytes: 16 * MiB, maxEntries: 1024 });
-// A file nobody is reading whose thumbnail ran out of time is not tried again at that revision: on a
-// PDF each try ends by restarting PDFium, which drops the document open in the viewer.
-const SLOW_THUMBNAILS_MAX = 256;
-const slowThumbnails = new Set<string>();
-
-async function thumbnailCached<T>(file: DocumentFile, { index, width, keepOpen }: ThumbnailRequest, compute: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  const slow = keepOpen === false ? `${file.path}\0${file.revision}` : null;
-  if (slow !== null && slowThumbnails.has(slow)) throw new Error(ERROR_MESSAGES.tooSlow());
-  try {
-    return await thumbnails.memo({ path: file.path, revision: file.revision, name: `${index}\0${width}\0${file.passwordKey}` }, () =>
-      heavy(compute, { lane: thumbnailLane(keepOpen) }));
-  } catch (error) {
-    if (slow !== null && isError(error, ERROR_MESSAGES.tooSlow())) {
-      slowThumbnails.add(slow);
-      if (slowThumbnails.size > SLOW_THUMBNAILS_MAX) slowThumbnails.delete(slowThumbnails.values().next().value!);
-    }
-    throw error;
-  }
-}
 
 function fitFor(maxWidth: number | undefined): Fit {
   return { maxWidth: Math.min(maxWidth ?? DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX), maxBytes: IMAGE_BUDGET_BYTES };
