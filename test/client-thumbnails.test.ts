@@ -294,12 +294,12 @@ describe("turn card thumbnail requests", () => {
         calls.push({ path: input.path, resolve: () => { inFlight--; resolve({ kind: "pdf", revision: `r${input.path.match(/\d+/)![0]}`, index: 0, pageCount: 1, image: image(input.path) }); } });
       }),
     } as unknown as Parameters<typeof module.createCardThumbnails>[0];
-    const mount = (list: TurnDocsFile[]) => {
-      const card = module.createCardThumbnails(client, { workspaceId: "w", files: list });
+    const mount = (list: TurnDocsFile[], priority?: number) => {
+      const card = module.createCardThumbnails(client, { workspaceId: "w", files: list }, priority);
       card.want(module.cardThumbnailIndices(list));
       return card;
     };
-    return { mount, calls, asked, peak: () => peak };
+    return { ...module, mount, client, calls, asked, peak: () => peak };
   }
 
   it("ask for one thumbnail at a time across every card, the card mounted last first", async () => {
@@ -316,6 +316,21 @@ describe("turn card thumbnail requests", () => {
     expect(older.state(11)).toBeUndefined();
     newer.close();
     older.close();
+  });
+
+  it("keep a card's place when its files change, so it does not move ahead of a card mounted after it", async () => {
+    const { mount, nextCardPriority, calls, asked } = await cards();
+    const priority = nextCardPriority();
+    const older = mount(files("old", 2), priority);
+    mount(files("newer", 2));
+    await flush();
+    older.close();
+    mount(files("changed", 2), priority);
+    while (calls.length > 0) {
+      calls.splice(0).forEach((call) => call.resolve());
+      await flush();
+    }
+    expect(asked).toEqual(["newer0.pdf", "newer1.pdf", "changed0.pdf", "changed1.pdf"]);
   });
 
   it("drop a closed card's waiting requests, so a card scrolled away stops asking", async () => {

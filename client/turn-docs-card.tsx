@@ -4,7 +4,7 @@ import { type ReactElement, useEffect, useMemo, useReducer, useState } from "rea
 import { Image, Pressable, Text, View } from "react-native";
 import { viewerSettingsRpc } from "../shared/settings";
 import { type TurnDocs, type TurnDocsFile, type TurnDocsGroup, type TurnDocsV1, upgradeTurnDocs } from "../shared/turn-docs";
-import { cardThumbnailIndices, createCardThumbnails } from "./card-thumbnails";
+import { cardThumbnailIndices, createCardThumbnails, nextCardPriority } from "./card-thumbnails";
 import { listedFiles, TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_GROUP, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir } from "./format";
 import { kindColor, type KindPalette } from "./kind-colors";
@@ -146,9 +146,10 @@ function SettingsLink({ theme, styles, onPress }: { theme: Theme; styles: Styles
 function useCardThumbnails(client: CardClient, workspaceId: string, files: readonly TurnDocsFile[], listed: readonly TurnDocsFile[]): ThumbnailLoader | null {
   const [loader, setLoader] = useState<ThumbnailLoader | null>(null);
   const [, refresh] = useReducer((tick: number) => tick + 1, 0);
+  const [priority] = useState(nextCardPriority);
   const identity = files.map((file) => `${file.path}\0${file.revision}`).join("\0");
   useEffect(() => {
-    const next = createCardThumbnails(client, { workspaceId, files });
+    const next = createCardThumbnails(client, { workspaceId, files }, priority);
     const stop = next.subscribe(refresh);
     setLoader(next);
     return () => {
