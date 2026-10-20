@@ -45,8 +45,8 @@ const openedSettings: string[] = [];
 type OpenScreenInput = { screenId: string; params?: Record<string, string> };
 let openScreen = (input: OpenScreenInput) => { (window as any).__openedScreen = input; };
 const TurnCard = createTurnDocsCard({
-  openScreen: (input: OpenScreenInput) => openScreen(input),
-  openPanel: (id: string) => { (window as any).__openedPanel = id; },
+  openDocument: (input: OpenScreenInput) => openScreen(input),
+  showDocuments: () => { (window as any).__openedPanel = "documents"; },
   openSettings: (id: string) => { if (settingsFail) throw new Error("No settings screen"); openedSettings.push(id); },
   rpc: callRpc,
 } as any);

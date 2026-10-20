@@ -29,6 +29,7 @@ function hostStub(): object {
         if (key === "__esModule") return true;
         if (key === "Platform") return { OS: "ios", select: (options: Record<string, unknown>) => options.ios ?? options.default };
         if (key === "StyleSheet") return { create: <T>(styles: T) => styles };
+        if (key === "Dimensions") return { get: () => ({ width: 1440, height: 900 }) };
         return () => null;
       },
     },
@@ -123,9 +124,9 @@ describe("S10: open a document by path despite the missing Files-tree hook", () 
       };
     });
     await command!.onSelect({ context: "workspace", workspace: { id: "ws-1" }, rpc, openScreen, openPanel: vi.fn() });
-    // Every kind, not only PDFs, reads inside the workspace's Documents panel.
+    // On a wide window with no Documents on screen, auto opens it side by side, for every kind.
+    await vi.waitFor(() => expect(clientOpenPanel).toHaveBeenCalledWith("documents", { workspaceId: "ws-1", location: "explorer" }));
     expect(openScreen).not.toHaveBeenCalled();
-    expect(clientOpenPanel).toHaveBeenCalledWith("documents", { workspaceId: "ws-1" });
   });
 
   it.skipIf(!LUCIDE_ICONS)(

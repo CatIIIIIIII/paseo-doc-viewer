@@ -28,7 +28,10 @@ interface WorkspaceProbe {
   refresh(): Promise<void>;
 }
 
-export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void {
+export function addDocumentsHeaderButtons(
+  client: HeaderButtonHost,
+  showDocuments = (workspaceId: string) => client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId }),
+): () => void {
   const buttons = new Map<string, PluginButtonRegistration>();
   const workspaces = new Map<string, WorkspaceProbe>();
   let stopped = false;
@@ -56,7 +59,7 @@ export function addDocumentsHeaderButtons(client: HeaderButtonHost): () => void 
         title: "Show documents",
         icon: "FileText",
         label: "Documents",
-        behavior: { kind: "action", onPress: () => client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId }) },
+        behavior: { kind: "action", onPress: () => showDocuments(workspaceId) },
       },
     });
     buttons.set(workspaceId, registration);

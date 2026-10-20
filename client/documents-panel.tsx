@@ -77,6 +77,8 @@ export function createDocumentsPanel(openTab: (input: PluginOpenScreenInput) => 
     const styles = useMemo(() => makeStyles(props.theme, props.layout.compact, bottomInset), [props.theme, props.layout.compact, bottomInset]);
     const selection = useSyncExternalStore(reader.subscribe, () => reader.get(props.workspaceId), () => null);
     const [width, setWidth] = useState(0);
+    const self = useRef({}).current;
+    useEffect(() => () => reader.unmounted(self), [self]);
     const narrow = width > 0 && width < READER_COMPACT_MAX_WIDTH;
     const readerLayout = narrow ? { ...props.layout, compact: true } : props.layout;
     // Mounted on first show only, so a document opened from a turn card does not count as a Documents visit.
@@ -94,7 +96,11 @@ export function createDocumentsPanel(openTab: (input: PluginOpenScreenInput) => 
       void queryClient.invalidateQueries({ queryKey: ["docs.recent", props.workspaceId] });
     };
     return (
-      <View ref={ref} onLayout={(event: LayoutChangeEvent) => { onLayout(); setWidth(event.nativeEvent.layout.width); }} style={{ flex: 1 }}>
+      <View ref={ref} style={{ flex: 1 }} onLayout={(event: LayoutChangeEvent) => {
+        onLayout();
+        setWidth(event.nativeEvent.layout.width);
+        reader.measured(self, props.workspaceId, event.nativeEvent.layout.width);
+      }}>
         {listShown.current ? (
           <View style={{ flex: 1, display: selection ? "none" : "flex" }}>
             <DocumentsList {...props} styles={styles} openScreen={open} />
@@ -105,11 +111,14 @@ export function createDocumentsPanel(openTab: (input: PluginOpenScreenInput) => 
             <View style={styles.toolbar}>
               <ToolbarButton theme={props.theme} styles={styles} icon="ChevronLeft" label="Documents"
                 accessibilityLabel="Back to documents" onPress={back} />
-              <Text style={[styles.text, { flex: 1, minWidth: 0 }]} numberOfLines={1} accessibilityLabel={selection.path}>{baseName(selection.path)}</Text>
+              <Text style={[styles.text, { flex: 1, minWidth: 0 }]} numberOfLines={1} accessibilityLabel={selection.path}>
+                {baseName(selection.path)}
+                {parentDir(selection.path) ? <Text style={styles.muted}>{`  ${parentDir(selection.path)}`}</Text> : null}
+              </Text>
               <ToolbarButton theme={props.theme} styles={styles} icon="ExternalLink" label={narrow || props.layout.compact ? undefined : "Open in tab"}
                 accessibilityLabel="Open in tab" onPress={() => openTab(screen)} />
             </View>
-            <DocumentScreen key={`${props.workspaceId}\0${selection.path}`} host={props.host} theme={props.theme} layout={readerLayout} openDocument={open}
+            <DocumentScreen key={`${props.workspaceId}\0${selection.path}`} host={props.host} theme={props.theme} layout={readerLayout} phone={props.layout.compact} openDocument={open}
               params={screen.params ?? {}} />
           </>
         ) : null}

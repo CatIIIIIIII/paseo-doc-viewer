@@ -56,7 +56,7 @@ var chain = new Proxy(function () {}, {
 var host = {
   "react": { createElement: noop, useState: function (v) { return [v, noop]; }, useEffect: noop, useLayoutEffect: noop, useRef: function (v) { return { current: v }; }, useMemo: function (f) { return f(); }, useCallback: function (f) { return f; }, useReducer: function (r, s) { return [s, noop]; }, memo: function (c) { return c; } },
   "react/jsx-runtime": { jsx: noop, jsxs: noop, Fragment: "Fragment" },
-  "react-native": { Platform: { OS: "ios", select: function (o) { return o.ios !== undefined ? o.ios : o.default; } }, StyleSheet: { create: function (s) { return s; } }, View: "View", Text: "Text", Image: "Image", ScrollView: "ScrollView", Pressable: "Pressable", ActivityIndicator: "ActivityIndicator", PixelRatio: { get: function () { return 3; } }, useWindowDimensions: function () { return { width: 390, height: 844 }; } },
+  "react-native": { Platform: { OS: "ios", select: function (o) { return o.ios !== undefined ? o.ios : o.default; } }, StyleSheet: { create: function (s) { return s; } }, View: "View", Text: "Text", Image: "Image", ScrollView: "ScrollView", Pressable: "Pressable", ActivityIndicator: "ActivityIndicator", PixelRatio: { get: function () { return 3; } }, useWindowDimensions: function () { return { width: 390, height: 844 }; }, Dimensions: { get: function () { return { width: 390, height: 844 }; } } },
   "@tanstack/react-query": { useQuery: noop, useQueryClient: noop, useInfiniteQuery: noop },
   "@getpaseo/plugin": { defineRpc: function (contract) { return contract; }, defineSettings: function (definition) { return definition; }, settingsRpc: function (id) { return { read: { name: "settings." + id + ".read" } }; } },
   "@getpaseo/plugin/client": { useRpc: noop, useSettings: noop },
@@ -75,7 +75,7 @@ function record(kind) { return function (c) { registered[kind].push(c); return n
 var subscription = { subscribe: function (observer) { observer.snapshot({ entries: [{ id: "ws" }] }); return noop; }, release: function () { return Promise.resolve(); } };
 var paseo = { workspaces: { list: function () { return Promise.resolve({ entries: [], subscription: subscription }); } } };
 function addHeaderButton(c) { registered.header.push(c); return { update: noop, remove: noop }; }
-var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addTimelineRenderer: record("timeline"), addSettingsScreen: record("settings"), addHeaderButton: addHeaderButton, openScreen: noop, openPanel: function (id, options) { opened.push({ panel: id, options: options }); }, paseo: paseo, rpc: function (contract) { return Promise.resolve(contract.name === "docs.any" ? { found: true } : { entries: [{ path: "a.pdf" }] }); } });
+var cleanup = setup({ addScreen: record("screen"), addCommandCenterItem: record("cc"), addWorkspacePanel: record("panel"), addSlashCommand: record("slash"), addTimelineRenderer: record("timeline"), addSettingsScreen: record("settings"), addHeaderButton: addHeaderButton, openScreen: function (input) { opened.push(input); }, openPanel: function (id, options) { opened.push({ panel: id, options: options }); }, paseo: paseo, rpc: function (contract) { return Promise.resolve(contract.name === "docs.any" ? { found: true } : { entries: [{ path: "a.pdf" }] }); } });
 var opened = [];
 var context = {
   args: "", context: "workspace", workspace: { id: "ws" },
@@ -109,7 +109,7 @@ describe("S11: client bundle runs on the Hermes VM", () => {
     const steps = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
     expect(steps).toEqual([
       { step: "contribute", cleanup: "function", screens: 2, commands: 3, panels: 1, slash: 1, timeline: ["turn-docs@1", "turn-docs@2"], settings: 1, title: "main.pdf · report" },
-      { step: "slash", opened: [{ panel: "documents", options: { workspaceId: "ws" } }], headerButtons: ["ws:FileText"] },
+      { step: "slash", opened: [{ screenId: "document", params: { workspaceId: "ws", path: "b/new.docx" } }], headerButtons: ["ws:FileText"] },
     ]);
   }, 120_000);
 });

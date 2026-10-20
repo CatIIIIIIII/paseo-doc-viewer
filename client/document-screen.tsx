@@ -26,10 +26,13 @@ import { documentScreen } from "./recent";
 import { parseSiblings, type SiblingPosition, siblingPosition } from "./siblings";
 import { reviewDrafts, reviewScope, useReviewDraft } from "./review-draft";
 import { NoteComposer, reviewScreen } from "./review-note";
+import { OpenChooser } from "./open-chooser";
 
 // The Documents panel embeds this screen and passes its own opener, so stepping stays in the panel.
-export function DocumentScreen({ host, theme, layout, params, openDocument: open = openHostScreen }: Pick<PluginScreenProps, "host" | "theme" | "layout" | "params"> & {
+// `phone` is the host's layout; the panel passes a compact layout for its narrow widths too.
+export function DocumentScreen({ host, theme, layout, params, openDocument: open = openHostScreen, phone = layout.compact }: Pick<PluginScreenProps, "host" | "theme" | "layout" | "params"> & {
   openDocument?: (input: PluginOpenScreenInput) => void;
+  phone?: boolean;
 }) {
   const { ref, onLayout, bottomInset } = useBottomInset();
   const styles = useMemo(() => makeStyles(theme, layout.compact, bottomInset), [theme, layout.compact, bottomInset]);
@@ -52,6 +55,8 @@ export function DocumentScreen({ host, theme, layout, params, openDocument: open
   });
   const prompt = passwordPrompt(opened.error);
   const checking = unlocked !== null && opened.status === "pending";
+  // A renamed or deleted file must not keep showing its cached pages.
+  const gone = opened.error !== null && !originalReachable(opened.error);
   // The original stays downloadable when the preview cannot open.
   const download = workspaceId && kindForPath(path) ? <DownloadOriginal key={documentKey} workspaceId={workspaceId} path={path} theme={theme} styles={styles} standalone /> : null;
 
@@ -78,7 +83,7 @@ export function DocumentScreen({ host, theme, layout, params, openDocument: open
         </PasswordPrompt>
       </View>
     );
-  } else if (!opened.data) {
+  } else if (!opened.data || gone) {
     body = (
       <View style={styles.screen}>
         {stepper ? <View style={styles.toolbar}>{stepper}</View> : null}
@@ -99,6 +104,7 @@ export function DocumentScreen({ host, theme, layout, params, openDocument: open
   }
   return (
     <View ref={ref} onLayout={onLayout} style={{ flex: 1 }}>
+      {phone ? null : <OpenChooser theme={theme} styles={styles} />}
       {body}
     </View>
   );

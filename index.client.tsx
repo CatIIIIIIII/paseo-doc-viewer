@@ -1,4 +1,7 @@
-import type { PluginClientContext, PluginOpenScreenInput } from "@getpaseo/plugin/client";
+import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { Dimensions } from "react-native";
+import { COMPACT_WINDOW_MAX, type DocumentOpener, type OpenPreference, openPreference, openTarget } from "./client/open-target";
+import { viewerSettingsRpc } from "./shared/settings";
 import { createPanelReader } from "./client/panel-reader";
 import { DocumentScreen } from "./client/document-screen";
 import { documentTitle } from "./client/format";
@@ -15,14 +18,37 @@ import { TURN_DOCS_KIND, turnDocsSchema, turnDocsV1Schema } from "./shared/turn-
 export default function contribute(client: PluginClientContext) {
   setHostClient(client);
   const reader = createPanelReader();
-  const openDocument = (input: PluginOpenScreenInput) => {
+  const readSettings = () => client.rpc(viewerSettingsRpc.read, {});
+  const openDocument: DocumentOpener = (input, layout) => {
     const { workspaceId, path, siblings } = input.params ?? {};
-    if (input.screenId === DOCUMENT_SCREEN_ID && workspaceId && path) {
-      reader.select(workspaceId, { path, siblings });
-      client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId });
-    } else {
+    if (input.screenId !== DOCUMENT_SCREEN_ID || !workspaceId || !path) {
       client.openScreen(input);
+      return;
     }
+    const windowWidth = Dimensions.get("window").width;
+    const compact = layout?.compact ?? windowWidth < COMPACT_WINDOW_MAX;
+    const route = (preference: OpenPreference | "unset" | undefined) => {
+      const target = openTarget({ compact, panelVisible: reader.visible(workspaceId), preference: preference === "unset" ? undefined : preference, windowWidth });
+      if (target === "screen") {
+        client.openScreen(input);
+        return;
+      }
+      reader.select(workspaceId, { path, siblings });
+      if (target === "explorer") client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId, location: "explorer" });
+    };
+    // The cached choice keeps a press immediate; the reread picks up a change made on another device.
+    const known = openPreference.current();
+    if (known !== undefined || compact) {
+      route(known);
+      void openPreference.read(readSettings);
+    } else {
+      void openPreference.read(readSettings).then(route);
+    }
+  };
+  // Show documents means the list, not the last document read there.
+  const showDocuments = (workspaceId: string) => {
+    reader.select(workspaceId, null);
+    client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId });
   };
   const cleanups = [
     client.addScreen({ id: DOCUMENT_SCREEN_ID, title: documentTitle, Component: DocumentScreen }),
@@ -32,7 +58,7 @@ export default function contribute(client: PluginClientContext) {
       icon: "FileText",
       keywords: ["pdf", "docx", "xlsx", "csv", "tsv", "jsonl", "ndjson", "parquet", "pptx", "viewer", "latest", "mp3", "m4a", "wav", "flac", "audio", "video"],
       context: "workspace",
-      onSelect: (context) => openMostRecent({ ...context, openScreen: openDocument }),
+      onSelect: (context) => openMostRecent({ ...context, openScreen: openDocument, openPanel: () => showDocuments(context.workspace.id) }),
     }),
     client.addCommandCenterItem({
       id: "show-documents",
@@ -40,7 +66,7 @@ export default function contribute(client: PluginClientContext) {
       icon: "FileText",
       keywords: ["recent", "viewer"],
       context: "workspace",
-      onSelect: ({ openPanel }) => openPanel(DOCUMENTS_PANEL_ID),
+      onSelect: ({ workspace }) => showDocuments(workspace.id),
     }),
     client.addWorkspacePanel({
       id: DOCUMENTS_PANEL_ID,
@@ -55,9 +81,9 @@ export default function contribute(client: PluginClientContext) {
       description: "Open a document in the viewer, or the newest PDF, Word, spreadsheet or slide file",
       argumentHint: "[path]",
       context: "workspace",
-      onSubmit: (context) => openByPath({ ...context, openScreen: openDocument }),
+      onSubmit: (context) => openByPath({ ...context, openScreen: openDocument, openPanel: () => showDocuments(context.workspace.id) }),
     }),
-    addDocumentsHeaderButtons(client),
+    addDocumentsHeaderButtons(client, showDocuments),
     client.addScreen({ id: REVIEW_SCREEN_ID, title: "Review notes", Component: ReviewScreen }),
     client.addCommandCenterItem({
       id: "show-review-notes",
@@ -67,7 +93,7 @@ export default function contribute(client: PluginClientContext) {
       context: "workspace",
       onSelect: ({ openScreen, workspace }) => openScreen(reviewScreen(workspace.id)),
     }),
-    ...turnDocsRenderers(client, openDocument),
+    ...turnDocsRenderers(client, openDocument, showDocuments),
     client.addSettingsScreen({ id: SETTINGS_SCREEN_ID, title: "Document viewer", icon: "FileText", Component: ViewerSettings }),
   ];
   return () => {
@@ -77,10 +103,10 @@ export default function contribute(client: PluginClientContext) {
 }
 
 // Renderers match the exact version. Cards without folder rows are still written as version 1 (TurnDocsRow).
-function turnDocsRenderers(client: PluginClientContext, openScreen: PluginClientContext["openScreen"]) {
+function turnDocsRenderers(client: PluginClientContext, openDocument: DocumentOpener, showDocuments: (workspaceId: string) => void) {
   const Card = createTurnDocsCard({
-    openScreen,
-    openPanel: (...args) => client.openPanel(...args),
+    openDocument,
+    showDocuments,
     openSettings: (...args) => client.openSettings(...args),
     rpc: client.rpc.bind(client),
   });
