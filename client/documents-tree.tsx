@@ -1,9 +1,9 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { FlatList, Icon } from "@getpaseo/plugin/client/react-native";
-import { type ReactElement, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { baseName, humanSize, KIND_ICON, relativeTime } from "./format";
-import { ALL_EXPANDED, TOP_EXPANDED, type TreeExpansion, type TreeRow } from "./folder-tree";
+import { treeExpansions, type TreeExpansion, type TreeRow } from "./folder-tree";
 import { kindColor, type KindPalette } from "./kind-colors";
 import { type TreeLayout, treeIndent } from "./panel-layout";
 import { entryLabel, type RecentEntry } from "./recent";
@@ -17,24 +17,20 @@ interface ChromeProps {
 
 const ROW_PADDING = 8;
 
-const expansions = new Map<string, TreeExpansion>();
+const expansions = treeExpansions(50);
 
-export function useTreeExpansion(scope: string, filterKey: string | null): [TreeExpansion, (next: TreeExpansion) => void] {
-  const [saved, setSaved] = useState(() => ({ scope, expansion: expansions.get(scope) ?? TOP_EXPANDED }));
-  const [filtered, setFiltered] = useState<{ key: string; expansion: TreeExpansion } | null>(null);
-  const current =
-    filterKey !== null
-      ? filtered?.key === filterKey ? filtered.expansion : ALL_EXPANDED
-      : saved.scope === scope ? saved.expansion : expansions.get(scope) ?? TOP_EXPANDED;
-  const set = (next: TreeExpansion) => {
-    if (filterKey !== null) {
-      setFiltered({ key: filterKey, expansion: next });
-      return;
-    }
-    expansions.set(scope, next);
-    setSaved({ scope, expansion: next });
-  };
-  return [current, set];
+export function useTreeExpansion(scope: string, filterKey: string | null): [TreeExpansion, (change: (current: TreeExpansion) => TreeExpansion) => void] {
+  const key = expansions.key(scope, filterKey);
+  const [state, setState] = useState(() => ({ key, expansion: expansions.start(scope, filterKey) }));
+  const update = useCallback(
+    (change: (current: TreeExpansion) => TreeExpansion) =>
+      setState((current) => ({ key, expansion: change(current.key === key ? current.expansion : expansions.start(scope, filterKey)) })),
+    [key, scope, filterKey],
+  );
+  useEffect(() => {
+    if (filterKey === null && state.key === key) expansions.save(scope, state.expansion);
+  }, [state, key, scope, filterKey]);
+  return [state.key === key ? state.expansion : expansions.start(scope, filterKey), update];
 }
 
 export function TreeActions({

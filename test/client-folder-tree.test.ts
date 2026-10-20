@@ -8,6 +8,7 @@ import {
   isExpanded,
   setExpanded,
   TOP_EXPANDED,
+  treeExpansions,
   type TreeExpansion,
   type TreeRow,
   treeRows,
@@ -101,6 +102,23 @@ describe("folder tree", () => {
     expect(rowsOf(chained, setExpanded(closed, ["p/q"], true))).toEqual(["v p (2)", "  > q/r (1)", "  other.pdf"]);
     const top = setExpanded(TOP_EXPANDED, ["out", "out/reports"], false);
     expect(rowsOf([{ path: "out/reports/a.pdf" }, { path: "out/b.pdf" }], setExpanded(top, ["out"], true))).toEqual(["v out (2)", "  > reports (1)", "  b.pdf"]);
+  });
+
+  it("keeps open folders per host and workspace up to a cap, and a filter's apart in each", () => {
+    const memory = treeExpansions(2);
+    const opened = setExpanded(TOP_EXPANDED, ["docs"], true);
+    memory.save("host\0a", opened);
+    expect(memory.start("host\0a", null)).toBe(opened);
+    expect(memory.start("host\0b", null)).toBe(TOP_EXPANDED);
+    expect(memory.start("host\0a", '["q"]')).toBe(ALL_EXPANDED);
+    expect(memory.key("host\0a", '["q"]')).not.toBe(memory.key("host\0b", '["q"]'));
+    expect(memory.key("host\0a", '["q"]')).not.toBe(memory.key("other\0a", '["q"]'));
+    memory.save("host\0b", ALL_COLLAPSED);
+    memory.save("host\0a", opened);
+    memory.save("host\0c", ALL_EXPANDED);
+    expect(memory.start("host\0b", null)).toBe(TOP_EXPANDED);
+    expect(memory.start("host\0a", null)).toBe(opened);
+    expect(memory.start("host\0c", null)).toBe(ALL_EXPANDED);
   });
 
   it("keeps a search's matches and the folders above them", () => {

@@ -117,7 +117,7 @@ function DocumentsList({
     [entries, recent.data, collapsed, group, needsReview, newOnly, previewHeadings],
   );
   const filterKey = filtering ? JSON.stringify([queryTerms(query), group, needsReview, newOnly]) : null;
-  const [expansion, setExpansion] = useTreeExpansion(`${host?.id ?? ""}\0${workspaceId}`, filterKey);
+  const [expansion, updateExpansion] = useTreeExpansion(`${host?.id ?? ""}\0${workspaceId}`, filterKey);
   const folderRows = useMemo(
     () => (tree ? treeRows(folderTree(entries), (chain, depth) => isExpanded(expansion, chain, depth)) : []),
     [tree, entries, expansion],
@@ -264,8 +264,8 @@ function DocumentsList({
           styles={styles}
           layout={shape}
           notice={treeNotice(recent.data.entries.length, recent.data.truncatedBy, filtering)}
-          onExpandAll={() => setExpansion(ALL_EXPANDED)}
-          onCollapseAll={() => setExpansion(ALL_COLLAPSED)}
+          onExpandAll={() => updateExpansion(() => ALL_EXPANDED)}
+          onCollapseAll={() => updateExpansion(() => ALL_COLLAPSED)}
         />
       ) : null}
       {entries.length === 0 ? (
@@ -290,7 +290,7 @@ function DocumentsList({
           palette={palette}
           now={now}
           footer={footer}
-          onToggle={(chain, open) => setExpansion(setExpanded(expansion, chain, open))}
+          onToggle={(chain, open) => updateExpansion((current) => setExpanded(current, chain, open))}
           onOpen={openFromTree}
         />
       ) : (

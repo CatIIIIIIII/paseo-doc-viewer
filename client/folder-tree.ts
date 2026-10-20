@@ -37,6 +37,24 @@ export function setExpanded(expansion: TreeExpansion, chain: readonly string[], 
   return { base: expansion.base, chosen };
 }
 
+// Open folders per host and workspace until the app restarts, up to `max` workspaces, the least
+// recently used dropped first. A search or filter starts with every folder open, kept apart per scope.
+export function treeExpansions(max: number) {
+  const saved = new Map<string, TreeExpansion>();
+  return {
+    key: (scope: string, filterKey: string | null) => (filterKey === null ? scope : `${scope}\0${filterKey}`),
+    start: (scope: string, filterKey: string | null) => (filterKey === null ? saved.get(scope) ?? TOP_EXPANDED : ALL_EXPANDED),
+    save(scope: string, expansion: TreeExpansion) {
+      saved.delete(scope);
+      saved.set(scope, expansion);
+      for (const oldest of saved.keys()) {
+        if (saved.size <= max) break;
+        saved.delete(oldest);
+      }
+    },
+  };
+}
+
 const DIGITS = /(\d+)/;
 const byText = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
 
