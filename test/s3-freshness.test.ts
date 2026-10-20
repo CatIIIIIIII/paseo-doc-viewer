@@ -2,7 +2,7 @@ import { utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { listRecent, openDocument, renderPage } from "../server/documents";
-import { RECENT_MAX_ENTRIES } from "../shared/limits";
+import { RECENT_MAX_ENTRIES, RECENT_MAX_LIMIT } from "../shared/limits";
 import { textPdf } from "./fixtures/generators.ts";
 import { workspace } from "./helpers";
 
@@ -71,8 +71,17 @@ describe("S3: the most recently changed document is one tap away", () => {
     const files: Record<string, string> = {};
     for (let i = 0; i < RECENT_MAX_ENTRIES + 25; i++) files[`out/run-${i}.pdf`] = "%PDF-1.4";
     const root = workspace(files);
-    const recent = await listRecent(root, { limit: 1_000 });
+    const recent = await listRecent(root, {});
     expect(recent.entries).toHaveLength(RECENT_MAX_ENTRIES);
     expect(recent.truncated).toBe(true);
+    expect(await listRecent(root, { limit: RECENT_MAX_ENTRIES + 25 })).toMatchObject({ truncated: false });
+  });
+
+  it("S3: docs.recent lists at most RECENT_MAX_LIMIT however many are asked for", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < RECENT_MAX_LIMIT + 5; i++) files[`out/run-${i}.csv`] = "a\n";
+    const recent = await listRecent(workspace(files), { limit: RECENT_MAX_LIMIT * 10 });
+    expect(recent.entries).toHaveLength(RECENT_MAX_LIMIT);
+    expect(recent).toMatchObject({ truncated: true, truncatedBy: "limit" });
   });
 });

@@ -1,9 +1,11 @@
-import { utimesSync } from "node:fs";
+import { statSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { listRecent } from "../server/documents";
 import { RECENT_MAX_ENTRIES } from "../shared/limits";
 import { docsRecentRpc } from "../shared/rpc";
+import { forgetScan } from "../server/recent";
+import { revisionOf } from "../server/revision";
 import { workspace } from "./helpers";
 
 function crowdedWorkspace(): string {
@@ -26,6 +28,18 @@ describe("R12: docs.recent searches and filters the whole scan, not just the new
     const found = await listRecent(root, { query: "INVOICE" });
     expect(found.entries.map((entry) => entry.path)).toEqual(["archive/invoice-2019.pdf"]);
     expect(found.truncated).toBe(false);
+  });
+
+  it("gives each entry the file's revision, which changes when the file is rewritten", async () => {
+    const root = crowdedWorkspace();
+    const path = join(root, "old/notes.docx");
+    const before = (await listRecent(root, { query: "notes" })).entries[0]!;
+    expect(docsRecentRpc.output.shape.entries.element.parse(before).revision).toBe(revisionOf(statSync(path)));
+    utimesSync(path, 3000, 3000);
+    forgetScan(root);
+    const after = (await listRecent(root, { query: "notes" })).entries[0]!;
+    expect(after.revision).toBe(revisionOf(statSync(path)));
+    expect(after.revision).not.toBe(before.revision);
   });
 
   it("filters by type before the cap, so an old Word file shows under Word", async () => {

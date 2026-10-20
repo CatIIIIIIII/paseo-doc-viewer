@@ -1,7 +1,8 @@
 import { useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { SettingsAction, SettingsCard, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
 import { viewerSettings } from "../shared/settings";
+import { kindColorsSetting } from "./use-kind-colors";
 
 export function ViewerSettings({ theme }: PluginSurfaceProps) {
   const settings = useSettings(viewerSettings);
@@ -16,17 +17,34 @@ export function ViewerSettings({ theme }: PluginSurfaceProps) {
       </SettingsSection>
     );
   }
+  const values = settings.values;
+  const saveKindColors = async (kindColors: boolean) => {
+    if (await settings.save({ ...values, kindColors }, settings.revision)) kindColorsSetting.set(kindColors);
+  };
   return (
-    <SettingsSection title="Agent turns">
-      <SettingsCard>
-        <SettingsSwitch
-          label="Show changed documents after each turn"
-          hint="A timeline card lists the documents whose modified time falls inside the turn, whoever changed them."
-          value={settings.values.turnCards}
-          disabled={settings.saving}
-          onValueChange={(turnCards: boolean) => void settings.save({ ...settings.values, turnCards }, settings.revision)}
-        />
-      </SettingsCard>
-    </SettingsSection>
+    <View style={{ gap: 24 }}>
+      <SettingsSection title="Agent turns">
+        <SettingsCard>
+          <SettingsSwitch
+            label="Show changed documents after each turn"
+            hint="A timeline card lists the documents whose modified time falls inside the turn, whoever changed them."
+            value={values.turnCards}
+            disabled={settings.saving}
+            onValueChange={(turnCards: boolean) => void settings.save({ ...values, turnCards }, settings.revision)}
+          />
+        </SettingsCard>
+      </SettingsSection>
+      <SettingsSection title="Documents">
+        <SettingsCard>
+          <SettingsSwitch
+            label="Color file types"
+            hint="File icons take a color per type in Documents and turn cards. Off shows every icon in gray. Applies to every device on this host."
+            value={values.kindColors}
+            disabled={settings.saving}
+            onValueChange={(kindColors: boolean) => void saveKindColors(kindColors)}
+          />
+        </SettingsCard>
+      </SettingsSection>
+    </View>
   );
 }

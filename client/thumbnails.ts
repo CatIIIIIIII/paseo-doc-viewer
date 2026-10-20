@@ -1,11 +1,30 @@
+import { ERROR_MESSAGES, isError } from "../shared/errors";
+import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
 import type { DocThumbnailOutput } from "../shared/rpc";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
 
-type EncodedImage = DocThumbnailOutput["image"];
+type EncodedImage = Extract<DocThumbnailOutput, { kind: "pdf" }>["image"];
+
+export type Thumbnail =
+  | { type: "image"; image: EncodedImage; count?: number }
+  | { type: "title"; title: string; count?: number };
+
+export interface ThumbnailAnswer {
+  revision: string;
+  thumbnail: Thumbnail;
+}
+
+export function thumbnailAnswer(output: DocThumbnailOutput): ThumbnailAnswer {
+  const { revision } = output;
+  if (output.kind === "pdf") return { revision, thumbnail: { type: "image", image: output.image, count: output.pageCount } };
+  if (output.kind !== "pptx") return { revision, thumbnail: { type: "image", image: output.image } };
+  const { preview, slideCount: count } = output;
+  return { revision, thumbnail: preview.type === "image" ? { type: "image", image: preview.image, count } : { type: "title", title: preview.title, count } };
+}
 
 export type ThumbnailState =
   | { status: "loading" }
-  | { status: "ready"; image: EncodedImage }
+  | { status: "ready"; thumbnail: Thumbnail }
   | { status: "stale" }
   | { status: "failed"; error: unknown };
 
@@ -26,6 +45,10 @@ export function gridLayout(width: number, compact: boolean) {
   const imageHeight = Math.round(cellWidth * PAGE_ASPECT);
   return { columns, gap, cellWidth, imageHeight, rowHeight: imageHeight + LABEL_HEIGHT + gap };
 }
+
+// Pages drawn with a password are kept apart: a turn card keeps the icon for a file that needs one.
+export const pageThumbnailKey = (workspaceId: string, path: string, width: number, index: number, unlocked = false) =>
+  `${workspaceId}\0${path}\0${width}\0${index}${unlocked ? "\0unlocked" : ""}`;
 
 // A few fixed widths keep the shared cache useful across small layout changes.
 export function thumbnailWidth(cellWidth: number, pixelRatio: number): number {
@@ -52,37 +75,40 @@ export function visibleOrder({ columns, rowHeight, offset, viewport, count }: { 
   return order;
 }
 
+export const hasThumbnail = (kind: DocumentKind) => KIND_REGISTRY[kind].rpcs.includes("doc.thumbnail");
+
 export interface ThumbnailCache {
-  get(key: string): EncodedImage | undefined;
-  set(key: string, image: EncodedImage): void;
+  get(key: string): Thumbnail | undefined;
+  set(key: string, thumbnail: Thumbnail): void;
 }
 
 // Plain closures instead of classes: Paseo's Hermes client bundle cannot load class syntax.
 export function createThumbnailCache(maxEntries: number, maxBytes: number): ThumbnailCache {
-  const entries = new Map<string, EncodedImage>();
+  const entries = new Map<string, Thumbnail>();
+  const sizeOf = (thumbnail: Thumbnail) => (thumbnail.type === "image" ? thumbnail.image.data.length : thumbnail.title.length * 2);
   let bytes = 0;
   return {
     get(key) {
-      const image = entries.get(key);
-      if (image) {
+      const thumbnail = entries.get(key);
+      if (thumbnail) {
         entries.delete(key);
-        entries.set(key, image);
+        entries.set(key, thumbnail);
       }
-      return image;
+      return thumbnail;
     },
-    set(key, image) {
-      if (image.data.length > maxBytes) return;
+    set(key, thumbnail) {
+      if (sizeOf(thumbnail) > maxBytes) return;
       const previous = entries.get(key);
       if (previous) {
-        bytes -= previous.data.length;
+        bytes -= sizeOf(previous);
         entries.delete(key);
       }
-      entries.set(key, image);
-      bytes += image.data.length;
+      entries.set(key, thumbnail);
+      bytes += sizeOf(thumbnail);
       for (const [oldest, value] of entries) {
         if (entries.size <= maxEntries && bytes <= maxBytes) break;
         entries.delete(oldest);
-        bytes -= value.data.length;
+        bytes -= sizeOf(value);
       }
     },
   };
@@ -98,25 +124,30 @@ export interface ThumbnailLoader {
   close(): void;
 }
 
-// One loader per open grid. Closing it stops new requests; answers already on the way only fill the cache.
-export function createThumbnailLoader({ key, revision, cache, fetch }: {
-  key: string;
-  revision: string;
+// One loader per open grid or card. Closing it stops new requests; answers already on the way only fill the cache.
+export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
+  identify(index: number): { key: string; revision: string };
   cache: ThumbnailCache;
-  fetch(index: number): Promise<{ revision: string; image: EncodedImage }>;
+  fetch(index: number): Promise<ThumbnailAnswer>;
+  retryAfter?(error: unknown, failures: number): number | null;
 }): ThumbnailLoader {
   const states = new Map<number, ThumbnailState>();
+  const failures = new Map<number, number>();
+  const timers = new Set<ReturnType<typeof setTimeout>>();
   const listeners = new Set<() => void>();
   let wanted: number[] = [];
   let inFlight = 0;
   let closed = false;
-  const cacheKey = (index: number) => `${key}\0${revision}\0${index}`;
+  const cacheKey = (index: number) => {
+    const { key, revision } = identify(index);
+    return `${key}\0${revision}`;
+  };
 
   const state = (index: number): ThumbnailState | undefined => {
     const known = states.get(index);
     if (known) return known;
-    const image = cache.get(cacheKey(index));
-    return image ? { status: "ready", image } : undefined;
+    const thumbnail = cache.get(cacheKey(index));
+    return thumbnail ? { status: "ready", thumbnail } : undefined;
   };
 
   // A ready thumbnail lives in the shared cache; it is kept here only if the cache refused it.
@@ -134,11 +165,23 @@ export function createThumbnailLoader({ key, revision, cache, fetch }: {
     states.set(index, { status: "loading" });
     fetch(index).then(
       (answer) => {
-        if (answer.revision !== revision) return settle(index, { status: "stale" });
-        cache.set(cacheKey(index), answer.image);
-        settle(index, cache.get(cacheKey(index)) ? undefined : { status: "ready", image: answer.image });
+        if (answer.revision !== identify(index).revision) return settle(index, { status: "stale" });
+        cache.set(cacheKey(index), answer.thumbnail);
+        settle(index, cache.get(cacheKey(index)) ? undefined : { status: "ready", thumbnail: answer.thumbnail });
       },
-      (error: unknown) => settle(index, { status: "failed", error }),
+      (error: unknown) => {
+        if (isError(error, ERROR_MESSAGES.fileChanged())) return settle(index, { status: "stale" });
+        const failed = (failures.get(index) ?? 0) + 1;
+        failures.set(index, failed);
+        settle(index, { status: "failed", error });
+        const delay = closed ? null : retryAfter?.(error, failed) ?? null;
+        if (delay === null) return;
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+          loader.retry(index);
+        }, delay);
+        timers.add(timer);
+      },
     );
   };
 
@@ -149,7 +192,7 @@ export function createThumbnailLoader({ key, revision, cache, fetch }: {
     }
   };
 
-  return {
+  const loader: ThumbnailLoader = {
     state,
     want(indices) {
       wanted = [...indices];
@@ -169,6 +212,65 @@ export function createThumbnailLoader({ key, revision, cache, fetch }: {
       closed = true;
       wanted = [];
       listeners.clear();
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+    },
+  };
+  return loader;
+}
+
+export interface RequestQueue {
+  run<T>(owner: object, priority: number, work: () => Promise<T>): Promise<T>;
+  // Work of the owner not started yet is dropped and rejects; started work runs out.
+  drop(owner: object): void;
+}
+
+// Runs at most `limit` requests at once across every owner, higher priority first, then in order.
+// Starting waits a microtask, so owners created in the same render are ordered by priority.
+export function createRequestQueue(limit: number): RequestQueue {
+  const pending: { owner: object; priority: number; start(): void; cancel(): void }[] = [];
+  let running = 0;
+  let scheduled = false;
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    void Promise.resolve().then(() => {
+      scheduled = false;
+      pump();
+    });
+  };
+  const pump = () => {
+    while (running < limit && pending.length > 0) {
+      let best = 0;
+      for (let i = 1; i < pending.length; i++) if (pending[i]!.priority > pending[best]!.priority) best = i;
+      const [next] = pending.splice(best, 1);
+      running++;
+      next!.start();
+    }
+  };
+  return {
+    run(owner, priority, work) {
+      return new Promise((resolve, reject) => {
+        pending.push({
+          owner,
+          priority,
+          start: () => {
+            Promise.resolve().then(work).then(resolve, reject).then(() => {
+              running--;
+              pump();
+            });
+          },
+          cancel: () => reject(new Error("Dropped from the request queue")),
+        });
+        schedule();
+      });
+    },
+    drop(owner) {
+      for (let i = pending.length - 1; i >= 0; i--) {
+        if (pending[i]!.owner !== owner) continue;
+        const [dropped] = pending.splice(i, 1);
+        dropped!.cancel();
+      }
     },
   };
 }

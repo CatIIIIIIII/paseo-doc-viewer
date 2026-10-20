@@ -11,7 +11,8 @@ import {
 import { extensionOf } from "../shared/kinds";
 import { RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { docsRecentRpc, type DocsRecentOutput } from "../shared/rpc";
-import { formatCount, GROUP_FILES } from "./format";
+import { baseName, formatCount, GROUP_FILES, KIND_LABEL, parentDir, relativeTime } from "./format";
+import { encodeSiblings } from "./siblings";
 
 export const DOCUMENT_SCREEN_ID = "document";
 export const DOCUMENTS_PANEL_ID = "documents";
@@ -41,6 +42,21 @@ export function browseRows(
   });
 }
 
+const SPOKEN_STATUS = { reviewed: "reviewed", changed: "changed since review" } as const;
+
+export function entryLabel(entry: RecentEntry, now: number, extra: readonly string[] = []): string {
+  const folder = parentDir(entry.path);
+  const status = entry.review ? SPOKEN_STATUS[entry.review] : entry.isNew ? "new" : null;
+  return [
+    baseName(entry.path),
+    KIND_LABEL[entry.kind],
+    ...(folder ? [`in ${folder}`] : []),
+    `changed ${relativeTime(entry.mtimeMs, now)}`,
+    ...extra,
+    ...(status ? [status] : []),
+  ].join(", ");
+}
+
 export function filterChips(counts: GroupCounts, selected: DocumentGroup | null): { group: DocumentGroup | null; count: number }[] {
   const total = DOCUMENT_GROUPS.reduce((sum, group) => sum + counts[group], 0);
   const present = DOCUMENT_GROUPS.filter((group) => counts[group] > 0 || group === selected);
@@ -68,8 +84,15 @@ export function listFooter(shown: number, filtered: boolean): string {
   return filtered ? `Showing the ${shown} most recent matches` : `Showing the ${shown} most recently changed`;
 }
 
-export function documentScreen(workspaceId: string, path: string): PluginOpenScreenInput {
-  return { screenId: DOCUMENT_SCREEN_ID, params: { workspaceId, path } };
+export function treeNotice(listed: number, truncatedBy: "limit" | "scan" | undefined, filtered: boolean): string | null {
+  if (truncatedBy === "scan") return `Showing the documents in the first ${formatCount(RECENT_MAX_SCANNED_ENTRIES)} entries of this workspace`;
+  if (truncatedBy === "limit") return `Showing the ${formatCount(listed)} most recently changed ${filtered ? "matches" : "documents"}`;
+  return null;
+}
+
+export function documentScreen(workspaceId: string, path: string, siblings?: readonly string[]): PluginOpenScreenInput {
+  const encoded = siblings ? encodeSiblings(siblings) : null;
+  return { screenId: DOCUMENT_SCREEN_ID, params: encoded ? { workspaceId, path, siblings: encoded } : { workspaceId, path } };
 }
 
 type CommandContext = Pick<PluginWorkspaceCommandContext, "rpc" | "openScreen" | "openPanel"> & {

@@ -214,12 +214,21 @@ const STATUS_PILL = {
   changed: { icon: "TriangleAlert", label: "Changed since review", short: "Changed", tone: "statusWarning" },
   new: { icon: "Sparkles", label: "New", short: "New", tone: "accent" },
   modified: { icon: "Pencil", label: "Changed", short: "Changed", tone: "foregroundMuted" },
+  opened: { icon: "Eye", label: "Opened", short: "Opened", tone: "foregroundMuted" },
 } as const;
 
+export type PillStatus = keyof typeof STATUS_PILL;
+
+export function statusIcon(theme: PluginTheme, status: PillStatus): { name: string; color: string } {
+  const pill = STATUS_PILL[status];
+  return { name: pill.icon, color: theme.colors[pill.tone] };
+}
+
 // Review status as an icon and label on a tint of the status color. The tint is the color itself
-// at low opacity, since the theme has no tinted tokens.
+// at low opacity, since the theme has no tinted tokens. The label stays in the foreground color:
+// 12 px text in the status colors falls under 4.5:1 on several built-in themes.
 export function StatusPill({ theme, styles, status, label = "full" }: ChromeProps & {
-  status: keyof typeof STATUS_PILL; label?: "full" | "short" | "none";
+  status: PillStatus; label?: "full" | "short" | "none";
 }) {
   const pill = STATUS_PILL[status];
   const color = theme.colors[pill.tone];
@@ -229,7 +238,7 @@ export function StatusPill({ theme, styles, status, label = "full" }: ChromeProp
       style={{ flexDirection: "row", alignItems: "center", gap: 4, height: 22, minWidth: 22, paddingHorizontal: text ? 8 : 5, borderRadius: 11, overflow: "hidden", flexShrink: 0 }}>
       <View pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, backgroundColor: color, opacity: 0.14 }} />
       <Icon name={pill.icon} size={12} color={color} />
-      {text ? <Text style={{ color, fontSize: 12, fontWeight: "500" }} numberOfLines={1}>{text}</Text> : null}
+      {text ? <Text style={{ color: theme.colors.foreground, fontSize: 12, fontWeight: "500" }} numberOfLines={1}>{text}</Text> : null}
     </View>
   );
 }

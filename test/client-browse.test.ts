@@ -3,7 +3,7 @@ import { browseRows, filterChips, listFooter, noMatchDetail, unsupportedDetail }
 import { countGroups, DOCUMENT_GROUPS, filterEntries, groupEntries, matchesQuery, queryTerms } from "../shared/browse";
 import { DOCUMENT_KINDS, type DocumentKind } from "../shared/kinds";
 
-const entry = (path: string, kind: DocumentKind, mtimeMs: number) => ({ path, kind, mtimeMs, size: 1 });
+const entry = (path: string, kind: DocumentKind, mtimeMs: number) => ({ path, kind, mtimeMs, size: 1, revision: `${mtimeMs}` });
 
 const ENTRIES = [
   entry("reports/Q4 Report.pdf", "pdf", 5),

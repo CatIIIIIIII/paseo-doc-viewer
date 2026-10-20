@@ -3,7 +3,7 @@ import { DEFAULT_RENDER_WIDTH_PX, MAX_RESPONSE_BYTES } from "../shared/limits";
 import { ERROR_MESSAGES, errorText } from "../shared/errors";
 import { decodeEntities } from "./html";
 import { embeddedImage } from "./images";
-import { base64Capacity, decodeBudget, type EncodedImage } from "./raster";
+import { base64Capacity, decodeBudget, type EncodedImage, type Fit } from "./raster";
 import { readEntry, readText, type ZipIndex } from "./zip";
 
 export interface Deck {
@@ -154,4 +154,66 @@ export async function readSlideTexts(deck: Deck, index: number): Promise<string[
   const part = deck.slides[index];
   const xml = part ? await readText(deck.index, part, "pptx") : null;
   return xml === null ? [] : boundedTexts(xml);
+}
+
+export type SlidePreview =
+  | { type: "image"; source: "saved-thumbnail" | "slide-picture"; image: EncodedImage }
+  | { type: "title"; title: string };
+
+const THUMBNAIL_RELATIONSHIP = /\/metadata\/thumbnail$/;
+// The saved thumbnail may also be WMF or EMF, which nothing here decodes.
+const DECODABLE_THUMBNAIL = /\.(?:jpe?g|png)$/i;
+const FALLBACK_THUMBNAILS = ["docProps/thumbnail.jpeg", "docProps/thumbnail.jpg", "docProps/thumbnail.png"];
+const MAX_PREVIEW_PICTURES = 3;
+const MAX_TITLE_CHARS = 200;
+const TITLE_PLACEHOLDER = /<p:ph\b[^<>]*?\btype="(?:title|ctrTitle)"/;
+
+async function savedThumbnail(index: ZipIndex): Promise<string | null> {
+  const xml = (await readText(index, "_rels/.rels", "pptx")) ?? "";
+  for (const [tag] of xml.matchAll(RELATIONSHIP)) {
+    const target = attribute(tag, "Target");
+    if (!target || !THUMBNAIL_RELATIONSHIP.test(attribute(tag, "Type") ?? "") || attribute(tag, "TargetMode") === "External") continue;
+    const name = posix.normalize(target.startsWith("/") ? target.slice(1) : target);
+    return DECODABLE_THUMBNAIL.test(name) && index.entries.has(name) ? name : null;
+  }
+  return FALLBACK_THUMBNAILS.find((name) => index.entries.has(name)) ?? null;
+}
+
+function slideTitle(xml: string): string {
+  const placeholder = TITLE_PLACEHOLDER.exec(xml);
+  let source = xml;
+  if (placeholder) {
+    const start = Math.max(xml.lastIndexOf("<p:sp>", placeholder.index), xml.lastIndexOf("<p:sp ", placeholder.index));
+    const end = xml.indexOf("</p:sp>", placeholder.index);
+    if (start >= 0 && end >= 0) source = xml.slice(start, end);
+  }
+  const text = boundedTexts(source).find((line) => line !== SLIDE_TEXT_TRUNCATED) ?? "";
+  return text.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE_CHARS);
+}
+
+export async function firstSlidePreview(deck: Deck, fit: Fit): Promise<SlidePreview> {
+  const budget = decodeBudget();
+  const picture = async (name: string) => {
+    const bytes = await readEntry(deck.index, name, "pptx").catch(() => null);
+    if (!bytes) return null;
+    const image = await embeddedImage(bytes, fit, budget);
+    return typeof image === "string" ? null : image;
+  };
+  const saved = await savedThumbnail(deck.index);
+  const savedImage = saved ? await picture(saved) : null;
+  if (savedImage) return { type: "image", source: "saved-thumbnail", image: savedImage };
+  const part = deck.slides[0];
+  const xml = part ? await readText(deck.index, part, "pptx") : null;
+  if (!part || xml === null) return { type: "title", title: "" };
+  const targets = await relationships(deck.index, part);
+  const tried = new Set<string>();
+  for (const [, rel] of xml.matchAll(BLIP)) {
+    const target = targets.get(rel);
+    if (!target || tried.has(target)) continue;
+    if (tried.size >= MAX_PREVIEW_PICTURES) break;
+    tried.add(target);
+    const image = await picture(target);
+    if (image) return { type: "image", source: "slide-picture", image };
+  }
+  return { type: "title", title: slideTitle(xml) };
 }

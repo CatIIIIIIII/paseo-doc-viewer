@@ -43,6 +43,11 @@ export function errorText(error: unknown): string {
   return match ? message.slice(match.index + match[0].length) : message;
 }
 
+// Tells apart errors that share a code, such as a busy daemon and work that ran out of time.
+export function isError(error: unknown, message: string): boolean {
+  return errorText(error) === errorText(message);
+}
+
 export const ERROR_MESSAGES = {
   outsideWorkspace: () => tagged("outside_workspace", "Path is outside the workspace"),
   invalidPath: () => tagged("invalid_request", "Invalid path"),
@@ -82,6 +87,7 @@ export const ERROR_MESSAGES = {
   tooSlow: () => tagged("timeout", "This document took too long to read; try again"),
   slowWindow: () => tagged("timeout", "This part of the sheet is too far in to read in time"),
   revisionChanged: () => tagged("invalid_request", "The file changed since this note was written"),
+  fileChanged: () => tagged("invalid_request", "The file changed since it was listed"),
   unavailable: (rpc: string, kind: string) => tagged("invalid_request", `${rpc} is not available for ${kind} documents`),
   tooManyPins: (limit: number) => tagged("invalid_request", `Up to ${limit} pins per document; remove one first`),
 } as const;

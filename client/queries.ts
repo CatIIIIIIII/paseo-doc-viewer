@@ -17,14 +17,16 @@ export function documentQueryOptions(workspaceId: string, path: string, unlockAt
   };
 }
 
-export function recentQueryOptions(workspaceId: string, filter: BrowseFilter & { newSince?: number | null }) {
+export function recentQueryOptions(workspaceId: string, filter: BrowseFilter & { newSince?: number | null; limit?: number }) {
   const query = queryTerms(filter.query ?? "").join(" ");
   const group = filter.group ?? null;
   const needsReview = filter.needsReview ?? false;
   const newSince = filter.newSince ?? null;
   const newOnly = (filter.newOnly ?? false) && newSince !== null;
+  const limit = filter.limit ?? null;
   const request: DocsRecentInput = {
     workspaceId,
+    ...(limit !== null ? { limit } : {}),
     ...(query ? { query } : {}),
     ...(group ? { group } : {}),
     ...(needsReview ? { needsReview } : {}),
@@ -32,7 +34,7 @@ export function recentQueryOptions(workspaceId: string, filter: BrowseFilter & {
     ...(newOnly ? { newOnly } : {}),
   };
   return {
-    queryKey: ["docs.recent", workspaceId, query, group, needsReview, newSince, newOnly] as const,
+    queryKey: ["docs.recent", workspaceId, query, group, needsReview, newSince, newOnly, limit] as const,
     request,
     refetchInterval: RECENT_POLL_MS,
     refetchOnWindowFocus: true,

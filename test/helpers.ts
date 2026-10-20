@@ -40,6 +40,15 @@ export async function timed<T>(run: () => Promise<T>): Promise<{ value: T; ms: n
   return { value, ms: performance.now() - started };
 }
 
+// CPU time of the whole test process, worker threads included: the work done, which other load on the
+// machine does not stretch the way it stretches wall time.
+export async function cpuTimed<T>(run: () => Promise<T>): Promise<{ value: T; ms: number }> {
+  const started = process.cpuUsage();
+  const value = await run();
+  const { user, system } = process.cpuUsage(started);
+  return { value, ms: (user + system) / 1000 };
+}
+
 export function decodePng(base64: string): PNG {
   return PNG.sync.read(Buffer.from(base64, "base64"));
 }

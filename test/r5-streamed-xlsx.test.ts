@@ -3,10 +3,14 @@ import { gridReducer, INITIAL_GRID, rangeLabel, reconcileGrid } from "../client/
 import { openDocument, readRows } from "../server/documents";
 import { streamedWorkbook } from "./fixtures/generators.ts";
 import { workspace } from "./helpers";
+import { XLSX_MAX_ROWS } from "../shared/limits";
 
 describe("R5: a streamed workbook without a dimension element pages to its end", () => {
   it("the client pages forward through every row although doc.open reports no count", async () => {
-    const root = workspace({ "stream.xlsx": await streamedWorkbook(5000, 10) });
+    // Each window re-reads the sheet from its start, so the cost grows with the square of the rows;
+    // five windows show paging to the end without a count.
+    const rows = XLSX_MAX_ROWS * 5;
+    const root = workspace({ "stream.xlsx": await streamedWorkbook(rows, 10) });
     const ref = { root, path: "stream.xlsx" };
     const opened = await openDocument(ref);
     if (opened.kind !== "xlsx") throw new Error(`expected xlsx, got ${opened.kind}`);
@@ -14,7 +18,7 @@ describe("R5: a streamed workbook without a dimension element pages to its end",
 
     let grid = INITIAL_GRID;
     let seen = 0;
-    for (let windows = 0; windows < 30; windows++) {
+    for (let windows = 0; windows < 10; windows++) {
       grid = reconcileGrid(grid, opened.sheets);
       const window = await readRows(ref, { sheet: grid.sheet, rowOffset: grid.rowOffset, columnOffset: grid.columnOffset });
       expect(window.rows[0]![0]).toBe(`R${grid.rowOffset + 1}C1`);
@@ -22,8 +26,8 @@ describe("R5: a streamed workbook without a dimension element pages to its end",
       if (window.nextRowOffset === null) break;
       grid = gridReducer(grid, { type: "nextRows", offset: window.nextRowOffset });
     }
-    expect(seen).toBe(5000);
-    expect(grid.rowOffset).toBe(4800);
+    expect(seen).toBe(rows);
+    expect(grid.rowOffset).toBe(rows - XLSX_MAX_ROWS);
   });
 
   it("does not claim the lower bound of an unknown row count as the total", async () => {

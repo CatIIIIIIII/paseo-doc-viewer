@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- Turn cards show a thumbnail of each PDF (page 1) and image as the turn left it, in place of the file icon. Other files, files over 64 MiB and files rewritten since keep the icon. `doc.thumbnail` now answers for images too, bounded on both edges: a PNG or JPEG that already fits is sent as it is, others as JPEG, or PNG where there is transparency.
+- A document opened from a turn card has Previous and Next buttons that step through the card's files. The screen takes an optional `siblings` param (a JSON list of paths).
+- Turn cards fold the files of a new Git checkout (clone, worktree or submodule) into one row with a Show button, and do the same for any other new folder with more than 12 changed files. Repositories that existed when the turn started stay listed file by file. No Git process runs: the workspace scan notes folders that hold a `.git` entry. Cards are timeline data version 2 (`groups` beside `files`); version 1 cards still render.
+- Turn card rows say Opened once the file was opened in the viewer at the card's version or a later one, instead of keeping New or Changed forever. New `viewer-state.opened-revisions` RPC reads the opened mark of up to 50 files at once.
+- File icons in Documents and on turn cards take a color per file type, from a palette checked for color blindness, with a gray fallback on themes where a color would fall under 3:1. New "Color file types" setting (on by default) turns them off for every client of the daemon.
+- Documents has a List, Details and Previews switch beside the search box. The daemon keeps the choice per layout class (phone-sized or wide) in `documents-view.json`, through new `documents-view.read` and `documents-view.write` RPCs. List stays the default. Quick presses are saved in order and the last one wins.
+- Details view: one line per file with Name, Folder (from 640 pt), Size, Modified (absolute) and Status columns. Phones keep 44 pt rows and drop the size column.
+- Previews view: PDF, PowerPoint and image groups as tile grids (page 1 or the picture, PDF page count in the caption), other groups as rows. Thumbnails are 160 or 240 px, load as tiles come into view and keep the last picture while a rewritten file settles. Below 240 pt it shows rows.
+- Tree view: Documents as folders, folders first and both by name, with each folder's document count, single-folder chains on one row (`out/reports`) and the top level open. Expand all and Collapse all; a search or filter opens every folder on the way to a match. A document opened from Tree steps through the files of its folder. Phones keep 44 pt rows, and the four-way switch stays beside the search box at 390 pt as icons; below 360 pt (the explorer sidebar) it takes its own row.
+- Documents filter chips carry their type's icon in its file type color (gray with "Color file types" off), a Files icon on All, and the status pill's icon on New and Needs review. Screen readers skip the icons.
+- `doc.thumbnail` answers for PowerPoint: the picture saved with the deck, else slide 1's first picture, else slide 1's title (`preview.type` is `image` or `title`), with the slide count. It is a preview, not a rendered slide, and needs no Office or LibreOffice. Previews tiles and turn cards use it.
+
+### Changed
+
+- `docs.recent` entries carry the file's `revision`, so clients can key thumbnails without opening each file.
+- `docs.recent` takes a `limit` of up to 1,000 (was 50; the default stays 50). Tree asks for 1,000 and says "Showing the 1,000 most recently changed documents" when the workspace has more. A truncated answer also says why in `truncatedBy`: `limit`, or `scan` when the list fits but the scan stopped before the end of the workspace. `documents-view.json` accepts `tree`; files saved before it still read.
+- Documents rows read as the file name first for screen readers, then type, folder, time and status. Before, they started with "Open" and the full path.
+- Thumbnails a turn card asks for (`keepOpen: false`) open a PDF for that one call, so they never push the document open in the viewer out of the daemon's open set. They wait behind page map thumbnails, and a client asks for two at a time across all its cards, the card mounted last first. A busy daemon gets asked again a little later, at a random point; a thumbnail that ran out of time is not, and the daemon does not try it again until the file changes.
+- `doc.thumbnail` takes an optional `revision`: a file changed since fails at once with "The file changed since it was listed", without being rendered. The daemon keeps thumbnails in a cache of their own, apart from pages, and bounds a PDF thumbnail's height to twice its width.
+
 ## 0.5.2 (2026-10-19)
 
 - Add reproducible HD listing images and a clearer description.

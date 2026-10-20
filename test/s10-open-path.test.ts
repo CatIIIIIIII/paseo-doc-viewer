@@ -9,7 +9,7 @@ import { openDocument } from "../server/documents";
 import { resolveInside } from "../server/paths";
 import { detectKind } from "../shared/kinds";
 import { compileLikePaseo, evaluateBundle } from "./paseo-compile";
-import { KIND_ICON } from "../client/format";
+import { GROUP_ICON, KIND_ICON } from "../client/format";
 import { PLUGIN_ROOT, workspace } from "./helpers";
 import { lucideIconNames, PASEO_SOURCE_MISSING } from "./paseo-real";
 
@@ -138,7 +138,7 @@ describe("S10: open a document by path despite the missing Files-tree hook", () 
           );
           return [...props, ...elements];
         });
-      for (const icon of [...icons, ...rendered, ...Object.values(KIND_ICON)]) {
+      for (const icon of [...icons, ...rendered, ...Object.values(KIND_ICON), ...Object.values(GROUP_ICON)]) {
         expect.soft(LUCIDE_ICONS!.has(icon), icon).toBe(true);
       }
     },

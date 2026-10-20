@@ -5,10 +5,11 @@ import { createVisitMemory, VISIT_REUSE_MS } from "../client/visits";
 import { listRecent, openDocument } from "../server/documents";
 import { forgetScan } from "../server/recent";
 import { revisionOf } from "../server/revision";
-import { markOpened, markReviewed, ViewerStateStore } from "../server/viewer-state";
+import { markOpened, markReviewed, openedRevisions, ViewerStateStore } from "../server/viewer-state";
 import { VisitStore } from "../server/visits";
 import { filterEntries } from "../shared/browse";
-import { docsRecentRpc, docsVisitRpc } from "../shared/rpc";
+import { OPENED_REVISIONS_MAX_PATHS } from "../shared/limits";
+import { docsRecentRpc, docsVisitRpc, viewerStateOpenedRevisionsRpc } from "../shared/rpc";
 import { workspace } from "./helpers";
 
 const at = (root: string, path: string, ms: number) => utimesSync(join(root, path), ms / 1000, ms / 1000);
@@ -125,5 +126,27 @@ describe("new since the last Documents visit", () => {
     expect(docsRecentRpc.input.safeParse({ workspaceId: "w", newSince: 1, newOnly: true }).success).toBe(true);
     expect(docsRecentRpc.input.safeParse({ workspaceId: "w", newSince: -1 }).success).toBe(false);
     expect(docsVisitRpc.output.safeParse({ since: null }).success).toBe(true);
+  });
+});
+
+describe("opened revisions for the turn card", () => {
+  it("answers many files in one read, leaving out files never opened, missing or outside the workspace", async () => {
+    const root = workspace({ "memo.pdf": "%PDF-1.4", "data.csv": "a\n", "notes.csv": "b\n" });
+    const store = new ViewerStateStore(workspace());
+    const memo = revisionOf(statSync(join(root, "memo.pdf")));
+    const data = revisionOf(statSync(join(root, "data.csv")));
+    await markOpened(store, root, "memo.pdf", memo);
+    await markOpened(store, root, "data.csv", data);
+    writeFileSync(join(root, "data.csv"), "a\nrewritten\n");
+    const paths = ["memo.pdf", "data.csv", "notes.csv", "gone.pdf", "../outside.pdf"];
+    const opened = await openedRevisions(store, root, paths);
+    expect(opened).toEqual({ "memo.pdf": memo, "data.csv": data });
+  });
+
+  it("bounds the paths in the RPC schema", () => {
+    const paths = (count: number) => Array.from({ length: count }, (_, i) => `f${i}.pdf`);
+    expect(viewerStateOpenedRevisionsRpc.input.safeParse({ workspaceId: "w", paths: paths(OPENED_REVISIONS_MAX_PATHS) }).success).toBe(true);
+    expect(viewerStateOpenedRevisionsRpc.input.safeParse({ workspaceId: "w", paths: paths(OPENED_REVISIONS_MAX_PATHS + 1) }).success).toBe(false);
+    expect(viewerStateOpenedRevisionsRpc.input.safeParse({ workspaceId: "w", paths: [""] }).success).toBe(false);
   });
 });

@@ -10,6 +10,14 @@ export function revisionModifiedAt(revision: string): number | null {
   return Math.trunc(parseInt(parts[1]!, 36) / 1000);
 }
 
+// max(mtime, ctime), like the turn card's change detection: a copy or move that keeps an old mtime
+// still has a new ctime.
+export function revisionChangedAt(revision: string): number | null {
+  const parts = revision.split("-");
+  if (parts.length !== 3 || !parts.slice(1).every((part) => /^[0-9a-z]+$/.test(part))) return null;
+  return Math.trunc(Math.max(parseInt(parts[1]!, 36), parseInt(parts[2]!, 36)) / 1000);
+}
+
 export function revisionSize(revision: string): number | null {
   const parts = revision.split("-");
   if (parts.length !== 3 || !/^[0-9a-z]+$/.test(parts[0]!)) return null;

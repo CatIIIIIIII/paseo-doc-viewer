@@ -1,3 +1,4 @@
+import { Image } from "imagescript";
 import { PNG } from "pngjs";
 import UTIF from "utif2";
 import { MAX_RENDER_EDGE_PX, MAX_RESPONSE_BYTES } from "../shared/limits";
@@ -20,6 +21,7 @@ export interface Fit {
   maxWidth: number;
   maxBytes: number;
   maxEdge?: number;
+  jpeg?: boolean;
 }
 
 const RESPONSE_OVERHEAD_BYTES = 64 * 1024;
@@ -28,6 +30,7 @@ export const MAX_STREAMED_PIXELS = 300_000_000;
 const REQUEST_PIXEL_BUDGET = 100_000_000;
 const REQUEST_TIME_BUDGET_MS = 10_000;
 const MAX_FIT_ATTEMPTS = 8;
+const JPEG_QUALITY = 80;
 
 export const IMAGE_BUDGET_BYTES = base64Capacity(MAX_RESPONSE_BYTES - RESPONSE_OVERHEAD_BYTES);
 
@@ -60,8 +63,8 @@ function edgeScale(width: number, height: number, maxWidth: number, maxEdge = MA
   return Math.min(maxWidth / width, maxEdge / Math.max(width, height));
 }
 
-export function targetScale(width: number, height: number, maxWidth: number): number {
-  return Math.min(1, edgeScale(width, height, maxWidth));
+export function targetScale(width: number, height: number, fit: Pick<Fit, "maxWidth" | "maxEdge">): number {
+  return Math.min(1, edgeScale(width, height, fit.maxWidth, fit.maxEdge));
 }
 
 export function decodePngBytes(bytes: Uint8Array): Rgba {
@@ -184,14 +187,21 @@ export function encoded(mimeType: EncodedImage["mimeType"], width: number, heigh
   return { mimeType, width, height, data: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64") };
 }
 
-export function fitRgba(image: Rgba, fit: Fit): EncodedImage {
-  let scale = targetScale(image.width, image.height, fit.maxWidth);
+async function encodeFitted(image: Rgba, fit: Fit): Promise<{ mimeType: EncodedImage["mimeType"]; bytes: Uint8Array }> {
+  if (!fit.jpeg || !isOpaque(image)) return { mimeType: "image/png", bytes: encodePng(image) };
+  const jpeg = new Image(image.width, image.height);
+  jpeg.bitmap = image.data;
+  return { mimeType: "image/jpeg", bytes: await jpeg.encodeJPEG(JPEG_QUALITY) };
+}
+
+export async function fitRgba(image: Rgba, fit: Fit): Promise<EncodedImage> {
+  let scale = targetScale(image.width, image.height, fit);
   for (let attempt = 0; attempt < MAX_FIT_ATTEMPTS; attempt++) {
     const width = Math.max(1, Math.round(image.width * scale));
     const height = Math.max(1, Math.round(image.height * scale));
-    const png = encodePng(resize(image, width, height));
-    if (png.length <= fit.maxBytes) return encoded("image/png", width, height, png);
-    scale *= Math.sqrt(fit.maxBytes / png.length) * 0.9;
+    const { mimeType, bytes } = await encodeFitted(resize(image, width, height), fit);
+    if (bytes.length <= fit.maxBytes) return encoded(mimeType, width, height, bytes);
+    scale *= Math.sqrt(fit.maxBytes / bytes.length) * 0.9;
   }
   throw new Error(ERROR_MESSAGES.tooLargeForBudget("Image"));
 }

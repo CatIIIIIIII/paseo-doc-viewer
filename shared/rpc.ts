@@ -4,8 +4,9 @@ import { defineRpc } from "@getpaseo/plugin";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { z } from "zod";
 import { DOCUMENT_GROUPS } from "./browse";
+import { documentView, documentViews } from "./documents-view";
 import { DOCUMENT_KINDS } from "./kinds";
-import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "./limits";
+import { OPENED_REVISIONS_MAX_PATHS, THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "./limits";
 
 // Kinds shown in the sheet grid. JSON Lines and Parquet have named columns instead of a header row.
 export const SHEET_KINDS = ["xlsx", "csv", "jsonl", "parquet"] as const;
@@ -96,14 +97,31 @@ export const docThumbnailRpc = defineRpc({
     password,
     index: z.number().int().nonnegative(),
     width: z.number().int().min(THUMBNAIL_MIN_WIDTH_PX).max(THUMBNAIL_MAX_WIDTH_PX),
+    // False for a turn card's one page of files nobody is reading: a PDF is not kept open for later pages.
+    keepOpen: z.boolean().optional(),
+    // The revision the caller lists: a file changed since fails with fileChanged after a stat, unrendered.
+    revision: revision.optional(),
   }),
-  output: z.object({
-    kind: z.literal("pdf"),
-    revision,
-    index: z.number().int().nonnegative(),
-    pageCount: z.number().int().nonnegative(),
-    image: encodedImage,
-  }),
+  output: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("pdf"),
+      revision,
+      index: z.number().int().nonnegative(),
+      pageCount: z.number().int().nonnegative(),
+      image: encodedImage,
+    }),
+    z.object({ kind: z.enum(["image-raster", "image-decoded"]), revision, image: encodedImage }),
+    // A preview, not a rendered slide: the picture saved with the file, slide 1's first picture, or its title.
+    z.object({
+      kind: z.literal("pptx"),
+      revision,
+      slideCount: z.number().int().nonnegative(),
+      preview: z.discriminatedUnion("type", [
+        z.object({ type: z.literal("image"), source: z.enum(["saved-thumbnail", "slide-picture"]), image: encodedImage }),
+        z.object({ type: z.literal("title"), title: z.string().max(200) }),
+      ]),
+    }),
+  ]),
 });
 
 export const docTextRpc = defineRpc({
@@ -269,6 +287,7 @@ export const docsRecentRpc = defineRpc({
   name: "docs.recent",
   input: z.object({
     workspaceId: z.string().min(1),
+    // 50 unless asked; more than RECENT_MAX_LIMIT is read as RECENT_MAX_LIMIT.
     limit: z.number().int().positive().optional(),
     query: z.string().max(200).optional(),
     group: z.enum(DOCUMENT_GROUPS).optional(),
@@ -285,11 +304,15 @@ export const docsRecentRpc = defineRpc({
         kind: z.enum(DOCUMENT_KINDS),
         mtimeMs: z.number(),
         size: z.number().int().nonnegative(),
+        // The file's revision as doc.open would report it, so thumbnails can be keyed without opening the file.
+        revision,
         review: z.enum(["reviewed", "changed"]).optional(),
         isNew: z.literal(true).optional(),
       }),
     ),
     truncated: z.boolean(),
+    // Sent when truncated: cut at the limit, or the list fits but the scan stopped before the end of the workspace.
+    truncatedBy: z.enum(["limit", "scan"]).optional(),
     counts: z.record(z.enum(DOCUMENT_GROUPS), z.number().int().nonnegative()),
     needsReview: z.number().int().nonnegative(),
     newCount: z.number().int().nonnegative(),
@@ -354,9 +377,24 @@ export const viewerStateOpenedRpc = defineRpc({
   output: z.object({ marked: z.boolean() }),
 });
 
+// The revision each listed file was last opened at; files never opened, or no longer there, are left out.
+export const viewerStateOpenedRevisionsRpc = defineRpc({
+  name: "viewer-state.opened-revisions",
+  input: z.object({ workspaceId: z.string().min(1), paths: z.array(z.string().min(1)).max(OPENED_REVISIONS_MAX_PATHS) }),
+  output: z.object({ opened: z.record(z.string(), documentRevision) }),
+});
+
 // First-run tips in Documents: one dismissal for every client of the daemon.
 export const tipsReadRpc = defineRpc({ name: "tips.read", input: z.object({}), output: z.object({ dismissed: z.boolean() }) });
 export const tipsDismissRpc = defineRpc({ name: "tips.dismiss", input: z.object({}), output: z.object({ dismissed: z.literal(true) }) });
+
+// How Documents shows its files, per layout class, shared by every client of the daemon.
+export const documentsViewReadRpc = defineRpc({ name: "documents-view.read", input: z.object({}), output: z.object({ views: documentViews }) });
+export const documentsViewWriteRpc = defineRpc({
+  name: "documents-view.write",
+  input: z.object({ layout: z.enum(["compact", "wide"]), view: documentView }),
+  output: z.object({ views: documentViews }),
+});
 
 export const reviewPageImageRpc = defineRpc({
   name: "review.page-image",
@@ -365,12 +403,13 @@ export const reviewPageImageRpc = defineRpc({
 });
 export type ReviewPageImageOutput = RpcOutput<typeof reviewPageImageRpc>;
 
-export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, viewerStateOpenedRpc, tipsReadRpc, tipsDismissRpc, reviewPageImageRpc] as const;
+export const DOCUMENT_RPCS = [docOpenRpc, docPageRpc, docThumbnailRpc, docTextRpc, docRowsRpc, docCellRpc, docIssuesRpc, docBlocksRpc, mediaChunkRpc, docsRecentRpc, docsVisitRpc, docsAnyRpc, fileInfoRpc, fileChunkRpc, docSearchRpc, viewerStateReadRpc, viewerStateWriteRpc, viewerStatePinRpc, viewerStateReviewRpc, viewerStateOpenedRpc, viewerStateOpenedRevisionsRpc, tipsReadRpc, tipsDismissRpc, documentsViewReadRpc, documentsViewWriteRpc, reviewPageImageRpc] as const;
 
 export type DocOpenInput = RpcInput<typeof docOpenRpc>;
 export type DocOpenOutput = RpcOutput<typeof docOpenRpc>;
 export type DocPageInput = RpcInput<typeof docPageRpc>;
 export type DocPageOutput = RpcOutput<typeof docPageRpc>;
+export type DocThumbnailInput = RpcInput<typeof docThumbnailRpc>;
 export type DocThumbnailOutput = RpcOutput<typeof docThumbnailRpc>;
 export type DocTextInput = RpcInput<typeof docTextRpc>;
 export type DocTextOutput = RpcOutput<typeof docTextRpc>;

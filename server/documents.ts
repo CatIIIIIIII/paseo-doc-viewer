@@ -30,10 +30,11 @@ import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationM
 import { readChunk, sliceChunk, videoMimeType, audioMimeType } from "./media";
 import { resolveInside } from "./paths";
 import { pdfPageCount, readPdfPageText, renderPdfPage, searchPdfPage } from "./pdf";
-import { loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
+import { firstSlidePreview, loadDeck, readSlideTexts, renderSlide, type Deck } from "./pptx";
 import { IMAGE_BUDGET_BYTES, base64Capacity, decodeBudget, type Fit } from "./raster";
 import { recentDocuments, type RecentEntry } from "./recent";
 import { revisionOf } from "./revision";
+import { thumbnailCached, type ThumbnailRequest } from "./thumbnails";
 import { viewerStateStore } from "./viewer-state";
 import { SEARCH_BUDGET_MS, SearchScan, matchingSharedStrings, parkStream, position, takeStream, type SearchPosition } from "./search";
 import { SharedFormulas } from "./formulas";
@@ -58,7 +59,6 @@ interface DocumentFile {
 }
 
 type PageRequest = { index: number; maxWidth?: number };
-type ThumbnailRequest = { index: number; width: number };
 type TextRequest = { index: number };
 type RowsRequest = { sheet: number; rowOffset: number; columnOffset: number; maxColumns?: number; maxRows?: number; detail?: boolean };
 type BlocksRequest = { cursor: number };
@@ -213,6 +213,18 @@ function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamil
         return { kind, revision: file.revision, sourceWidth: source.width, sourceHeight: source.height, image };
       });
     },
+    thumbnail: async (file, request) => {
+      inRange(request.index, 1, "Page");
+      const edge = Math.min(request.width, THUMBNAIL_MAX_WIDTH_PX);
+      const fit = { maxWidth: edge, maxEdge: edge, maxBytes: THUMBNAIL_MAX_BYTES, jpeg: true };
+      const image = await thumbnailCached(file, request, async (signal) => {
+        const bytes = await readFile(file.path);
+        // Decoding cannot be stopped once it starts, so a call already out of time skips it.
+        signal.throwIfAborted();
+        return renderImage(bytes, family, fit);
+      });
+      return { kind, revision: file.revision, image };
+    },
     chunk: async (file, { offset, length, mimeType }) => {
       const opened = await openCached(file);
       const animation = "animation" in opened ? opened.animation : undefined;
@@ -236,10 +248,12 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       const { pageCount, image } = await heavyCached(file, `page\0${index}\0${fit.maxWidth}`, (signal) => renderPdfPage(file, index, fit, signal));
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
-    // Thumbnails skip the shared cache so a grid cannot evict the pages being read; the client keeps them.
-    thumbnail: async (file, { index, width }) => {
-      const fit = { maxWidth: Math.min(width, THUMBNAIL_MAX_WIDTH_PX), maxBytes: THUMBNAIL_MAX_BYTES };
-      const { pageCount, image } = await heavy((signal) => renderPdfPage(file, index, fit, signal), { background: true });
+    thumbnail: async (file, request) => {
+      const { index, width, keepOpen } = request;
+      const edge = Math.min(width, THUMBNAIL_MAX_WIDTH_PX);
+      // Twice the width covers a page map cell; a receipt-like page is not drawn longer than that.
+      const fit = { maxWidth: edge, maxEdge: edge * 2, maxBytes: THUMBNAIL_MAX_BYTES };
+      const { pageCount, image } = await thumbnailCached(file, request, (signal) => renderPdfPage(file, index, fit, signal, { hold: keepOpen !== false }));
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
     text: async (file, { index }) => ({
@@ -366,6 +380,14 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       const slide = await heavyCached(file, `slide\0${index}`, () => renderSlide(slides, index));
       return { kind: "pptx", revision: file.revision, index, slideCount: slides.slides.length, ...slide };
     },
+    thumbnail: async (file, request) => {
+      inRange(request.index, 1, "Slide");
+      const slides = await deck(file);
+      const edge = Math.min(request.width, THUMBNAIL_MAX_WIDTH_PX);
+      const fit = { maxWidth: edge, maxEdge: edge, maxBytes: THUMBNAIL_MAX_BYTES, jpeg: true };
+      const preview = await thumbnailCached(file, request, () => firstSlidePreview(slides, fit));
+      return { kind: "pptx", revision: file.revision, slideCount: slides.slides.length, preview };
+    },
   },
   video: {
     open: async (file) => ({ kind: "video", revision: file.revision, mimeType: videoMimeType(file.extension), size: file.size }),
@@ -416,6 +438,7 @@ export async function renderPage(ref: DocumentRef, request: PageRequest): Promis
 
 export async function renderThumbnail(ref: DocumentRef, request: ThumbnailRequest): Promise<DocThumbnailOutput> {
   const file = await locate(ref);
+  if (request.revision !== undefined && request.revision !== file.revision) throw new Error(ERROR_MESSAGES.fileChanged());
   return operation(file, "doc.thumbnail", "thumbnail")(file, request);
 }
 
@@ -473,8 +496,8 @@ export async function listRecent(root: string, request: Omit<DocsRecentInput, "w
   const listed = await recentDocuments(root, request, keyOf ? status : undefined);
   return {
     ...listed,
-    entries: listed.entries.map(({ path, kind, mtimeMs, size, review, isNew }) => ({
-      path, kind, mtimeMs, size, ...(review ? { review } : {}), ...(isNew ? { isNew: true as const } : {}),
+    entries: listed.entries.map(({ path, kind, mtimeMs, size, revision, review, isNew }) => ({
+      path, kind, mtimeMs, size, revision, ...(review ? { review } : {}), ...(isNew ? { isNew: true as const } : {}),
     })),
   };
 }

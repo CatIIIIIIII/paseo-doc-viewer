@@ -1,9 +1,17 @@
 import { ERROR_MESSAGES } from "../shared/errors";
 import { RPC_DEADLINE_MS } from "../shared/limits";
 
+// Thumbnails share one background slot and start only when no foreground work waits. Page map
+// thumbnails ("background") go before thumbnails of files nobody is reading ("idle"), such as a
+// turn card's, so a timeline of cards cannot starve the grid open on screen.
+export type Lane = "foreground" | "background" | "idle";
+
 const MAX_CONCURRENT = 2;
 const MAX_BACKGROUND = 1;
-const MAX_BACKGROUND_WAITING = 8;
+const MAX_LANE_WAITING = 8;
+// Background work stops waiting while half its budget is left, so work that starts has time to
+// finish, and running out of time means the work itself was slow.
+const BACKGROUND_WAIT_MS = RPC_DEADLINE_MS / 2;
 // Work that ignores its abort signal keeps its slot this much longer, then stops counting, so a
 // call that never settles cannot hold a slot forever.
 export const ABANDON_GRACE_MS = 5_000;
@@ -15,8 +23,7 @@ interface Slot {
 
 let active = 0;
 let background = 0;
-const waiting: Slot[] = [];
-const waitingBackground: Slot[] = [];
+const waiting: Record<Lane, Slot[]> = { foreground: [], background: [], idle: [] };
 
 function enqueue(queue: Slot[], waitMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -34,33 +41,35 @@ function enqueue(queue: Slot[], waitMs: number): Promise<void> {
   });
 }
 
-// Background work (thumbnails) holds at most one slot and starts only when no foreground work waits.
-function acquire(isBackground: boolean, waitMs: number): Promise<void> {
-  if (!isBackground) {
-    if (active >= MAX_CONCURRENT) return enqueue(waiting, waitMs);
+const backgroundFree = (lane: Exclude<Lane, "foreground">) =>
+  active < MAX_CONCURRENT && background < MAX_BACKGROUND && waiting.foreground.length === 0 && (lane === "background" || waiting.background.length === 0);
+
+function acquire(lane: Lane): Promise<void> {
+  if (lane === "foreground") {
+    if (active >= MAX_CONCURRENT) return enqueue(waiting.foreground, RPC_DEADLINE_MS);
     active++;
     return Promise.resolve();
   }
-  if (active < MAX_CONCURRENT && background < MAX_BACKGROUND && waiting.length === 0) {
+  if (backgroundFree(lane)) {
     active++;
     background++;
     return Promise.resolve();
   }
-  if (waitingBackground.length >= MAX_BACKGROUND_WAITING) return Promise.reject(new Error(ERROR_MESSAGES.busy()));
-  return enqueue(waitingBackground, waitMs);
+  if (waiting[lane].length >= MAX_LANE_WAITING) return Promise.reject(new Error(ERROR_MESSAGES.busy()));
+  return enqueue(waiting[lane], BACKGROUND_WAIT_MS);
 }
 
-function release(isBackground: boolean): void {
+function release(lane: Lane): void {
   active--;
-  if (isBackground) background--;
-  const foreground = waiting.shift();
+  if (lane !== "foreground") background--;
+  const foreground = waiting.foreground.shift();
   if (foreground) {
     active++;
     foreground.start();
     return;
   }
   if (background >= MAX_BACKGROUND) return;
-  const next = waitingBackground.shift();
+  const next = waiting.background.shift() ?? waiting.idle.shift();
   if (!next) return;
   active++;
   background++;
@@ -71,14 +80,14 @@ function release(isBackground: boolean): void {
 // before the host's 30 s RPC timeout. At the deadline the work's signal aborts; its slot is freed
 // when the work stops (or after ABANDON_GRACE_MS), so timed-out work never runs beside a full
 // set of new work.
-export async function heavy<T>(work: (signal: AbortSignal) => Promise<T>, { background: isBackground = false } = {}): Promise<T> {
+export async function heavy<T>(work: (signal: AbortSignal) => Promise<T>, { lane = "foreground" }: { lane?: Lane } = {}): Promise<T> {
   const deadline = Date.now() + RPC_DEADLINE_MS;
-  await acquire(isBackground, RPC_DEADLINE_MS);
+  await acquire(lane);
   let freed = false;
   const free = () => {
     if (freed) return;
     freed = true;
-    release(isBackground);
+    release(lane);
   };
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
