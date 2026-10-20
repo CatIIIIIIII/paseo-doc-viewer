@@ -87,7 +87,7 @@ export function TreeList({
   palette: KindPalette;
   now: number;
   footer: ReactElement | null;
-  onToggle(path: string): void;
+  onToggle(chain: readonly string[], open: boolean): void;
   onOpen(path: string): void;
 }) {
   return (
@@ -98,7 +98,7 @@ export function TreeList({
       contentContainerStyle={{ padding: 8, paddingBottom: 8 + styles.bottomInset }}
       renderItem={({ item }: { item: TreeRow<RecentEntry> }) =>
         item.type === "folder" ? (
-          <FolderRow theme={theme} styles={styles} layout={layout} row={item} onPress={() => onToggle(item.path)} />
+          <FolderRow theme={theme} styles={styles} layout={layout} row={item} onPress={() => onToggle(item.chain, !item.expanded)} />
         ) : (
           <FileRow theme={theme} styles={styles} layout={layout} row={item} palette={palette} now={now} onPress={() => onOpen(item.entry.path)} />
         )

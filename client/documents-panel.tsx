@@ -16,7 +16,7 @@ import { detailsColumns, previewGrid, treeLayout } from "./panel-layout";
 import { DetailsHeader, DetailsRow } from "./documents-details";
 import { countText, PreviewTile, TileRow, usePreviews } from "./documents-previews";
 import { TreeActions, TreeList, useTreeExpansion } from "./documents-tree";
-import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, isExpanded, toggleFolder, treeRows } from "./folder-tree";
+import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, isExpanded, setExpanded, treeRows } from "./folder-tree";
 import { type PreviewRow, previewRowKey, previewRows, visibleTilePaths } from "./previews";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
@@ -119,7 +119,7 @@ function DocumentsList({
   const filterKey = filtering ? JSON.stringify([queryTerms(query), group, needsReview, newOnly]) : null;
   const [expansion, setExpansion] = useTreeExpansion(`${host?.id ?? ""}\0${workspaceId}`, filterKey);
   const folderRows = useMemo(
-    () => (tree ? treeRows(folderTree(entries), (path, depth) => isExpanded(expansion, path, depth)) : []),
+    () => (tree ? treeRows(folderTree(entries), (chain, depth) => isExpanded(expansion, chain, depth)) : []),
     [tree, entries, expansion],
   );
   const columnsCount = grid?.columns ?? 0;
@@ -290,7 +290,7 @@ function DocumentsList({
           palette={palette}
           now={now}
           footer={footer}
-          onToggle={(path) => setExpansion(toggleFolder(expansion, path))}
+          onToggle={(chain, open) => setExpansion(setExpanded(expansion, chain, open))}
           onOpen={openFromTree}
         />
       ) : (

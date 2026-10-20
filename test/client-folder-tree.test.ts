@@ -6,8 +6,9 @@ import {
   folderFiles,
   folderTree,
   isExpanded,
+  setExpanded,
   TOP_EXPANDED,
-  toggleFolder,
+  type TreeExpansion,
   type TreeRow,
   treeRows,
 } from "../client/folder-tree";
@@ -59,7 +60,7 @@ describe("folder tree", () => {
   });
 
   it("opens the top level by default, and a closed folder hides everything under it", () => {
-    const rows = treeRows(folderTree(files), (path, depth) => isExpanded(TOP_EXPANDED, path, depth));
+    const rows = treeRows(folderTree(files), (chain, depth) => isExpanded(TOP_EXPANDED, chain, depth));
     expect(shown(rows)).toEqual([
       "v assets (2)",
       "  A.png",
@@ -75,14 +76,31 @@ describe("folder tree", () => {
     ]);
   });
 
-  it("toggles one folder from any starting point, and Expand all or Collapse all start over", () => {
-    const opened = toggleFolder(TOP_EXPANDED, "reports/2026/q3");
-    expect(isExpanded(opened, "reports/2026/q3", 1)).toBe(true);
-    expect(isExpanded(toggleFolder(opened, "reports/2026/q3"), "reports/2026/q3", 1)).toBe(false);
-    expect(isExpanded(toggleFolder(TOP_EXPANDED, "assets"), "assets", 0)).toBe(false);
-    expect(isExpanded(ALL_EXPANDED, "reports/2026/q3/weekly", 2)).toBe(true);
-    expect(isExpanded(ALL_COLLAPSED, "assets", 0)).toBe(false);
-    expect(isExpanded(toggleFolder(ALL_COLLAPSED, "assets"), "assets", 0)).toBe(true);
+  it("opens or closes one folder from any starting point, and Expand all or Collapse all start over", () => {
+    const opened = setExpanded(TOP_EXPANDED, ["reports/2026/q3"], true);
+    expect(isExpanded(opened, ["reports/2026/q3"], 1)).toBe(true);
+    expect(isExpanded(setExpanded(opened, ["reports/2026/q3"], false), ["reports/2026/q3"], 1)).toBe(false);
+    expect(isExpanded(setExpanded(TOP_EXPANDED, ["assets"], false), ["assets"], 0)).toBe(false);
+    expect(isExpanded(ALL_EXPANDED, ["reports/2026/q3/weekly"], 2)).toBe(true);
+    expect(isExpanded(ALL_COLLAPSED, ["assets"], 0)).toBe(false);
+    expect(isExpanded(setExpanded(ALL_COLLAPSED, ["assets"], true), ["assets"], 0)).toBe(true);
+  });
+
+  it("keeps a chained row open or closed when a new file splits the chain, and when it forms again", () => {
+    const chained = [{ path: "p/other.pdf" }, { path: "p/q/r/deep.pdf" }];
+    const split = [...chained, { path: "p/q/new.pdf" }];
+    const rowsOf = (paths: { path: string }[], expansion: TreeExpansion) =>
+      shown(treeRows(folderTree(paths), (chain, depth) => isExpanded(expansion, chain, depth)));
+    const row = treeRows(folderTree(chained), () => true).find((each) => each.type === "folder" && each.name === "q/r");
+    expect(row).toMatchObject({ path: "p/q/r", parent: "p", chain: ["p/q", "p/q/r"] });
+    const opened = setExpanded(TOP_EXPANDED, ["p/q", "p/q/r"], true);
+    expect(rowsOf(chained, opened)).toEqual(["v p (2)", "  v q/r (1)", "    deep.pdf", "  other.pdf"]);
+    expect(rowsOf(split, opened)).toEqual(["v p (3)", "  v q (2)", "    v r (1)", "      deep.pdf", "    new.pdf", "  other.pdf"]);
+    const closed = setExpanded(opened, ["p/q", "p/q/r"], false);
+    expect(rowsOf(split, setExpanded(closed, ["p/q"], true))).toEqual(["v p (3)", "  v q (2)", "    > r (1)", "    new.pdf", "  other.pdf"]);
+    expect(rowsOf(chained, setExpanded(closed, ["p/q"], true))).toEqual(["v p (2)", "  > q/r (1)", "  other.pdf"]);
+    const top = setExpanded(TOP_EXPANDED, ["out", "out/reports"], false);
+    expect(rowsOf([{ path: "out/reports/a.pdf" }, { path: "out/b.pdf" }], setExpanded(top, ["out"], true))).toEqual(["v out (2)", "  > reports (1)", "  b.pdf"]);
   });
 
   it("keeps a search's matches and the folders above them", () => {
