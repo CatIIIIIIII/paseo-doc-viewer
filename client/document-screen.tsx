@@ -121,14 +121,12 @@ function ViewerContent({
   searchMatches,
   pageMap,
   onActivePage,
-  onOpenPageMap,
 }: {
   navigation?: SearchNavigation | null;
   searchMatches?: SearchMatch[];
   pageMap?: { compact: boolean; onClose(): void } | null;
   compact: boolean;
   onActivePage?: (index: number) => void;
-  onOpenPageMap?: () => void;
   document: DocOpenOutput;
   workspaceId: string;
   path: string;
@@ -144,7 +142,7 @@ function ViewerContent({
   const key = `${workspaceId}\0${path}`;
   switch (document.kind) {
     case "pdf":
-      return <PageViewer key={key} {...common} {...remembered} kind="pdf" count={document.pageCount} password={password} searchMatches={searchMatches} pageMap={pageMap} onActivePage={onActivePage} onOpenPageMap={onOpenPageMap} />;
+      return <PageViewer key={key} {...common} {...remembered} kind="pdf" count={document.pageCount} password={password} searchMatches={searchMatches} pageMap={pageMap} onActivePage={onActivePage} />;
     case "pptx":
       return <PageViewer key={key} {...common} {...remembered} kind="pptx" count={document.slideCount} />;
     case "image-raster":
@@ -225,8 +223,7 @@ function DocumentBody({ reviewScope: scope, stepper, ...props }: Parameters<type
       revision={props.document.revision} pageLabel={props.document.kind === "pptx" ? "Slide" : "Page"} theme={props.theme} styles={props.styles} onNavigate={setNavigation}
       onMatches={setSearchMatches}
       onClose={() => { setFinding(false); setNavigation(null); setSearchMatches([]); }} /> : null}
-    <ViewerContent {...props} navigation={navigation} searchMatches={searchMatches} pageMap={pageMap} onActivePage={paged ? setActivePage : undefined}
-      onOpenPageMap={paged ? () => setMapOpen(true) : undefined} />
+    <ViewerContent {...props} navigation={navigation} searchMatches={searchMatches} pageMap={pageMap} onActivePage={paged ? setActivePage : undefined} />
   </View></FindScope>;
 }
 
