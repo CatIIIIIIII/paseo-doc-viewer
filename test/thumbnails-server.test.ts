@@ -185,7 +185,7 @@ describe("PDF thumbnails", () => {
     expect(stats().opens).toBe(opens + 1);
   }, 30_000);
 
-  it("tries a card thumbnail again when its time ran out while its PDFium call waited behind other work", async () => {
+  it("answers busy for a card thumbnail whose time ran out while its PDFium call waited behind other work, and draws it when asked again", async () => {
     const root = workspace({ "fast.pdf": await textPdf(["fast"]) });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     vi.resetModules();
@@ -198,7 +198,7 @@ describe("PDF thumbnails", () => {
     const queued = card();
     for (let waited = 0; stats().queued < viewer.length && waited < 10_000; waited += 10) await realDelay(10);
     await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
-    expect(errorText(await queued)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
+    expect(errorText(await queued)).toBe(errorText(ERROR_MESSAGES.busy()));
     expect(stats()).toMatchObject({ opens, spawns });
     vi.useRealTimers();
     await Promise.all(viewer);

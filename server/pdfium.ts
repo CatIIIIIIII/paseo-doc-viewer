@@ -45,8 +45,9 @@ let nextId = 1;
 let generation = 0;
 // Documents sent to the current worker; they die with it.
 const opened = new Set<string>();
-// Signals whose abort found their call running, so the worker was restarted to stop it.
-const restartedBy = new WeakSet<AbortSignal>();
+// Where each call given up through its signal was: running, so the worker was restarted to stop it,
+// or still queued behind other calls.
+const abandoned = new WeakMap<AbortSignal, "running" | "queued">();
 const stats = { spawns: 0, opens: 0 };
 
 // @hyzyla/pdfium/inline decodes its embedded wasm inside init() and hands the bytes to initBase;
@@ -180,10 +181,8 @@ async function pump(): Promise<void> {
 }
 
 function abandon(job: Job): void {
-  if (job === running) {
-    if (job.signal) restartedBy.add(job.signal);
-    return restart({ job, error: new Error(ERROR_MESSAGES.tooSlow()) });
-  }
+  if (job.signal) abandoned.set(job.signal, job === running ? "running" : "queued");
+  if (job === running) return restart({ job, error: new Error(ERROR_MESSAGES.tooSlow()) });
   const at = queue.indexOf(job);
   if (at >= 0) queue.splice(at, 1);
   settle(job, { error: new Error(ERROR_MESSAGES.tooSlow()) });
@@ -223,9 +222,8 @@ export function pdfiumGeneration(): number {
   return generation;
 }
 
-// Whether aborting this signal stopped a call PDFium was running, rather than one still queued.
-export function pdfiumRestartedBy(signal: AbortSignal): boolean {
-  return restartedBy.has(signal);
+export function pdfiumAbandoned(signal: AbortSignal): "running" | "queued" | undefined {
+  return abandoned.get(signal);
 }
 
 export function pdfiumStats(): { spawns: number; opens: number; alive: boolean; documents: number; queued: number } {
