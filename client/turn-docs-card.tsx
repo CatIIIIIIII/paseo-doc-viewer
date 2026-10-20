@@ -222,6 +222,7 @@ function GroupRow({ group, open, size, styles, theme, onToggle }: {
         icon={open ? "ChevronUp" : "ChevronDown"}
         label={action}
         accessibilityLabel={`${action} ${group.path}, ${spoken}, ${group.count} ${group.count === 1 ? "document" : "documents"}`}
+        expanded={open}
         onPress={onToggle}
       />
     </View>

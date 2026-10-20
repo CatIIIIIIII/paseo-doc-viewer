@@ -39,12 +39,13 @@ export const Text = ({ children, style, accessibilityLabel, onPress, accessibili
   // React Native keeps line breaks in text.
   return <span ref={node} style={{ whiteSpace: "pre-wrap", ...css(style) }} aria-label={accessibilityLabel} onClick={onPress} role={accessibilityRole}>{children}</span>;
 };
-// React Native Web renders Pressable as a focusable div with role=button, not a <button>.
+// React Native Web renders Pressable as a focusable div with role=button, not a <button>. It passes
+// aria-expanded through and ignores accessibilityState.expanded, and so does this shim.
 const CHECKED_ROLES = new Set(["radio", "checkbox"]);
 export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, accessibilityState, disabled, onPress, "aria-expanded": ariaExpanded }: any) => {
   const checkable = CHECKED_ROLES.has(accessibilityRole);
-  return <div role={checkable ? accessibilityRole : "button"} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel}
-    aria-pressed={checkable ? undefined : accessibilityState?.selected} aria-expanded={ariaExpanded ?? accessibilityState?.expanded} aria-checked={accessibilityRole === "radio" ? Boolean(accessibilityState?.selected) : accessibilityRole === "checkbox" ? Boolean(accessibilityState?.checked) : undefined} aria-disabled={disabled || undefined}
+  return <div role={checkable ? accessibilityRole : "button"} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel} aria-expanded={ariaExpanded}
+    aria-pressed={checkable ? undefined : accessibilityState?.selected} aria-checked={accessibilityRole === "radio" ? Boolean(accessibilityState?.selected) : accessibilityRole === "checkbox" ? Boolean(accessibilityState?.checked) : undefined} aria-disabled={disabled || undefined}
     onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }}
     style={{ cursor: "pointer", boxSizing: "border-box", display: "flex", flexDirection: "column", flexShrink: 0, minWidth: 0, ...css(typeof style === "function" ? style({ pressed: false, hovered: false }) : style) }}>{children}</div>;
 };

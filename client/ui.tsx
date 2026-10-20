@@ -153,6 +153,7 @@ export function ToolbarButton({
   onPress,
   disabled,
   accessibilityLabel,
+  expanded,
   ...kind
 }: ChromeProps & ButtonVariant & {
   label?: string;
@@ -160,6 +161,8 @@ export function ToolbarButton({
   onPress(): void;
   disabled?: boolean;
   accessibilityLabel?: string;
+  // For Show and Hide. Sent as aria-expanded: react-native-web drops accessibilityState, React Native reads either.
+  expanded?: boolean;
 }) {
   const primary = kind.variant === "primary";
   const toggle = kind.variant === "toggle" ? { on: kind.selected } : null;
@@ -169,6 +172,7 @@ export function ToolbarButton({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: Boolean(disabled), ...(toggle ? { selected: toggle.on } : {}) }}
+      aria-expanded={expanded}
       hitSlop={styles.hitSlop}
       disabled={disabled}
       onPress={onPress}
