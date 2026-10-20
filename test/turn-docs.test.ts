@@ -20,8 +20,10 @@ import {
   type Baseline,
   type ScannedFile,
   type ScannedFolders,
+  type TurnDocs,
   type TurnDocsFile,
   type TurnDocsGroup,
+  type TurnDocsRow,
 } from "../shared/turn-docs";
 
 const T0 = 1_000_000;
@@ -152,7 +154,6 @@ describe("turnDocsRow", () => {
     const row = turnDocsRow({ ...base, files: files(15) })!;
     expect(row.data.files).toHaveLength(12);
     expect(row.data.moreCount).toBe(3);
-    expect(turnDocsSchema.parse(row.data)).toEqual(row.data);
   });
 
   it("drops files until the data fits the daemon's 64 KiB limit", () => {
@@ -165,44 +166,65 @@ describe("turnDocsRow", () => {
 
   const group = (path: string, count: number, pathLength = 10): TurnDocsGroup =>
     ({ reason: "checkout", path, count, files: files(count, pathLength).map((entry) => ({ ...entry, path: `${path}/${entry.path}`, status: "new" })) });
+  // What the client renders: it reads a version 1 row as a card without folder rows.
+  const rendered = (row: TurnDocsRow): TurnDocs => (row.version === 2 ? row.data : upgradeTurnDocs(row.data));
+
+  it("writes a card without folder rows as version 1, which bundles from before folder rows render", () => {
+    const row = turnDocsRow({ ...base, files: files(15) })!;
+    expect(row.version).toBe(1);
+    expect(turnDocsV1Schema.strict().parse(row.data)).toEqual(row.data);
+  });
+
+  it("writes a card with a folder row as version 2", () => {
+    const row = turnDocsRow({ ...base, files: files(2), groups: [group("gallery", 3)] })!;
+    expect(row.version).toBe(2);
+    expect(turnDocsSchema.strict().parse(row.data)).toEqual(row.data);
+  });
+
+  it("writes version 1 when files fill the 12 rows, so folder rows only count toward the rest", () => {
+    const row = turnDocsRow({ ...base, files: files(12), groups: [group("gallery", 65)] })!;
+    expect(row.version).toBe(1);
+    expect(row.data.moreCount).toBe(65);
+    expect(turnDocsTitle(rendered(row))).toBe("77 documents changed while this turn ran");
+  });
 
   it("shows folder rows with the first 12 of their files, and keeps every file in the title count", () => {
-    const row = turnDocsRow({ ...base, files: files(2), groups: [group("gallery", 65)] })!;
-    expect(row.data.files).toHaveLength(2);
-    expect(row.data.groups).toMatchObject([{ path: "gallery", count: 65 }]);
-    expect(row.data.groups[0]!.files).toHaveLength(12);
-    expect(row.data.moreCount).toBe(0);
-    expect(turnDocsTitle(row.data)).toBe("67 documents changed while this turn ran");
-    expect(turnDocsSchema.parse(row.data)).toEqual(row.data);
+    const card = rendered(turnDocsRow({ ...base, files: files(2), groups: [group("gallery", 65)] })!);
+    expect(card.files).toHaveLength(2);
+    expect(card.groups).toMatchObject([{ path: "gallery", count: 65 }]);
+    expect(card.groups[0]!.files).toHaveLength(12);
+    expect(card.moreCount).toBe(0);
+    expect(turnDocsTitle(card)).toBe("67 documents changed while this turn ran");
     expect(turnDocsRow({ ...base, files: [], groups: [group("gallery", 3)] })!.data.files).toEqual([]);
   });
 
   it("fills the 12 rows with files first, then folder rows, and counts the rest", () => {
-    const row = turnDocsRow({ ...base, files: files(10), groups: [group("a", 20), group("b", 13), group("c", 1)] })!;
-    expect(row.data.files).toHaveLength(10);
-    expect(row.data.groups.map((entry) => entry.path)).toEqual(["a", "b"]);
-    expect(row.data.moreCount).toBe(1);
-    expect(turnDocsTitle(row.data)).toBe("44 documents changed while this turn ran");
+    const card = rendered(turnDocsRow({ ...base, files: files(10), groups: [group("a", 20), group("b", 13), group("c", 1)] })!);
+    expect(card.files).toHaveLength(10);
+    expect(card.groups.map((entry) => entry.path)).toEqual(["a", "b"]);
+    expect(card.moreCount).toBe(1);
+    expect(turnDocsTitle(card)).toBe("44 documents changed while this turn ran");
   });
 
   it("lists a report even when 12 new checkouts came with it", () => {
     const report = { ...files(1)[0]!, path: "REPORT.pdf" };
     const checkouts = Array.from({ length: 12 }, (_, index) => group(`wt-${index}`, 3));
-    const row = turnDocsRow({ ...base, files: [report], groups: checkouts })!;
-    expect(row.data.files.map((entry) => entry.path)).toEqual(["REPORT.pdf"]);
-    expect(row.data.groups.map((entry) => entry.path)).toEqual(checkouts.slice(0, 11).map((entry) => entry.path));
-    expect(row.data.moreCount).toBe(3);
-    expect(turnDocsTitle(row.data)).toBe("37 documents changed while this turn ran");
+    const card = rendered(turnDocsRow({ ...base, files: [report], groups: checkouts })!);
+    expect(card.files.map((entry) => entry.path)).toEqual(["REPORT.pdf"]);
+    expect(card.groups.map((entry) => entry.path)).toEqual(checkouts.slice(0, 11).map((entry) => entry.path));
+    expect(card.moreCount).toBe(3);
+    expect(turnDocsTitle(card)).toBe("37 documents changed while this turn ran");
   });
 
   it("past 64 KiB drops a folder row's expanded files before listed files", () => {
     const row = turnDocsRow({ ...base, files: files(3, 3_000), groups: [group("a", 30, 3_000), group("b", 30, 3_000)] })!;
     expect(new TextEncoder().encode(JSON.stringify(row.data)).length).toBeLessThanOrEqual(TIMELINE_DATA_MAX_BYTES);
-    expect(row.data.files).toHaveLength(3);
-    expect(row.data.groups.map((entry) => entry.count)).toEqual([30, 30]);
-    expect(row.data.groups[0]!.files.length + row.data.groups[1]!.files.length).toBeLessThan(24);
-    expect(Math.abs(row.data.groups[0]!.files.length - row.data.groups[1]!.files.length)).toBeLessThanOrEqual(1);
-    expect(turnDocsTitle(row.data)).toBe("63 documents changed while this turn ran");
+    const card = rendered(row);
+    expect(card.files).toHaveLength(3);
+    expect(card.groups.map((entry) => entry.count)).toEqual([30, 30]);
+    expect(card.groups[0]!.files.length + card.groups[1]!.files.length).toBeLessThan(24);
+    expect(Math.abs(card.groups[0]!.files.length - card.groups[1]!.files.length)).toBeLessThanOrEqual(1);
+    expect(turnDocsTitle(card)).toBe("63 documents changed while this turn ran");
   });
 
   it("keeps rows stored as version 1 readable", () => {
@@ -213,7 +235,7 @@ describe("turnDocsRow", () => {
 
   it("has a stable id per turn and a kind the host accepts", () => {
     const row = turnDocsRow({ ...base, files: files(1) })!;
-    expect(row).toMatchObject({ type: "plugin", id: `turn-docs:turn-7:${T0}`, kind: TURN_DOCS_KIND, version: 2 });
+    expect(row).toMatchObject({ type: "plugin", id: `turn-docs:turn-7:${T0}`, kind: TURN_DOCS_KIND, version: 1 });
     expect(TURN_DOCS_KIND).toMatch(/^[a-z][a-z0-9-]*$/);
     expect(turnDocsRowId(null, T0)).toBe(`turn-docs:turn:${T0}`);
   });

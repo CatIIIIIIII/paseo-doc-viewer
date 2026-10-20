@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { folderBirthtime, recentDocuments, scannedDocuments } from "../server/recent";
 import { createTurnDocs, type TurnDocsHost } from "../server/turn-docs";
+import type { TurnDocsRow } from "../shared/turn-docs";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -38,6 +39,8 @@ async function turn(root: string, during: () => void) {
   return service.turnEnded({ agent, turnId: "t1", outcome: { kind: "completed" }, timeline: [] }, host);
 }
 
+const folderRows = (row: TurnDocsRow | null) => (row?.version === 2 ? row.data.groups : []);
+
 describe("turn card folder rows on a real workspace", () => {
   it("folds a new worktree and a new submodule, lists new files of existing repos, and skips a deleted repo", async () => {
     const { root, write } = workspace();
@@ -57,7 +60,7 @@ describe("turn card folder rows on a real workspace", () => {
     });
     expect(row!.version).toBe(2);
     expect(row!.data.files.map((file) => file.path).sort()).toEqual(["notes.pdf", "proj/report.pdf"]);
-    const groups = row!.data.groups.map(({ reason, path, count, files }) => ({ reason, path, count, shown: files.length }));
+    const groups = folderRows(row).map(({ reason, path, count, files }) => ({ reason, path, count, shown: files.length }));
     expect(groups.sort((a, b) => a.path.localeCompare(b.path))).toEqual([
       { reason: "checkout", path: "proj-gallery", count: 20, shown: 12 },
       { reason: "checkout", path: "proj/deps/lib", count: 1, shown: 1 },
@@ -72,14 +75,14 @@ describe("turn card folder rows on a real workspace", () => {
     const twelve = await turn(root, () => {
       for (let index = 0; index < 12; index++) write(`twelve/f-${index}.pdf`);
     });
+    expect(twelve!.version).toBe(1);
     expect(twelve!.data.files).toHaveLength(12);
-    expect(twelve!.data.groups).toEqual([]);
     await new Promise((resolve) => setTimeout(resolve, 1_200));
     const thirteen = await turn(root, () => {
       for (let index = 0; index < 13; index++) write(`thirteen/sub/f-${index}.pdf`);
     });
     expect(thirteen!.data.files).toEqual([]);
-    expect(thirteen!.data.groups.map(({ reason, path, count }) => ({ reason, path, count }))).toEqual([{ reason: "folder", path: "thirteen", count: 13 }]);
+    expect(folderRows(thirteen).map(({ reason, path, count }) => ({ reason, path, count }))).toEqual([{ reason: "folder", path: "thirteen", count: 13 }]);
   });
 
   it("lists the reports of a folder deleted and generated again as changed, not as a new folder", async () => {
@@ -90,7 +93,7 @@ describe("turn card folder rows on a real workspace", () => {
       rmSync(join(root, "out"), { recursive: true });
       for (let index = 0; index < 20; index++) write(`out/report-${index}.pdf`, "%PDF-1.4 again");
     });
-    expect(row!.data.groups).toEqual([]);
+    expect(row!.version).toBe(1);
     expect(row!.data.files).toHaveLength(12);
     expect(row!.data.files.every((file) => file.path.startsWith("out/") && file.status === "changed")).toBe(true);
     expect(row!.data.moreCount).toBe(8);
@@ -104,7 +107,7 @@ describe("turn card folder rows on a real workspace", () => {
       write("notes/.git/HEAD", "ref: refs/heads/main");
       write("notes/plan.pdf", "%PDF-1.4 edited");
     });
-    expect(row!.data.groups).toEqual([]);
+    expect(row!.version).toBe(1);
     expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["notes/plan.pdf", "changed"]]);
   });
 
@@ -117,7 +120,7 @@ describe("turn card folder rows on a real workspace", () => {
     write("proj-wt/a.pdf");
     await new Promise((resolve) => setTimeout(resolve, 1_200));
     const row = await turn(root, () => write("proj-wt/report.pdf"));
-    expect(row!.data.groups).toEqual([]);
+    expect(row!.version).toBe(1);
     expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["proj-wt/report.pdf", "new"]]);
   });
 });

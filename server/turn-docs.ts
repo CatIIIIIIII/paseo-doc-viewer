@@ -1,16 +1,15 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { PluginLifecycleEvents } from "@getpaseo/plugin/server";
-import { changedDuringTurn, groupChanges, TURN_WINDOW_SLACK_MS, turnDocsRow, type Baseline, type ScannedFile, type ScannedFolders } from "../shared/turn-docs";
+import { changedDuringTurn, groupChanges, TURN_WINDOW_SLACK_MS, turnDocsRow, type Baseline, type ScannedFile, type ScannedFolders, type TurnDocsRow } from "../shared/turn-docs";
 
 type TurnStarted = PluginLifecycleEvents["agent.turn_started"];
 type TurnEnded = PluginLifecycleEvents["agent.turn_ended"];
-type Row = NonNullable<ReturnType<typeof turnDocsRow>>;
 
 // The daemon side of a hook call; the hook context carries the Paseo API.
 export interface TurnDocsHost {
   resolveRoot(workspaceId: string): Promise<string>;
-  append(agentId: string, row: Row): Promise<unknown>;
+  append(agentId: string, row: TurnDocsRow): Promise<unknown>;
 }
 
 export interface TurnDocsDeps {
@@ -56,7 +55,7 @@ export function createTurnDocs(deps: TurnDocsDeps) {
       turns.set(agent.id, { startedAt, workspaceId, root, baseline });
     },
 
-    async turnEnded({ agent, turnId, outcome }: TurnEnded, host: TurnDocsHost): Promise<Row | null> {
+    async turnEnded({ agent, turnId, outcome }: TurnEnded, host: TurnDocsHost): Promise<TurnDocsRow | null> {
       const turn = turns.get(agent.id);
       turns.delete(agent.id);
       // Without a recorded start (the plugin loaded mid-turn) there is no window to judge.

@@ -4,7 +4,6 @@ import { DOCUMENT_KINDS, type DocumentKind } from "./kinds";
 // The host accepts contribution ids matching /^[a-z][a-z0-9-]*$/ only; a dotted kind silently
 // drops every client contribution of the plugin (packages/app/src/plugins/evaluate.ts).
 export const TURN_DOCS_KIND = "turn-docs";
-export const TURN_DOCS_VERSION = 2;
 export const TURN_DOCS_MAX_FILES = 12;
 // The daemon rejects a timeline row whose serialized data is over 64 KiB.
 export const TIMELINE_DATA_MAX_BYTES = 64 * 1024;
@@ -45,7 +44,10 @@ export type TurnDocsGroup = z.infer<typeof turnDocsGroupSchema>;
 export type TurnDocsV1 = z.infer<typeof turnDocsV1Schema>;
 export type TurnDocs = z.infer<typeof turnDocsSchema>;
 
-// Rows stored before folder rows existed stay in the timeline until the daemon restarts.
+// Version 2 adds folder rows. A card without one is written as version 1, which bundles from before
+// folder rows render too.
+export type TurnDocsRow = { type: "plugin"; id: string; kind: string } & ({ version: 1; data: TurnDocsV1 } | { version: 2; data: TurnDocs });
+
 export const upgradeTurnDocs = (data: TurnDocsV1): TurnDocs => ({ ...data, groups: [] });
 
 export interface ScannedFile {
@@ -146,7 +148,7 @@ function ancestors(path: string): string[] {
 export function turnDocsRow(
   input: Omit<TurnDocs, "files" | "groups" | "moreCount"> & { files: readonly TurnDocsFile[]; groups?: readonly TurnDocsGroup[]; turnId: string | null },
   { maxFiles = TURN_DOCS_MAX_FILES, maxBytes = TIMELINE_DATA_MAX_BYTES } = {},
-): { type: "plugin"; id: string; kind: string; version: number; data: TurnDocs } | null {
+): TurnDocsRow | null {
   const { turnId, files, groups = [], ...rest } = input;
   if (files.length === 0 && groups.length === 0) return null;
   const total = files.length + groups.reduce((sum, group) => sum + group.count, 0);
@@ -166,7 +168,9 @@ export function turnDocsRow(
     else break;
     data = build();
   }
-  return { type: "plugin", id: turnDocsRowId(turnId, input.startedAt), kind: TURN_DOCS_KIND, version: TURN_DOCS_VERSION, data };
+  const { groups: shown, ...card } = data;
+  const id = turnDocsRowId(turnId, input.startedAt);
+  return shown.length > 0 ? { type: "plugin", id, kind: TURN_DOCS_KIND, version: 2, data } : { type: "plugin", id, kind: TURN_DOCS_KIND, version: 1, data: card };
 }
 
 // Stable per turn: a retried append replaces the row instead of adding a second card. The start time
