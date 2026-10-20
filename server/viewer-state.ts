@@ -84,8 +84,8 @@ export class ViewerStateStore {
   }
 
   // The reviewed and last opened revision of every document that has either, for the Documents list
-  // and turn cards. Kept until positions.json changes: every write, here or by another daemon, renames
-  // a new file into place.
+  // and turn cards. Kept until a write here, or until positions.json changes: another daemon's write
+  // renames a new file into place.
   marks(): Promise<ReadonlyMap<string, DocumentMarks>> {
     return this.queue(async () => {
       const file = await stat(join(this.directory, "positions.json")).then(
@@ -130,6 +130,7 @@ export class ViewerStateStore {
         const file = await open(temporary, "wx", 0o600);
         try { await file.writeFile(serialized); } finally { await file.close(); }
         await rename(temporary, join(this.directory, "positions.json"));
+        this.cachedMarks = null;
       } finally {
         await rm(temporary, { force: true });
       }
