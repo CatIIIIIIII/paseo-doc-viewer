@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { scannedDocuments } from "../server/recent";
 import { createTurnDocs, type TurnDocsHost } from "../server/turn-docs";
 
@@ -23,10 +23,17 @@ function workspace() {
 const agent = { id: "agent-1", workspaceId: "wks_1", parentAgentId: null, provider: "fake", cwd: "/ws", title: null };
 
 async function turn(root: string, during: () => void) {
-  const service = createTurnDocs({ scan: scannedDocuments, enabled: async () => true, log: () => {} });
+  const scans: Promise<unknown>[] = [];
+  const scan = (dir: string, options: { fresh: boolean }) => {
+    const result = scannedDocuments(dir, options);
+    scans.push(result);
+    return result;
+  };
+  const service = createTurnDocs({ scan, enabled: async () => true, log: () => {} });
   const host: TurnDocsHost = { resolveRoot: async () => root, append: async () => {} };
   service.turnStarted({ agent, turnId: "t1" }, host);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await vi.waitUntil(() => scans.length > 0);
+  await scans[0];
   during();
   return service.turnEnded({ agent, turnId: "t1", outcome: { kind: "completed" }, timeline: [] }, host);
 }
