@@ -85,4 +85,16 @@ describe("turn card folder rows on a real workspace", () => {
     expect(row!.data.files.every((file) => file.path.startsWith("out/") && file.status === "changed")).toBe(true);
     expect(row!.data.moreCount).toBe(8);
   });
+
+  it("lists a file edited in a folder that git init turned into a repository", async () => {
+    const { root, write } = workspace();
+    write("notes/plan.pdf");
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const row = await turn(root, () => {
+      write("notes/.git/HEAD", "ref: refs/heads/main");
+      write("notes/plan.pdf", "%PDF-1.4 edited");
+    });
+    expect(row!.data.groups).toEqual([]);
+    expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["notes/plan.pdf", "changed"]]);
+  });
 });

@@ -68,6 +68,7 @@ describe("changedDuringTurn", () => {
 
 describe("groupChanges", () => {
   const changed = (...paths: string[]): TurnDocsFile[] => paths.map((path) => ({ path, kind: "pdf", size: 1, revision: "r", status: "new" }));
+  const edited = (...paths: string[]): TurnDocsFile[] => changed(...paths).map((entry) => ({ ...entry, status: "changed" }));
   const many = (dir: string, count: number) => Array.from({ length: count }, (_, index) => `${dir}/page-${index}.pdf`);
   const folders = (dirs: Record<string, number>, repos: string[] = []): ScannedFolders => ({ dirs: new Map(Object.entries(dirs)), repos: new Set(repos) });
   const summary = ({ files, groups }: ReturnType<typeof groupChanges>) =>
@@ -118,11 +119,17 @@ describe("groupChanges", () => {
     expect(summary(groupChanges(files, after, baseline, T0))).toEqual({ files: [...many("out", 13), "again/a.pdf"], groups: [] });
   });
 
-  it("treats a repo initialized in an existing folder as new", () => {
+  it("lists the files of a repo initialized in a folder that existed", () => {
     const files = changed("init/b.pdf");
     const after = folders({ init: old }, ["init"]);
-    const baseline = known([], true, { dirs: ["init", "gone"], repos: ["gone"] });
-    expect(summary(groupChanges(files, after, baseline, T0))).toEqual({ files: [], groups: ["checkout:init:1"] });
+    expect(summary(groupChanges(files, after, known([], true, { dirs: ["init", "gone"], repos: ["gone"] }), T0))).toEqual({ files: ["init/b.pdf"], groups: [] });
+    expect(summary(groupChanges(files, after, known([], false), T0))).toEqual({ files: ["init/b.pdf"], groups: [] });
+  });
+
+  it("never folds a changed file, even in a new checkout or folder", () => {
+    const files = [...changed("wt/a.pdf", ...many("big", 13)), ...edited("wt/moved.pdf", "big/moved.pdf")];
+    const after = folders({ wt: born, big: born }, ["wt"]);
+    expect(summary(groupChanges(files, after, known([], false), T0))).toEqual({ files: ["wt/moved.pdf", "big/moved.pdf"], groups: ["checkout:wt:1", "folder:big:13"] });
   });
 
   it("adds nothing for a repo the turn deleted", () => {

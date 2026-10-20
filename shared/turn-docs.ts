@@ -104,12 +104,11 @@ export function groupChanges(
     const born = after.dirs.get(dir);
     return born != null && born >= from;
   };
-  const newRepo = (dir: string) =>
-    after.repos.has(dir) && (isNew(dir) || (baseline?.complete === true && baseline.dirs.has(dir) && !baseline.repos.has(dir)));
+  // A folder that existed stays listed file by file even once it holds a .git (git init).
   const newness = (dir: string) => {
     let known = memo.get(dir);
     if (known === undefined) {
-      known = newRepo(dir) ? "checkout" : isNew(dir) ? "folder" : null;
+      known = !isNew(dir) ? null : after.repos.has(dir) ? "checkout" : "folder";
       memo.set(dir, known);
     }
     return known;
@@ -117,6 +116,8 @@ export function groupChanges(
 
   const buckets = new Map<string, { reason: "checkout" | "folder"; files: TurnDocsFile[] }>();
   for (const file of files) {
+    // A changed file is news even inside a new folder, so it keeps its own row.
+    if (file.status !== "new") continue;
     const dirs = ancestors(file.path);
     const checkout = dirs.find((dir) => newness(dir) === "checkout");
     const folder = checkout ?? dirs.find((dir) => newness(dir) !== null);
