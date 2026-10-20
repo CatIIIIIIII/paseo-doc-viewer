@@ -1017,8 +1017,8 @@ try {
   await lined("FOLDER", "reports", 0);
   await lined("SIZE", /^[\d.]+ KB$/, 1);
   await expect(page.locator('[aria-hidden="true"]').filter({ hasText: "FOLDER" })).toHaveCount(1);
-  // Paseo web shows 8 px scrollbars that take room from the list. The titles sit in the list, so they still line up
-  // and stay put while it scrolls.
+  // Where scrollbars take room from the list (Windows, Linux, or macOS set to always show them; 8 px here), the
+  // titles sit in the list, so they still line up and stay put while it scrolls.
   const scrollbars = await chromium.launch({ ...launch, ignoreDefaultArgs: ["--hide-scrollbars"] });
   try {
     const scrolled = await scrollbars.newPage({ viewport: { width: 1100, height: 1000 } });
