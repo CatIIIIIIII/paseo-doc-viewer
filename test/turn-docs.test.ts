@@ -12,6 +12,7 @@ import {
   groupChanges,
   TIMELINE_DATA_MAX_BYTES,
   TURN_DOCS_KIND,
+  TURN_WINDOW_SLACK_MS,
   turnDocsRow,
   turnDocsRowId,
   turnDocsSchema,
@@ -346,10 +347,14 @@ describe("createTurnDocs", () => {
 
   function harness({ before, after, enabled = true }: { before: ScannedFile[]; after: ScannedFile[]; enabled?: boolean }) {
     let clock = T0;
-    let scans: ScannedFile[][] = [];
+    // The start scan is the one that says how recent it must be (notBefore); the end scan never does.
+    const scans: (number | undefined)[] = [];
     const appended: unknown[] = [];
     const service = createTurnDocs({
-      scan: async () => ({ entries: scans.shift()!, complete: true, ...NO_FOLDERS }),
+      scan: async (_root, notBefore) => {
+        scans.push(notBefore);
+        return { entries: notBefore === undefined ? after : before, complete: true, ...NO_FOLDERS };
+      },
       enabled: async () => enabled,
       now: () => clock,
       log: () => {},
@@ -357,8 +362,8 @@ describe("createTurnDocs", () => {
     const host: TurnDocsHost = { resolveRoot: async () => "/ws", append: async (_id, row) => appended.push(row) };
     return {
       appended,
+      scans,
       async turn(outcome: "completed" | "canceled" = "completed") {
-        scans = [before, after];
         service.turnStarted({ agent, turnId: "t1" }, host);
         clock += 4_000;
         const kind = outcome === "completed" ? { kind: "completed" as const } : { kind: "canceled" as const, reason: "user" };
@@ -382,14 +387,23 @@ describe("createTurnDocs", () => {
     expect(h.appended).toEqual([]);
   });
 
+  it("asks for a start scan that began no earlier than the slack before the start, and an end scan that is always new", async () => {
+    const h = harness({ before: [], after: [file("a.pdf", T0 + 1_000)] });
+    await h.turn();
+    expect(h.scans).toHaveLength(2);
+    expect(h.scans).toContain(T0 - TURN_WINDOW_SLACK_MS);
+    expect(h.scans).toContain(undefined);
+  });
+
   it("still reports a canceled turn that changed files", async () => {
     const h = harness({ before: [], after: [file("a.pdf", T0 + 1_000)] });
     expect((await h.turn("canceled"))!.data.outcome).toBe("canceled");
   });
 
-  it("respects the setting and needs a recorded start", async () => {
+  it("respects the setting, without scanning the workspace at the start or the end, and needs a recorded start", async () => {
     const h = harness({ before: [], after: [file("a.pdf", T0 + 1_000)], enabled: false });
     expect(await h.turn()).toBeNull();
+    expect(h.scans).toEqual([]);
     const service = createTurnDocs({ scan: async () => ({ entries: [file("a.pdf", T0 + 1)], complete: true, ...NO_FOLDERS }), enabled: async () => true, log: () => {} });
     expect(await service.turnEnded({ agent, turnId: "x", outcome: { kind: "completed" }, timeline: [] }, { resolveRoot: async () => "/ws", append: async () => {} })).toBeNull();
   });

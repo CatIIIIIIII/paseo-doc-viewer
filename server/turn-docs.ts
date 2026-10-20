@@ -13,7 +13,8 @@ export interface TurnDocsHost {
 }
 
 export interface TurnDocsDeps {
-  scan(root: string): Promise<{ entries: readonly ScannedFile[]; complete: boolean } & ScannedFolders>;
+  // `notBefore` lets a scan that began after it be reused; without it the scan is always new.
+  scan(root: string, notBefore?: number): Promise<{ entries: readonly ScannedFile[]; complete: boolean } & ScannedFolders>;
   enabled(): Promise<boolean>;
   now?: () => number;
   log?: (message: string) => void;
@@ -41,15 +42,20 @@ export function createTurnDocs(deps: TurnDocsDeps) {
       const root = host.resolveRoot(workspaceId);
       // The baseline tells new from changed. The hook reaches the plugin a little after the turn really
       // starts, so files touched within the slack before startedAt are left out and judged by the end
-      // scan alone; so is a file the agent wrote before the baseline scan reached it.
+      // scan alone; so is a file the agent wrote before the baseline scan reached it. No scan when the
+      // setting is off. One that began within the slack before startedAt is reused, so turns starting
+      // together share a walk, and it still holds every folder made before that.
       const baseline = root
-        .then((dir) => deps.scan(dir))
-        .then(({ entries, complete, dirs, repos }): Baseline => ({
-          revisions: new Map(entries.filter((entry) => entry.changedMs < startedAt - TURN_WINDOW_SLACK_MS).map((entry) => [entry.path, entry.revision])),
-          dirs: new Set(dirs.keys()),
-          repos,
-          complete,
-        }))
+        .then(async (dir): Promise<Baseline | null> => {
+          if (!(await deps.enabled())) return null;
+          const { entries, complete, dirs, repos } = await deps.scan(dir, startedAt - TURN_WINDOW_SLACK_MS);
+          return {
+            revisions: new Map(entries.filter((entry) => entry.changedMs < startedAt - TURN_WINDOW_SLACK_MS).map((entry) => [entry.path, entry.revision])),
+            dirs: new Set(dirs.keys()),
+            repos,
+            complete,
+          };
+        })
         .catch(() => null);
       root.catch(() => undefined);
       turns.set(agent.id, { startedAt, workspaceId, root, baseline });

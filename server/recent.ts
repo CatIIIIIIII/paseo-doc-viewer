@@ -83,7 +83,7 @@ interface Scan extends ScannedFolders {
 const MAX_UNSUPPORTED_NAMES = 10_000;
 const MAX_UNSUPPORTED_SHOWN = 3;
 
-const scans = new Map<string, { result: Promise<Scan>; expiresAt: number }>();
+const scans = new Map<string, { result: Promise<Scan>; startedAt: number; expiresAt: number }>();
 
 export async function recentDocuments(
   root: string,
@@ -125,12 +125,13 @@ export async function hasDocuments(root: string): Promise<boolean> {
   return (await scanWorkspace(root, 1)).entries.length > 0;
 }
 
-function sharedScan(root: string): Promise<Scan> {
+// Reuses a scan, running or done, that began at or after `notBefore`.
+function sharedScan(root: string, notBefore = Number.NEGATIVE_INFINITY): Promise<Scan> {
   const started = Date.now();
   for (const [key, cached] of scans) if (cached.expiresAt <= started) scans.delete(key);
   const hit = scans.get(root);
-  if (hit) return hit.result;
-  const cached = { result: scanWorkspace(root), expiresAt: Number.POSITIVE_INFINITY };
+  if (hit && hit.startedAt >= notBefore) return hit.result;
+  const cached = { result: scanWorkspace(root), startedAt: started, expiresAt: Number.POSITIVE_INFINITY };
   scans.set(root, cached);
   cached.result.then(
     () => {
@@ -220,11 +221,11 @@ function relativePath(root: string, full: string): string {
   return relative(root, full).split(sep).join("/");
 }
 
-// Supported documents and the folders the scan walked, for a turn's start and end. Always a new scan:
-// one the Documents panel reused can predate a folder made just before the turn (git worktree add).
-// The result replaces the cached scan, so the panel reuses it in turn.
-export async function scannedDocuments(root: string): Promise<{ entries: readonly RecentEntry[]; complete: boolean } & ScannedFolders> {
-  forgetScan(root);
-  const { entries, cuts, dirs, repos } = await sharedScan(root);
+// Supported documents and the folders the scan walked, for a turn's start and end. A scan the Documents
+// panel reused can predate a folder made just before the turn (git worktree add), so only one that began
+// at or after `notBefore` is reused, which lets turns starting together share a walk; without it the scan
+// is always new. A new scan replaces the cached one, so the panel reuses it in turn.
+export async function scannedDocuments(root: string, notBefore = Number.POSITIVE_INFINITY): Promise<{ entries: readonly RecentEntry[]; complete: boolean } & ScannedFolders> {
+  const { entries, cuts, dirs, repos } = await sharedScan(root, notBefore);
   return { entries, complete: cuts.length === 0, dirs, repos };
 }

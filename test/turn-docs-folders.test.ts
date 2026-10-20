@@ -8,6 +8,7 @@ import type { TurnDocsRow } from "../shared/turn-docs";
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.useRealTimers();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -25,8 +26,8 @@ const agent = { id: "agent-1", workspaceId: "wks_1", parentAgentId: null, provid
 
 async function turn(root: string, during: () => void) {
   const scans: Promise<unknown>[] = [];
-  const scan = (dir: string) => {
-    const result = scannedDocuments(dir);
+  const scan = (dir: string, notBefore?: number) => {
+    const result = scannedDocuments(dir, notBefore);
     scans.push(result);
     return result;
   };
@@ -122,6 +123,47 @@ describe("turn card folder rows on a real workspace", () => {
     const row = await turn(root, () => write("proj-wt/report.pdf"));
     expect(row!.version).toBe(1);
     expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["proj-wt/report.pdf", "new"]]);
+  });
+});
+
+describe("scans taken for turns", () => {
+  it("are reused if they began at or after notBefore, running or done, and are otherwise new", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(5_000_000);
+    const { root, write } = workspace();
+    write("a.pdf");
+    const first = scannedDocuments(root);
+    const running = scannedDocuments(root, 5_000_000);
+    const done = await first;
+    expect((await running).entries).toBe(done.entries);
+    expect((await scannedDocuments(root, 5_000_000)).entries).toBe(done.entries);
+    vi.setSystemTime(5_000_500);
+    expect((await scannedDocuments(root, 5_000_001)).entries).not.toBe(done.entries);
+    expect((await scannedDocuments(root)).entries).not.toBe(done.entries);
+  });
+
+  it("are shared by turns that start together, and each still lists what it saw change", async () => {
+    const { root, write } = workspace();
+    write("old.pdf");
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const scans: Promise<{ entries: readonly unknown[] }>[] = [];
+    const scan = (dir: string, notBefore?: number) => {
+      const result = scannedDocuments(dir, notBefore);
+      if (notBefore !== undefined) scans.push(result);
+      return result;
+    };
+    const service = createTurnDocs({ scan, enabled: async () => true, log: () => {} });
+    const host: TurnDocsHost = { resolveRoot: async () => root, append: async () => {} };
+    const others = { ...agent, id: "agent-2" };
+    service.turnStarted({ agent, turnId: "t1" }, host);
+    service.turnStarted({ agent: others, turnId: "t2" }, host);
+    await vi.waitUntil(() => scans.length === 2);
+    expect((await scans[0]!).entries).toBe((await scans[1]!).entries);
+    write("new.pdf");
+    for (const [who, turnId] of [[agent, "t1"], [others, "t2"]] as const) {
+      const row = await service.turnEnded({ agent: who, turnId, outcome: { kind: "completed" }, timeline: [] }, host);
+      expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["new.pdf", "new"]]);
+    }
   });
 });
 
