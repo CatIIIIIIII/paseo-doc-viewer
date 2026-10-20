@@ -737,17 +737,22 @@ try {
   await expect(page.getByRole("button", { name: /^Open screenshots\/photo\.png, .*, new$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Open finance\/forecast\.xlsx, .*, changed during this turn$/ })).toBeVisible();
   await cardFrame.screenshot({ path: `${shots}/harness-desktop-card-opened.png` });
+  // A document is marked opened once it has loaded, so the stepper waits for each mark before moving on.
+  const openedOnScreen = () => page.evaluate(() => window.__rpcCalls.some((call) => call.method === "viewer-state.opened" && call.settled && call.input.path === window.__openedScreen.params.path));
   await page.getByRole("button", { name: pdfRow }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Find in document", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next document", exact: true }).click();
   await expect(page.getByText("Document 2 of 4", { exact: true })).toBeVisible();
+  await expect.poll(openedOnScreen).toBe(true);
   await expect(page.getByRole("textbox", { name: "Find in document", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Page map", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Next document", exact: true }).click();
   await expect(page.getByText("Document 3 of 4", { exact: true })).toBeVisible();
+  await expect.poll(openedOnScreen).toBe(true);
   await page.getByRole("button", { name: "Next document", exact: true }).click();
   await expect(page.getByText("Document 4 of 4", { exact: true })).toBeVisible();
+  await expect.poll(openedOnScreen).toBe(true);
   await expect(page.getByRole("button", { name: "Next document", exact: true })).toHaveAttribute("aria-disabled", "true");
   await page.getByRole("button", { name: "Previous document", exact: true }).click();
   await expect(page.getByText("Document 3 of 4", { exact: true })).toBeVisible();
