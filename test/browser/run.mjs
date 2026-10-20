@@ -906,6 +906,9 @@ try {
   const collapseShots = process.env.TURN_CARD_COLLAPSE_SHOTS ?? directory;
   await mkdir(collapseShots, { recursive: true });
   const checkoutName = "paseo-doc-viewer-gallery, new Git checkout, 65 documents";
+  const exportsName = "exports, new folder, 13 documents";
+  // The name stays the same whether the row is open; aria-expanded and the visible Show or Hide carry that.
+  const folderToggle = (name) => page.getByRole("button", { name: `Show or hide ${name}`, exact: true });
   const cardThumbnailPaths = [];
   const recordCardThumbnail = (request) => { if (isThumbnail(request)) cardThumbnailPaths.push(request.postDataJSON().input.path); };
   page.on("request", recordCardThumbnail);
@@ -926,11 +929,13 @@ try {
   await page.getByRole("button", { name: /^Open finance\/forecast\.xlsx, / }).click();
   await expect(page.getByText("Document 2 of 2", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Checkout card", exact: true }).click();
-  await expect(page.getByRole("button", { name: `Show ${checkoutName}`, exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(folderToggle(checkoutName)).toHaveAttribute("aria-expanded", "false");
+  await expect(folderToggle(checkoutName).getByText("Show", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Open finance\/forecast\.xlsx, / })).not.toHaveAttribute("aria-expanded");
   const sinceShow = await rpcCallCount();
-  await page.getByRole("button", { name: `Show ${checkoutName}`, exact: true }).click();
-  await expect(page.getByRole("button", { name: `Hide ${checkoutName}`, exact: true })).toHaveAttribute("aria-expanded", "true");
+  await folderToggle(checkoutName).click();
+  await expect(folderToggle(checkoutName)).toHaveAttribute("aria-expanded", "true");
+  await expect(folderToggle(checkoutName).getByText("Hide", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(14);
   await rpcAnswered(sinceShow, "doc.thumbnail");
   await expect(cardFrame.locator("img")).toHaveCount(13);
@@ -943,9 +948,9 @@ try {
   await expect(page.getByText("Document 4 of 14", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.__openedScreen.params)).toMatchObject({ path: "paseo-doc-viewer-gallery/assets/shot-1.png" });
   await page.getByRole("button", { name: "Checkout card", exact: true }).click();
-  await page.getByRole("button", { name: `Show ${checkoutName}`, exact: true }).click();
-  await page.getByRole("button", { name: `Hide ${checkoutName}`, exact: true }).click();
-  await expect(page.getByRole("button", { name: `Show ${checkoutName}`, exact: true })).toHaveAttribute("aria-expanded", "false");
+  await folderToggle(checkoutName).click();
+  await folderToggle(checkoutName).click();
+  await expect(folderToggle(checkoutName)).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(2);
   page.off("request", recordCardThumbnail);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -955,8 +960,8 @@ try {
   for (const button of await cardFrame.getByRole("button").all()) expect((await button.boundingBox()).x + (await button.boundingBox()).width).toBeLessThanOrEqual(390);
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await cardFrame.screenshot({ path: `${collapseShots}/harness-phone-collapsed.png` });
-  await page.getByRole("button", { name: `Show ${checkoutName}`, exact: true }).click();
-  await page.getByRole("button", { name: "Show exports, new folder, 13 documents", exact: true }).click();
+  await folderToggle(checkoutName).click();
+  await folderToggle(exportsName).click();
   await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(26);
   await expect(page.getByRole("button", { name: "+1 more in Documents", exact: true })).toBeVisible();
   for (const button of await cardFrame.getByRole("button").all()) expect((await button.boundingBox()).x + (await button.boundingBox()).width).toBeLessThanOrEqual(390);
@@ -977,7 +982,7 @@ try {
   await page.getByRole("button", { name: "Turn card", exact: true }).click();
   await expect(cardFrame.locator('[data-icon="FileSpreadsheet"]')).toHaveCSS("color", "rgb(143, 249, 156)");
   await page.getByRole("button", { name: "Checkout card", exact: true }).click();
-  await page.getByRole("button", { name: "Show exports, new folder, 13 documents", exact: true }).click();
+  await folderToggle(exportsName).click();
   await expect(cardFrame.locator('[data-icon="FileSpreadsheet"]')).toHaveCount(13);
   for (const icon of await cardFrame.locator('[data-icon="FileSpreadsheet"]').all()) await expect(icon).toHaveCSS("color", "rgb(143, 249, 156)");
   await expect(cardFrame.locator('[data-icon="Folder"]').first()).toHaveCSS("color", "rgb(156, 163, 175)");
@@ -1240,5 +1245,5 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await viewButton("List view").click();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains, toggle, Expand all and Collapse all, search opens matches, folder siblings for the stepper, kept per layout class, sidebar row, phone fit).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide under one name with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains, toggle, Expand all and Collapse all, search opens matches, folder siblings for the stepper, kept per layout class, sidebar row, phone fit).");
 } catch (error) { await saveFailure(); throw timedOut ? new Error(overLimit, { cause: error }) : error; } finally { await cleanUp(); }

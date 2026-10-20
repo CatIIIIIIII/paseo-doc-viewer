@@ -195,6 +195,7 @@ function GroupRow({ group, open, size, styles, theme, onToggle }: {
 }) {
   const folder = parentDir(group.path);
   const { detail, spoken } = TURN_GROUP[group.reason];
+  // The name stays put when the row opens: aria-expanded says which it is, and the name holds the visible Show or Hide.
   const action = open ? "Hide" : "Show";
   return (
     <View
@@ -221,7 +222,7 @@ function GroupRow({ group, open, size, styles, theme, onToggle }: {
         styles={styles}
         icon={open ? "ChevronUp" : "ChevronDown"}
         label={action}
-        accessibilityLabel={`${action} ${group.path}, ${spoken}, ${group.count} ${group.count === 1 ? "document" : "documents"}`}
+        accessibilityLabel={`Show or hide ${group.path}, ${spoken}, ${group.count} ${group.count === 1 ? "document" : "documents"}`}
         expanded={open}
         onPress={onToggle}
       />

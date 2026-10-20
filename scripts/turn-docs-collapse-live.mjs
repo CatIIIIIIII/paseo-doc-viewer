@@ -34,8 +34,8 @@ const checkoutTitle = page.getByText("67 documents changed while this turn ran",
 await checkoutTitle.waitFor({ timeout: 60_000 });
 await page.waitForTimeout(1_500);
 
-const show = page.getByRole("button", { name: "Show proj-gallery, new Git checkout, 65 documents", exact: true });
-check("Show is collapsed", await show.getAttribute("aria-expanded") === "false");
+const toggle = page.getByRole("button", { name: "Show or hide proj-gallery, new Git checkout, 65 documents", exact: true });
+check("Show is collapsed", await toggle.getAttribute("aria-expanded") === "false" && await toggle.getByText("Show", { exact: true }).isVisible());
 check("checkout row", await page.getByText("New checkout · 65 documents", { exact: true }).isVisible());
 check("report and metrics listed", await page.getByRole("button", { name: "Open out/report.pdf, PDF, new", exact: true }).isVisible()
   && await page.getByRole("button", { name: "Open out/metrics.xlsx, Spreadsheet, new", exact: true }).isVisible());
@@ -62,11 +62,11 @@ check("only the worktree is a checkout row", await page.getByText(/^New checkout
 await initialized.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${out}/${mode}-git-init.png` });
 
-await show.click();
+await toggle.click();
 await page.waitForTimeout(2_000);
 check("expanded lists 12 checkout files", await page.getByRole("button", { name: /^Open proj-gallery\// }).count() === 12);
 check("rest of the checkout in Documents", await page.getByRole("button", { name: "+53 more in Documents", exact: true }).isVisible());
-check("Hide is expanded", await page.getByRole("button", { name: "Hide proj-gallery, new Git checkout, 65 documents", exact: true }).getAttribute("aria-expanded") === "true");
+check("Hide is expanded", await toggle.getAttribute("aria-expanded") === "true" && await toggle.getByText("Hide", { exact: true }).isVisible());
 await checkoutTitle.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${out}/${mode}-checkout-expanded.png` });
 
