@@ -1,4 +1,4 @@
-import { errorCode } from "../shared/errors";
+import { ERROR_MESSAGES, isError } from "../shared/errors";
 import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
 import { revisionModifiedAt } from "../shared/revision";
 import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
@@ -31,8 +31,11 @@ export const hasThumbnail = (kind: DocumentKind) => KIND_REGISTRY[kind].rpcs.inc
 
 export const cardThumbnail = (file: Pick<TurnDocsFile, "kind" | "size">) => hasThumbnail(file.kind) && file.size <= TURN_THUMBNAIL_MAX_BYTES;
 
-export function cardThumbnailRetry(error: unknown, failures: number): number | null {
-  return errorCode(error) === "timeout" && failures <= TURN_THUMBNAIL_RETRIES ? TURN_THUMBNAIL_RETRY_MS * failures : null;
+// Only a busy daemon is asked again, later each time and at a random point, so cards do not come back
+// together. Work that ran out of time is not: it would again, and on a PDF it restarts PDFium.
+export function cardThumbnailRetry(error: unknown, failures: number, random = Math.random): number | null {
+  if (!isError(error, ERROR_MESSAGES.busy()) || failures > TURN_THUMBNAIL_RETRIES) return null;
+  return Math.round(TURN_THUMBNAIL_RETRY_MS * failures * (0.5 + random()));
 }
 
 export type TurnFilePill = "new" | "changed" | "opened";

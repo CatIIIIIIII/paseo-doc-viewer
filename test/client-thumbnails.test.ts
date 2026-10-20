@@ -128,27 +128,30 @@ describe("thumbnail loader", () => {
     expect(pageMap.state(1)).toBeUndefined();
   });
 
-  it("asks again by itself after a failure the caller calls retryable, until it gives up or closes", async () => {
+  it("asks a busy daemon again by itself with the card's retry policy, never work that ran out of time, and stops once closed", async () => {
     vi.useFakeTimers();
     try {
       const calls: number[] = [];
-      const make = () => createThumbnailLoader({
+      const make = (errors: Record<number, string>) => createThumbnailLoader({
         identify: (index) => ({ key: `doc\0${index}`, revision: "r1" }),
         cache: createThumbnailCache(10, 1_000_000),
-        fetch: async (index) => { calls.push(index); throw new Error(ERROR_MESSAGES.busy()); },
-        retryAfter: (_error, failures) => (failures < 3 ? 1_000 : null),
+        fetch: async (index) => { calls.push(index); throw new Error(errors[index]); },
+        retryAfter: cardThumbnailRetry,
       });
-      const loader = make();
-      loader.want([0]);
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(calls).toEqual([0, 0, 0]);
+      const loader = make({ 0: ERROR_MESSAGES.busy(), 1: ERROR_MESSAGES.tooSlow() });
+      loader.want([0, 1]);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(calls.filter((index) => index === 0)).toHaveLength(4);
+      expect(calls.filter((index) => index === 1)).toHaveLength(1);
       expect(loader.state(0)).toMatchObject({ status: "failed" });
-      const closing = make();
-      closing.want([1]);
+      expect(loader.state(1)).toMatchObject({ status: "failed" });
+      calls.length = 0;
+      const closing = make({ 2: ERROR_MESSAGES.busy() });
+      closing.want([2]);
       await vi.advanceTimersByTimeAsync(0);
       closing.close();
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(calls).toEqual([0, 0, 0, 1]);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(calls).toEqual([2]);
     } finally {
       vi.useRealTimers();
     }
@@ -192,11 +195,15 @@ describe("turn card thumbnails", () => {
     expect(cardThumbnail({ kind: "pdf", size: TURN_THUMBNAIL_MAX_BYTES + 1 })).toBe(false);
   });
 
-  it("retry a busy daemon a few times, later each time, and give up on anything else", () => {
+  it("retry a busy daemon a few times, later each time with jitter, and give up on anything else", () => {
     const busy = new Error(ERROR_MESSAGES.busy());
-    const delays = [1, 2, 3, 4].map((failures) => cardThumbnailRetry(busy, failures));
-    expect(delays.slice(0, 3).every((delay, i) => delay !== null && (i === 0 || delay > delays[i - 1]!))).toBe(true);
-    expect(delays[3]).toBeNull();
-    expect(cardThumbnailRetry(new Error(ERROR_MESSAGES.pdfPasswordRequired()), 1)).toBeNull();
+    const low = [1, 2, 3].map((failures) => cardThumbnailRetry(busy, failures, () => 0)!);
+    const high = [1, 2, 3].map((failures) => cardThumbnailRetry(busy, failures, () => 0.999)!);
+    expect(low).toEqual([2_000, 4_000, 6_000]);
+    expect(high.every((delay, i) => delay > low[i]! * 2.9 && delay < low[i]! * 3)).toBe(true);
+    expect(cardThumbnailRetry(busy, 4)).toBeNull();
+    for (const message of [ERROR_MESSAGES.tooSlow(), ERROR_MESSAGES.pdfPasswordRequired(), "Request failed: Plugin RPC timed out"]) {
+      expect(cardThumbnailRetry(new Error(message), 1)).toBeNull();
+    }
   });
 });
