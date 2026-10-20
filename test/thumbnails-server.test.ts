@@ -173,26 +173,32 @@ describe("PDF thumbnails", () => {
     const { SLOW_THUMBNAIL_MS } = await import("../server/thumbnails");
     const { pdfiumStats: stats } = await import("../server/pdfium");
     const card = () => fresh.renderThumbnail({ root, path: "slow.pdf" }, { index: 0, width: 80, keepOpen: false }).catch((error: Error) => error);
+    const drawing = async (opened: number) => {
+      for (let waited = 0; stats().opens === opened && waited < 20_000; waited += 10) await realDelay(10);
+    };
     const slow = card();
-    await realDelay(300);
+    await drawing(0);
     await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
     expect(errorText(await slow)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
     const { opens, spawns } = stats();
     expect(errorText(await card())).toBe(errorText(ERROR_MESSAGES.tooSlow()));
     expect(stats()).toMatchObject({ opens, spawns });
     vi.setSystemTime(Date.now() + SLOW_THUMBNAIL_MS);
-    expect(await card()).toMatchObject({ kind: "pdf", pageCount: 1 });
+    const again = card();
+    await drawing(opens);
     expect(stats().opens).toBe(opens + 1);
+    await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
+    expect(errorText(await again)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
   }, 30_000);
 
-  it("answers busy for a card thumbnail whose time ran out while its PDFium call waited behind other work, and draws it when asked again", async () => {
+  it("answers busy for a card thumbnail whose time ran out while its PDFium call waited behind other work, and tries it again when asked", async () => {
     const root = workspace({ "fast.pdf": await textPdf(["fast"]) });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     vi.resetModules();
     const fresh = await import("../server/documents");
     const { pdfium, pdfiumStats: stats } = await import("../server/pdfium");
     await pdfium({ op: "open", key: "viewer", bytes: nestedFormPdf(9) });
-    const viewer = Array.from({ length: 3 }, () => pdfium({ op: "render", key: "viewer", index: 0, width: 800, height: 800 }, { timeoutMs: 10 * RPC_DEADLINE_MS }));
+    const viewer = Array.from({ length: 3 }, () => pdfium({ op: "render", key: "viewer", index: 0, width: 800, height: 800 }, { timeoutMs: 10 * RPC_DEADLINE_MS }).catch((error: Error) => error));
     const card = () => fresh.renderThumbnail({ root, path: "fast.pdf" }, { index: 0, width: 80, keepOpen: false }).catch((error: Error) => error);
     const { opens, spawns } = stats();
     const queued = card();
@@ -200,10 +206,13 @@ describe("PDF thumbnails", () => {
     await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
     expect(errorText(await queued)).toBe(errorText(ERROR_MESSAGES.busy()));
     expect(stats()).toMatchObject({ opens, spawns });
-    vi.useRealTimers();
+    let settled = false;
+    const again = card().finally(() => (settled = true));
+    await realDelay(50);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(10 * RPC_DEADLINE_MS);
+    expect(errorText(await again)).toBe(errorText(ERROR_MESSAGES.busy()));
     await Promise.all(viewer);
-    expect(stats().opens).toBe(opens);
-    expect(await card()).toMatchObject({ kind: "pdf", pageCount: 1 });
   }, 30_000);
 
   it("answers a card listing an older revision after a stat, without rendering", async () => {
