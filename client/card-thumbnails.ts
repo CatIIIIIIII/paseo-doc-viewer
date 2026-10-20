@@ -23,7 +23,7 @@ export function createCardThumbnails(
     identify: (index) => ({ key: pageThumbnailKey(workspaceId, files[index]!.path, width, 0), revision: files[index]!.revision }),
     cache: thumbnailCache,
     fetch: (index) => queue.run(owner, priority, () =>
-      client.rpc(docThumbnailRpc, { workspaceId, path: files[index]!.path, index: 0, width, keepOpen: false })),
+      client.rpc(docThumbnailRpc, { workspaceId, path: files[index]!.path, index: 0, width, keepOpen: false, revision: files[index]!.revision })),
     retryAfter: cardThumbnailRetry,
   });
   loader.want(files.flatMap((file, index) => (cardThumbnail(file) ? [index] : [])));

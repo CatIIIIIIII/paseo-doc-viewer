@@ -98,6 +98,8 @@ export const docThumbnailRpc = defineRpc({
     width: z.number().int().min(THUMBNAIL_MIN_WIDTH_PX).max(THUMBNAIL_MAX_WIDTH_PX),
     // False for a turn card's one page of files nobody is reading: a PDF is not kept open for later pages.
     keepOpen: z.boolean().optional(),
+    // The revision the caller lists: a file changed since fails with fileChanged after a stat, unrendered.
+    revision: revision.optional(),
   }),
   output: z.discriminatedUnion("kind", [
     z.object({

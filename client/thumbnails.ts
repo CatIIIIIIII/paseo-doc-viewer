@@ -1,3 +1,4 @@
+import { ERROR_MESSAGES, isError } from "../shared/errors";
 import type { DocThumbnailOutput } from "../shared/rpc";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
 
@@ -146,6 +147,7 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
         settle(index, cache.get(cacheKey(index)) ? undefined : { status: "ready", image: answer.image });
       },
       (error: unknown) => {
+        if (isError(error, ERROR_MESSAGES.fileChanged())) return settle(index, { status: "stale" });
         const failed = (failures.get(index) ?? 0) + 1;
         failures.set(index, failed);
         settle(index, { status: "failed", error });

@@ -87,6 +87,7 @@ export const ERROR_MESSAGES = {
   tooSlow: () => tagged("timeout", "This document took too long to read; try again"),
   slowWindow: () => tagged("timeout", "This part of the sheet is too far in to read in time"),
   revisionChanged: () => tagged("invalid_request", "The file changed since this note was written"),
+  fileChanged: () => tagged("invalid_request", "The file changed since it was listed"),
   unavailable: (rpc: string, kind: string) => tagged("invalid_request", `${rpc} is not available for ${kind} documents`),
   tooManyPins: (limit: number) => tagged("invalid_request", `Up to ${limit} pins per document; remove one first`),
 } as const;

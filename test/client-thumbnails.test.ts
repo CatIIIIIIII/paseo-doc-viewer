@@ -158,6 +158,21 @@ describe("thumbnail loader", () => {
     }
   });
 
+  it("shows a file the daemon says changed since as stale, without asking again", async () => {
+    const calls: number[] = [];
+    const loader = createThumbnailLoader({
+      identify: (index) => ({ key: `doc\0${index}`, revision: "r1" }),
+      cache: createThumbnailCache(10, 1_000_000),
+      fetch: async (index) => { calls.push(index); throw new Error(ERROR_MESSAGES.fileChanged()); },
+      retryAfter: () => 0,
+    });
+    loader.want([0]);
+    await flush();
+    await flush();
+    expect(loader.state(0)).toEqual({ status: "stale" });
+    expect(calls).toEqual([0]);
+  });
+
   it("notifies subscribers when a thumbnail settles", async () => {
     const { loader, calls } = harness();
     let notified = 0;

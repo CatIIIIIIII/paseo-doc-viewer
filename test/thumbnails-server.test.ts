@@ -156,6 +156,16 @@ describe("PDF thumbnails", () => {
     expect(stats()).toMatchObject({ opens, spawns });
   }, 30_000);
 
+  it("answers a card listing an older revision after a stat, without rendering", async () => {
+    const root = workspace({ "moved.pdf": await textPdf(["moved"]) });
+    const current = (await renderThumbnail({ root, path: "moved.pdf" }, { index: 0, width: 80, keepOpen: false })).revision;
+    const opens = pdfiumStats().opens;
+    const stale = renderThumbnail({ root, path: "moved.pdf" }, { index: 0, width: 120, keepOpen: false, revision: "1-2-3" });
+    await expect(stale).rejects.toThrow(errorText(ERROR_MESSAGES.fileChanged()));
+    expect(pdfiumStats().opens).toBe(opens);
+    expect((await renderThumbnail({ root, path: "moved.pdf" }, { index: 0, width: 120, keepOpen: false, revision: current })).revision).toBe(current);
+  });
+
   it("bounds the requested width in the RPC schema", () => {
     const input = { workspaceId: "w", path: "a.pdf", index: 0 };
     expect(docThumbnailRpc.input.safeParse({ ...input, width: 160 }).success).toBe(true);

@@ -428,6 +428,7 @@ export async function renderPage(ref: DocumentRef, request: PageRequest): Promis
 
 export async function renderThumbnail(ref: DocumentRef, request: ThumbnailRequest): Promise<DocThumbnailOutput> {
   const file = await locate(ref);
+  if (request.revision !== undefined && request.revision !== file.revision) throw new Error(ERROR_MESSAGES.fileChanged());
   return operation(file, "doc.thumbnail", "thumbnail")(file, request);
 }
 

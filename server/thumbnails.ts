@@ -2,7 +2,7 @@ import { ERROR_MESSAGES, isError } from "../shared/errors";
 import { createMemo } from "./cache";
 import { heavy, type Lane } from "./heavy";
 
-export type ThumbnailRequest = { index: number; width: number; keepOpen?: boolean };
+export type ThumbnailRequest = { index: number; width: number; keepOpen?: boolean; revision?: string };
 type ThumbnailFile = { path: string; revision: string; passwordKey: string };
 
 // A thumbnail not kept open is for a file nobody is reading; it waits behind the page map.
