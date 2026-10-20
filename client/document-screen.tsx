@@ -205,7 +205,7 @@ function DocumentBody({ reviewScope: scope, stepper, ...props }: Parameters<type
   </>;
   return <FindScope enabled={searchable} onFind={() => { if (searchable) setFinding(true); }}>
     <View style={props.styles.screen}>
-    <View style={[props.styles.toolbar, props.compact ? { flexWrap: "wrap", rowGap: 4 } : null]}>
+    <View style={[props.styles.toolbar, { flexWrap: "wrap", rowGap: 4 }]}>
       {props.compact && !overflow ? null : stepper}
       {searchable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="Search" label={props.compact ? undefined : "Find in document"} accessibilityLabel="Find in document"
         variant="toggle" selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} /> : null}
@@ -213,7 +213,7 @@ function DocumentBody({ reviewScope: scope, stepper, ...props }: Parameters<type
       {marks.ready && review !== "never" ? <StatusPill theme={props.theme} styles={props.styles} status={review} label={props.compact ? "none" : "full"} /> : null}
       <View style={props.styles.toolbarSpacer} />
       {overflow ? <ToolbarButton theme={props.theme} styles={props.styles} icon="Ellipsis" accessibilityLabel="More actions" variant="toggle" selected={moreOpen}
-        onPress={() => setMoreOpen(!moreOpen)} /> : tools}
+        onPress={() => setMoreOpen(!moreOpen)} /> : <View style={[props.styles.toolbarGroup, { marginLeft: "auto", flexShrink: 1, minWidth: 0, flexWrap: "wrap", justifyContent: "flex-end", rowGap: 4 }]}>{tools}</View>}
     </View>
     {overflow && moreOpen ? <View style={[props.styles.toolbar, { flexWrap: "wrap", rowGap: 4 }]} accessibilityLabel="More actions">{tools}</View> : null}
     {props.compact && !overflow && stepper ? <View style={props.styles.toolbar}>{stepper}</View> : null}

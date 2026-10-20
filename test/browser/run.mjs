@@ -1314,6 +1314,19 @@ try {
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(230);
   await page.screenshot({ path: `${shots}/harness-sidebar-reader.png` });
   await page.getByRole("button", { name: "Back to documents", exact: true }).click();
+  // A split pane is wider than the narrow toolbar's 480 pt, so its tools wrap inside the pane.
+  await page.goto(`http://127.0.0.1:${port}/?width=560`);
+  await showDocuments(page);
+  await fileRow("report.pdf").click();
+  await expect(page.getByRole("button", { name: "Page map", exact: true })).toBeVisible();
+  for (const name of ["Open in tab", "Next document", "Find in document", "Page map", "Mark reviewed", "Download original", "Zoom in"]) {
+    const box = await page.getByRole("button", { name, exact: true }).boundingBox();
+    expect(box.x + box.width, name).toBeLessThanOrEqual(560);
+  }
+  expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(560);
+  await page.screenshot({ path: `${shots}/harness-split-reader.png` });
+  await page.goto(`http://127.0.0.1:${port}/?width=230`);
+  await showDocuments(page);
   for (const name of ["contract.docx", "invoices.xlsx", "deck.pptx", "clip.mp4", "tone.wav", "animated.webp"]) {
     await page.getByRole("textbox", { name: "Search documents", exact: true }).fill(name.split(".")[0]);
     await fileRow(name).click();
