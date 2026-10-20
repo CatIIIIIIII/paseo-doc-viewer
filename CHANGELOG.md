@@ -20,9 +20,8 @@
 
 ### Changed
 
-- Readers below 480 pt (the explorer, a narrow split) keep one toolbar row: Previous and Next, Find and status, with Pages, Add note, Mark reviewed and Download original behind More. A phone with no Previous and Next keeps every tool on the row. Desktop explorers keep desktop-sized controls.
-- The PDF page field reads as "Page number of N" to screen readers and no longer drops a number being typed when the page changes underneath it.
-
+- Readers below 480 pt (the explorer, a narrow split) put Pages, Add note, Mark reviewed and Download original behind More, so Previous and Next, Find and the status keep one row; in the narrowest explorer, Previous and Next take a row of their own. A phone with no Previous and Next keeps every tool on the row. Desktop explorers keep desktop-sized controls.
+- PDFs page with Previous and Next page buttons and a page number field on every layout, in place of the page chips and the phone's `< n / N >`, which opened the page map (Pages still does). The field keeps a number while it is being typed, and screen readers hear it as "Page number of N".
 - `docs.recent` entries carry the file's `revision`, so clients can key thumbnails without opening each file.
 - `docs.recent` takes a `limit` of up to 1,000 (was 50; the default stays 50) and leaves out the oldest entries past 8 MiB. Tree asks for 1,000. A truncated answer lists every reason in `truncatedBy`: `limit` (more matches than the limit), `bytes` (more than fit in 8 MiB), `entries` (the scan stopped at 50,000 entries), `folder` (a folder of more than 5,000 entries read in part) or `depth` (folders more than 16 levels deep skipped). Documents says each one, also when it lists nothing. `documents-view.json` accepts `tree`; files saved before it still read.
 - `docs.recent` takes `since`, the `version` of the list the client holds, and answers `{ unchanged: true, version }` while the list is the same, so a Documents refresh that finds no change is a few bytes instead of the whole list, and Tree redraws only the rows that changed.
