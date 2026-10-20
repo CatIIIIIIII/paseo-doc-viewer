@@ -182,9 +182,7 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
         }
         try {
           const info = await stat(full);
-          // Where the filesystem has no birth time, Node may report the change time instead, which moves
-          // whenever the folder gains a file; only a birth time before it is a real one.
-          dirs.set(relativePath(root, full), info.birthtimeMs > 0 && info.birthtimeMs < info.ctimeMs ? info.birthtimeMs : null);
+          dirs.set(relativePath(root, full), folderBirthtime(info));
           queue.push({ path: full, depth: depth + 1, mtimeMs: info.mtimeMs, deferred: deferred || DEFERRED_DIRECTORIES.has(item.name) });
         } catch {
           continue;
@@ -208,6 +206,13 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
   }
   if (queue.size > 0) complete = false;
   return { entries: newestFirst(found), unsupported, complete, dirs, repos };
+}
+
+// Null when it cannot be told from a missing birth time, for which Node reports 0 or the change time.
+// A real one can equal the change time too (coarse timestamps, or a folder untouched since it was made);
+// taking it for unknown only skips a fold, and it matters only when a turn has no complete baseline.
+export function folderBirthtime({ birthtimeMs, ctimeMs }: { birthtimeMs: number; ctimeMs: number }): number | null {
+  return birthtimeMs > 0 && birthtimeMs < ctimeMs ? birthtimeMs : null;
 }
 
 function relativePath(root: string, full: string): string {

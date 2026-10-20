@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { recentDocuments, scannedDocuments } from "../server/recent";
+import { folderBirthtime, recentDocuments, scannedDocuments } from "../server/recent";
 import { createTurnDocs, type TurnDocsHost } from "../server/turn-docs";
 
 const roots: string[] = [];
@@ -119,5 +119,14 @@ describe("turn card folder rows on a real workspace", () => {
     const row = await turn(root, () => write("proj-wt/report.pdf"));
     expect(row!.data.groups).toEqual([]);
     expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["proj-wt/report.pdf", "new"]]);
+  });
+});
+
+describe("folder birth times", () => {
+  it("trust only a birth time before the change time, since Node reports 0 or the change time without one", () => {
+    expect(folderBirthtime({ birthtimeMs: 900, ctimeMs: 1_000 })).toBe(900);
+    expect(folderBirthtime({ birthtimeMs: 1_000, ctimeMs: 1_000 })).toBeNull();
+    expect(folderBirthtime({ birthtimeMs: 0, ctimeMs: 1_000 })).toBeNull();
+    expect(folderBirthtime({ birthtimeMs: 1_100, ctimeMs: 1_000 })).toBeNull();
   });
 });

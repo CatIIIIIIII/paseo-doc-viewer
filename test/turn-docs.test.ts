@@ -70,7 +70,7 @@ describe("groupChanges", () => {
   const changed = (...paths: string[]): TurnDocsFile[] => paths.map((path) => ({ path, kind: "pdf", size: 1, revision: "r", status: "new" }));
   const edited = (...paths: string[]): TurnDocsFile[] => changed(...paths).map((entry) => ({ ...entry, status: "changed" }));
   const many = (dir: string, count: number) => Array.from({ length: count }, (_, index) => `${dir}/page-${index}.pdf`);
-  const folders = (dirs: Record<string, number>, repos: string[] = []): ScannedFolders => ({ dirs: new Map(Object.entries(dirs)), repos: new Set(repos) });
+  const folders = (dirs: Record<string, number | null>, repos: string[] = []): ScannedFolders => ({ dirs: new Map(Object.entries(dirs)), repos: new Set(repos) });
   const summary = ({ files, groups }: ReturnType<typeof groupChanges>) =>
     ({ files: files.map((entry) => entry.path), groups: groups.map((group) => `${group.reason}:${group.path}:${group.count}`) });
   const born = T0 + 100;
@@ -105,11 +105,11 @@ describe("groupChanges", () => {
     expect(summary(groupChanges(files, after, known([]), T0))).toEqual({ files: many("twelve", 12), groups: ["folder:thirteen:13"] });
   });
 
-  it("with a partial baseline, trusts only birth times", () => {
-    const files = changed("wt/a.pdf", "unknown/b.pdf");
-    const after = folders({ wt: born, unknown: 0 }, ["wt", "unknown"]);
-    expect(summary(groupChanges(files, after, known([], false), T0))).toEqual({ files: ["unknown/b.pdf"], groups: ["checkout:wt:1"] });
-    expect(summary(groupChanges(files, after, null, T0))).toEqual({ files: ["unknown/b.pdf"], groups: ["checkout:wt:1"] });
+  it("with a partial baseline, trusts only birth times, and folds nothing where the birth time is unknown", () => {
+    const files = changed("wt/a.pdf", "old/b.pdf", "unknown/c.pdf");
+    const after = folders({ wt: born, old, unknown: null }, ["wt", "old", "unknown"]);
+    expect(summary(groupChanges(files, after, known([], false), T0))).toEqual({ files: ["old/b.pdf", "unknown/c.pdf"], groups: ["checkout:wt:1"] });
+    expect(summary(groupChanges(files, after, null, T0))).toEqual({ files: ["old/b.pdf", "unknown/c.pdf"], groups: ["checkout:wt:1"] });
   });
 
   it("with a complete baseline, folds no folder that existed, even one deleted and made again during the turn", () => {
