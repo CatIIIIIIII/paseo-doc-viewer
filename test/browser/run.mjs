@@ -60,6 +60,20 @@ try {
   page = await browser.newPage({ viewport: { width: 1100, height: 1000 }, acceptDownloads: true });
   const failures = [];
   page.on("pageerror", (error) => { failures.push(error.message); console.error("Browser error:", error.message); });
+  // RPC calls the page made from index `from` on that match, all of them answered.
+  const rpcCallsFrom = (from, method, input = {}) => page.evaluate(({ from, method, input }) => {
+    const matches = (value, expected) => Object.entries(expected).every(([key, want]) => (want !== null && typeof want === "object" ? matches(value?.[key], want) : value?.[key] === want));
+    const found = window.__rpcCalls.slice(from).filter((call) => call.method === method && matches(call.input, input));
+    return found.length > 0 && found.every((call) => call.settled) ? found.length : 0;
+  }, { from, method, input });
+  const rpcCallCount = () => page.evaluate(() => window.__rpcCalls.length);
+  // The viewer saves its position a second after the last change, and at once when it closes, so a
+  // reopen after every save is answered reads the latest.
+  const reopenViewer = async () => {
+    await page.getByRole("button", { name: "Close viewer", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.__rpcCalls.every((call) => call.method !== "viewer-state.write" || call.settled))).toBe(true);
+    await page.getByRole("button", { name: "Reopen viewer", exact: true }).click();
+  };
   await page.goto(`http://127.0.0.1:${port}`);
   await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next page", exact: true }).click();
@@ -82,9 +96,7 @@ try {
   expect(before).not.toBeNull();
   await page.keyboard.press("PageDown");
   await expect.poll(scroller).toBeGreaterThan(before);
-  await page.waitForTimeout(1200);
-  await page.getByRole("button", { name: "Close viewer", exact: true }).click();
-  await page.getByRole("button", { name: "Reopen viewer", exact: true }).click();
+  await reopenViewer();
   await expect(page.getByText("2 / 3", { exact: true })).toBeVisible();
   await expect(page.getByText("1.5x", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reset reading position", exact: true }).click();
@@ -108,9 +120,7 @@ try {
   await expect(page.getByRole("textbox", { name: "Find in document", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "invoices.xlsx", exact: true }).click();
   await page.getByRole("button", { name: "Invoices", exact: true }).click();
-  await page.waitForTimeout(1200);
-  await page.getByRole("button", { name: "Close viewer", exact: true }).click();
-  await page.getByRole("button", { name: "Reopen viewer", exact: true }).click();
+  await reopenViewer();
   await expect(page.getByRole("button", { name: "Invoices", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("Northwind");
@@ -178,9 +188,7 @@ try {
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(page.getByLabel("Current match on page", { exact: true }).first()).toBeInViewport();
   await page.screenshot({ path: `${directory}/pdf-match.png`, fullPage: true });
-  await page.waitForTimeout(1200);
-  await page.getByRole("button", { name: "Close viewer", exact: true }).click();
-  await page.getByRole("button", { name: "Reopen viewer", exact: true }).click();
+  await reopenViewer();
   await expect(page.getByRole("button", { name: "Show page text", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "many.csv", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
@@ -436,11 +444,13 @@ try {
   await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
   // A rewrite the open viewer has not picked up yet must not be marked reviewed.
   await touch("statement.pdf", Date.now() / 1000 + 120);
+  const sinceRewrite = await rpcCallCount();
   await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
-  await page.waitForTimeout(500);
+  await expect.poll(() => rpcCallsFrom(sinceRewrite, "viewer-state.review")).toBe(1);
   await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toHaveCount(0);
   await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
-  await page.waitForTimeout(5500);
+  // The viewer shows the rewrite once a revision poll answers, one poll interval at most.
+  await expect.poll(() => rpcCallsFrom(sinceRewrite, "doc.open", { path: "statement.pdf" }), { timeout: 15_000 }).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
   await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Documents", exact: true }).click();
@@ -547,9 +557,10 @@ try {
   // Phone layout: every PDF toolbar control, including the review ones, fits inside 390 px on one line.
   // The browser runs single-process, so the same page switches to the phone viewport.
   // Zoom is remembered per layout class: the desktop zoom set here must not reach the phone.
+  const beforeWideZoom = await rpcCallCount();
   await page.getByRole("button", { name: "Zoom in", exact: true }).click();
   await expect(page.getByText("1.5x", { exact: true })).toBeVisible();
-  await page.waitForTimeout(1200);
+  await expect.poll(() => rpcCallsFrom(beforeWideZoom, "viewer-state.write", { path: "statement.pdf", position: { zoom: 1.5 } })).toBeGreaterThan(0);
   const phone = page;
   await phone.setViewportSize({ width: 390, height: 844 });
   // A file the agent wrote since Documents was last opened is new until reviewed. Reloading
@@ -623,10 +634,11 @@ try {
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "statement.pdf", exact: true }).click();
   await expect(phone.getByText("Fit", { exact: true })).toBeVisible();
+  const beforePhoneZoom = await rpcCallCount();
   await phone.getByRole("button", { name: "Zoom in", exact: true }).click();
   await phone.getByRole("button", { name: "Zoom in", exact: true }).click();
   await expect(phone.getByText("2x", { exact: true })).toBeVisible();
-  await phone.waitForTimeout(1200);
+  await expect.poll(() => rpcCallsFrom(beforePhoneZoom, "viewer-state.write", { path: "statement.pdf", position: { zoom: 2 } })).toBeGreaterThan(0);
   await phone.setViewportSize({ width: 1100, height: 1000 });
   await phone.goto(`http://127.0.0.1:${port}/`);
   await expect(phone.getByText("1.5x", { exact: true })).toBeVisible();
