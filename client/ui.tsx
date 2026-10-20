@@ -5,24 +5,27 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { describeError } from "./format";
 import { canRetry } from "./paging";
 
-export function makeStyles(theme: PluginTheme, compact: boolean, bottomInset = 0) {
+// `compact` is the narrow arrangement (icon-only, wrapped toolbars); `touch` sizes the targets, so a
+// narrow explorer column on a desktop keeps mouse-sized controls.
+export function makeStyles(theme: PluginTheme, compact: boolean, bottomInset = 0, touch = compact) {
   const c = theme.colors;
   const gutter = compact ? 12 : 16;
   // Phones get 40 pt controls plus a 4 pt hit slop (44 pt targets); desktop keeps 28.
-  const controlSize = compact ? 40 : 28;
+  const controlSize = touch ? 40 : 28;
   return {
     compact,
+    touch,
     gutter,
     controlSize,
-    hitSlop: compact ? 4 : undefined,
-    inputHeight: compact ? 44 : 32,
+    hitSlop: touch ? 4 : undefined,
+    inputHeight: touch ? 44 : 32,
     bottomInset,
     screen: { flex: 1, backgroundColor: c.surface0 },
     toolbar: {
       flexDirection: "row" as const,
       alignItems: "center" as const,
       gap: 8,
-      minHeight: compact ? 48 : 44,
+      minHeight: touch ? 48 : compact ? 36 : 44,
       paddingHorizontal: gutter,
       paddingVertical: compact ? 4 : 8,
       borderBottomWidth: 1,

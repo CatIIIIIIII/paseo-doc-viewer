@@ -930,11 +930,14 @@ try {
   await cardFrame.screenshot({ path: `${shots}/harness-phone-card-opened.png` });
   await page.getByRole("button", { name: pdfRow }).click();
   await expect(page.getByText("Document 1 of 4", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Page map", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Page map", exact: true })).toHaveCount(0);
   const stepperBox = await page.getByRole("button", { name: "Next document", exact: true }).boundingBox();
-  const toolbarBox = await page.getByRole("button", { name: "Find in document", exact: true }).boundingBox();
-  expect(stepperBox.y).toBeGreaterThan(toolbarBox.y + toolbarBox.height);
-  for (const name of ["Previous document", "Next document", "Find in document", "Page map", "Mark reviewed", "Download original"]) {
+  const toolbarBox = await page.getByRole("button", { name: "More actions", exact: true }).boundingBox();
+  expect(Math.abs(stepperBox.y - toolbarBox.y)).toBeLessThan(4);
+  await page.getByRole("button", { name: "More actions", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Page map", exact: true })).toBeVisible();
+  await page.screenshot({ path: `${shots}/harness-phone-viewer-more.png` });
+  for (const name of ["Previous document", "Next document", "Find in document", "More actions", "Page map", "Mark reviewed", "Download original"]) {
     const box = await page.getByRole("button", { name, exact: true }).boundingBox();
     expect(box.x + box.width, name).toBeLessThanOrEqual(390);
     expect(box.height, name).toBeGreaterThanOrEqual(40);
@@ -1297,7 +1300,10 @@ try {
   // A PDF read inside a sidebar-wide Documents takes the phone toolbar, wrapped to fit.
   await fileRow("report.pdf").click();
   await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeVisible();
-  for (const name of ["Back to documents", "Previous document", "Next document", "Find in document", "Page map", "Mark reviewed", "Download original", "Previous page", "Next page", "Zoom in"]) {
+  await expect(page.getByRole("button", { name: "Open in tab", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Page map", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "More actions", exact: true }).click();
+  for (const name of ["Back to documents", "Open in tab", "Previous document", "Next document", "Find in document", "More actions", "Page map", "Mark reviewed", "Download original", "Previous page", "Next page", "Zoom in"]) {
     const box = await page.getByRole("button", { name, exact: true }).boundingBox();
     expect(box.x + box.width, name).toBeLessThanOrEqual(230);
   }
@@ -1307,8 +1313,9 @@ try {
   for (const name of ["contract.docx", "invoices.xlsx", "deck.pptx", "clip.mp4", "tone.wav", "animated.webp"]) {
     await page.getByRole("textbox", { name: "Search documents", exact: true }).fill(name.split(".")[0]);
     await fileRow(name).click();
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
     await expect(page.getByRole("button", { name: "Download original", exact: true })).toBeVisible();
-    for (const control of ["Back to documents", "Open in tab", "Download original"]) {
+    for (const control of ["Back to documents", "Open in tab", "More actions", "Download original"]) {
       const box = await page.getByRole("button", { name: control, exact: true }).boundingBox();
       expect(box.x + box.width, `${name}: ${control}`).toBeLessThanOrEqual(230);
     }
