@@ -80,6 +80,25 @@ describe("background heavy work", () => {
     expect(results.filter((result) => result instanceof Error).map((error) => errorText(error))).toEqual(Array(4).fill(errorText(ERROR_MESSAGES.busy())));
   });
 
+  it("never lets a page map thumbnail join a card's, so it neither waits in the card's lane nor gets its busy answer", async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const fresh = (await import("../server/heavy")).heavy;
+    const { thumbnailCached } = await import("../server/thumbnails");
+    const pageMapWork = deferred();
+    const held = fresh(() => pageMapWork.promise, { lane: "background" });
+    const file = { path: "shared.pdf", revision: "r", passwordKey: "" };
+    const draw = async () => "drawn";
+    const card = thumbnailCached(file, { index: 0, width: 80, keepOpen: false }, draw).catch((error: Error) => error);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const pageMap = thumbnailCached(file, { index: 0, width: 80 }, draw).catch((error: Error) => error);
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(errorText(await card)).toBe(errorText(ERROR_MESSAGES.busy()));
+    pageMapWork.resolve();
+    await held;
+    expect(await pageMap).toBe("drawn");
+  });
+
   it("stops waiting for the background slot while half the budget is left, so slow means slow", async () => {
     vi.useFakeTimers();
     vi.resetModules();

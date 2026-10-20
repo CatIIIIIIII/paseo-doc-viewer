@@ -10,7 +10,9 @@ type ThumbnailFile = { path: string; revision: string; passwordKey: string };
 const thumbnailLane = (keepOpen: boolean | undefined): Lane => (keepOpen === false ? "idle" : "background");
 
 // Thumbnails have a cache of their own, so a page map or a timeline of cards cannot evict the pages
-// being read, and a card asking again, or another client, does not decode the file again.
+// being read, and a card asking again, or another client, does not decode the file again. Each lane
+// has its own entries: a page map joining a card's call would wait in the card's lane and share its
+// busy or slow answer.
 const thumbnails = createMemo({ maxBytes: 16 * 1024 * 1024, maxEntries: 1024 });
 export const thumbnailCacheKeys = thumbnails.keys;
 // A card thumbnail whose PDFium call was still running at its deadline is not tried again at that
@@ -30,7 +32,8 @@ function markSlow(key: string): void {
 export async function thumbnailCached<T>(file: ThumbnailFile, { index, width, keepOpen }: ThumbnailRequest, compute: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const slow = keepOpen === false ? `${file.path}\0${file.revision}` : null;
   if (slow !== null && (slowUntil.get(slow) ?? 0) > Date.now()) throw new Error(ERROR_MESSAGES.tooSlow());
-  return thumbnails.memo({ path: file.path, revision: file.revision, name: `${index}\0${width}\0${file.passwordKey}` }, () =>
+  const lane = thumbnailLane(keepOpen);
+  return thumbnails.memo({ path: file.path, revision: file.revision, name: `${lane}\0${index}\0${width}\0${file.passwordKey}` }, () =>
     heavy(async (signal) => {
       try {
         return await compute(signal);
@@ -38,5 +41,5 @@ export async function thumbnailCached<T>(file: ThumbnailFile, { index, width, ke
         if (slow !== null && pdfiumRestartedBy(signal)) markSlow(slow);
         throw error;
       }
-    }, { lane: thumbnailLane(keepOpen) }));
+    }, { lane }));
 }
