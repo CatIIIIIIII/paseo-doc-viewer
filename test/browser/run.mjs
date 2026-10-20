@@ -1035,6 +1035,7 @@ try {
   await page.route("**/rpc", holdListWrite);
   await viewButton("List view").click();
   await expect.poll(() => Boolean(heldWrite)).toBe(true);
+  const previewsFrom = await rpcCallCount();
   await viewButton("Preview view").click();
   await expect(viewButton("Preview view")).toHaveAttribute("aria-pressed", "true");
   await heldWrite.continue();
@@ -1043,6 +1044,8 @@ try {
   await page.unroute("**/rpc", holdListWrite);
   await expect(viewButton("Preview view")).toHaveAttribute("aria-pressed", "true");
   const reportTile = page.getByRole("button", { name: /^report\.pdf, PDF, .*, \d+ pages?$/ });
+  // A tile's picture is drawn once its thumbnail call is answered, and a busy answer is asked again later.
+  await rpcAnswered(previewsFrom, "doc.thumbnail", { path: "report.pdf" });
   await expect(reportTile.locator("img")).toBeVisible();
   await expect(reportTile.getByText(/ · \d+ pages?$/)).toBeVisible();
   await expect(reportTile.locator('[data-icon="FileText"]')).toHaveCSS("color", "rgb(234, 152, 147)");
@@ -1051,8 +1054,10 @@ try {
   expect(tileBox.width).toBeGreaterThanOrEqual(120);
   const longTile = await page.getByRole("button", { name: /^long\.pdf, PDF, / }).boundingBox();
   expect(Math.abs(longTile.y - tileBox.y) < 1 || Math.abs(longTile.x - tileBox.x) < 1).toBe(true);
+  await rpcAnswered(previewsFrom, "doc.thumbnail", { path: "screenshots/photo.png" });
   await expect(page.getByRole("button", { name: /^photo\.png, Image, / }).locator("img")).toBeVisible();
   const deckTile = page.getByRole("button", { name: /^deck\.pptx, Presentation, .*, 11 slides$/ });
+  await rpcAnswered(previewsFrom, "doc.thumbnail", { path: "deck.pptx" });
   await expect(deckTile.getByText("Slide 1", { exact: true })).toBeVisible();
   await expect(deckTile.getByText(/ · 11 slides$/)).toBeVisible();
   const wordRow = page.getByRole("button", { name: /^contract\.docx, / });
@@ -1073,7 +1078,9 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://127.0.0.1:${port}/?compact`);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
+  const sincePhonePreviews = await rpcCallCount();
   await viewButton("Preview view").click();
+  await rpcAnswered(sincePhonePreviews, "doc.thumbnail", { path: "report.pdf" });
   await expect(page.getByRole("button", { name: /^report\.pdf, PDF, / }).locator("img")).toBeVisible();
   const phoneTiles = await Promise.all(["report", "long"].map((name) => page.getByRole("button", { name: new RegExp(`^${name}\\.pdf, PDF, `) }).boundingBox()));
   expect(phoneTiles[0].width).toBeGreaterThan(150);
