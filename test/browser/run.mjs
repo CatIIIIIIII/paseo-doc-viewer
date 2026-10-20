@@ -91,7 +91,7 @@ try {
   page = await browser.newPage({ viewport: { width: 1100, height: 1000 }, acceptDownloads: true });
   const failures = [];
   // PDFs page with previous, a page number field and next.
-  const pageField = (target) => target.getByRole("textbox", { name: "Page number", exact: true });
+  const pageField = (target) => target.getByRole("textbox", { name: /^Page number of \d+$/ });
   // Documents keeps a PDF opened from it on screen until Back, so return to the list when one is open.
   const showDocuments = async (target) => {
     await target.getByRole("button", { name: "Documents", exact: true }).click();
@@ -432,6 +432,10 @@ try {
   await pageField(page).press("Enter");
   await expect(pageField(page)).toHaveValue("60");
   await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeDisabled();
+  await pageField(page).fill("4");
+  await page.getByRole("button", { name: "Previous page", exact: true }).evaluate((button) => button.click());
+  await expect(page.getByRole("img", { name: "Page 59", exact: true })).toBeVisible();
+  await expect(pageField(page)).toHaveValue("4");
   await pageField(page).fill("42");
   await pageField(page).press("Enter");
   await expect(pageField(page)).toHaveValue("42");

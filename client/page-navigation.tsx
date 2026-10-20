@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Text, TextInput, View } from "react-native";
 import { type Styles, ToolbarButton } from "./ui";
 
@@ -7,9 +7,12 @@ export function PageNavigation({ active, count, theme, styles, onChange }: {
   active: number; count: number; theme: PluginTheme; styles: Styles; onChange(index: number): void;
 }) {
   const [draft, setDraft] = useState(String(active + 1));
-  useEffect(() => { setDraft(String(active + 1)); }, [active, count]);
+  // A page change from scrolling or the page map leaves a number being typed alone.
+  const editing = useRef(false);
+  useEffect(() => { if (!editing.current) setDraft(String(active + 1)); }, [active, count]);
 
   const submit = () => {
+    editing.current = false;
     const value = draft.trim();
     if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
       setDraft(String(active + 1));
@@ -26,10 +29,10 @@ export function PageNavigation({ active, count, theme, styles, onChange }: {
         disabled={active <= 0} onPress={() => onChange(active - 1)} />
       <TextInput
         value={draft}
-        onChangeText={setDraft}
+        onChangeText={(text) => { editing.current = true; setDraft(text); }}
         onSubmitEditing={submit}
         onBlur={submit}
-        accessibilityLabel="Page number"
+        accessibilityLabel={`Page number of ${count}`}
         accessibilityHint={`Enter a page from 1 to ${count}`}
         keyboardType="number-pad"
         returnKeyType="done"
@@ -48,7 +51,7 @@ export function PageNavigation({ active, count, theme, styles, onChange }: {
           backgroundColor: theme.colors.surface1,
         }]}
       />
-      <Text style={styles.label} accessibilityLabel={`Total pages: ${count}`}>/ {count}</Text>
+      <Text style={styles.label} aria-hidden>/ {count}</Text>
       <ToolbarButton theme={theme} styles={styles} icon="ChevronRight" accessibilityLabel="Next page"
         disabled={active >= count - 1} onPress={() => onChange(active + 1)} />
     </View>
