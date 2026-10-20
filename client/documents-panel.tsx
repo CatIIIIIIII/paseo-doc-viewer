@@ -2,7 +2,7 @@ import { type PluginOpenScreenInput, type PluginWorkspacePanelProps, useRpc } fr
 import { FlatList, Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AppState, type LayoutChangeEvent, PixelRatio, Pressable, Text, View } from "react-native";
 import type { DocumentView } from "../shared/documents-view";
 import { layoutClass } from "../shared/viewer-state";
@@ -23,7 +23,10 @@ import { recentQueryOptions } from "./queries";
 import { type BrowseRow, browseRows, documentScreen, emptyDetail, entryLabel, fetchRecent, filterChips, noMatchDetail, type RecentEntry, recentCuts, truncationNotice, unsupportedDetail } from "./recent";
 import { siblingWindow } from "./siblings";
 import { TipsCard, TipsLink, useTips } from "./tips-card";
-import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, statusIcon, type Styles } from "./ui";
+import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, statusIcon, type Styles, ToolbarButton } from "./ui";
+import { DocumentScreen } from "./document-screen";
+import { createPanelReader, type PanelReader } from "./panel-reader";
+import { kindForPath } from "../shared/kinds";
 import { useBottomInset } from "./use-bottom-inset";
 import { useKindPalette } from "./use-kind-colors";
 import { documentsVisits } from "./visits";
@@ -65,13 +68,29 @@ function useDebounced<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
-export function createDocumentsPanel(openScreen: (input: PluginOpenScreenInput) => void) {
+export function createDocumentsPanel(openScreen: (input: PluginOpenScreenInput) => void, reader: PanelReader = createPanelReader()) {
   return function DocumentsPanel(props: PluginWorkspacePanelProps) {
     const { ref, onLayout, bottomInset } = useBottomInset();
     const styles = useMemo(() => makeStyles(props.theme, props.layout.compact, bottomInset), [props.theme, props.layout.compact, bottomInset]);
+    const path = useSyncExternalStore(reader.subscribe, () => reader.get(props.workspaceId), () => null);
+    const open = (input: PluginOpenScreenInput) => {
+      const target = input.params?.path;
+      if (target && kindForPath(target) === "pdf") reader.select(props.workspaceId, target);
+      else openScreen(input);
+    };
     return (
       <View ref={ref} onLayout={onLayout} style={{ flex: 1 }}>
-        <DocumentsList {...props} styles={styles} openScreen={openScreen} />
+        {path ? (
+          <>
+            <View style={styles.toolbar}>
+              <ToolbarButton theme={props.theme} styles={styles} icon="ChevronLeft" label="Documents"
+                accessibilityLabel="Back to documents" onPress={() => reader.select(props.workspaceId, null)} />
+              <Text style={[styles.text, { flex: 1, minWidth: 0 }]} numberOfLines={1} accessibilityLabel={path}>{baseName(path)}</Text>
+            </View>
+            <DocumentScreen key={`${props.workspaceId}\0${path}`} host={props.host} theme={props.theme} layout={props.layout}
+              params={{ workspaceId: props.workspaceId, path }} />
+          </>
+        ) : <DocumentsList {...props} styles={styles} openScreen={open} />}
       </View>
     );
   };

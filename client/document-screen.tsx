@@ -27,7 +27,7 @@ import { parseSiblings, type SiblingPosition, siblingPosition } from "./siblings
 import { reviewDrafts, reviewScope, useReviewDraft } from "./review-draft";
 import { NoteComposer, reviewScreen } from "./review-note";
 
-export function DocumentScreen({ host, theme, layout, params }: PluginScreenProps) {
+export function DocumentScreen({ host, theme, layout, params }: Pick<PluginScreenProps, "host" | "theme" | "layout" | "params">) {
   const { ref, onLayout, bottomInset } = useBottomInset();
   const styles = useMemo(() => makeStyles(theme, layout.compact, bottomInset), [theme, layout.compact, bottomInset]);
   const workspaceId = params.workspaceId ?? "";

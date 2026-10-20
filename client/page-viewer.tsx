@@ -26,6 +26,7 @@ import {
   zoomLabel,
 } from "./paging";
 import { PageMap } from "./page-map";
+import { PageNavigation } from "./page-navigation";
 import { animationQueryKey, pageQueryKey, textQueryKey } from "./queries";
 import { ErrorState, LoadingState, type Styles, ToolbarButton } from "./ui";
 import { useFitWidth } from "./use-fit-width";
@@ -175,8 +176,10 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   return (
     <View style={styles.screen}>
       {count > 0 ? (
-        <View style={styles.toolbar}>
-          {paged ? (
+        <View style={[styles.toolbar, kind === "pdf" && styles.compact ? { flexWrap: "wrap", rowGap: 4 } : null]}>
+          {kind === "pdf" ? (
+            <PageNavigation active={active} count={count} theme={theme} styles={styles} onChange={setIndex} />
+          ) : paged ? (
             <PageStrip active={active} count={count} noun={noun} theme={theme} styles={styles} onChange={setIndex} onOpenMap={onOpenPageMap} />
           ) : null}
           <View style={styles.toolbarSpacer} />

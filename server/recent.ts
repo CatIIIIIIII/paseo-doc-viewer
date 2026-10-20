@@ -31,7 +31,11 @@ interface Pending {
   deferred: boolean;
 }
 
-const before = (a: Pending, b: Pending) => (a.deferred === b.deferred ? a.mtimeMs > b.mtimeMs : b.deferred);
+// Visit shallow folders first so a large, recently modified experiment subtree
+// cannot exhaust the scan budget before sibling document folders are visited.
+const before = (a: Pending, b: Pending) =>
+  a.deferred !== b.deferred ? b.deferred :
+  a.depth !== b.depth ? a.depth < b.depth : a.mtimeMs > b.mtimeMs;
 
 class Queue {
   private heap: Pending[] = [];
