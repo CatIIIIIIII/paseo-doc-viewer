@@ -64,7 +64,18 @@ describe("client query keys and polling", () => {
     // Until the last visit is known there is nothing to call new, so the filter waits for it.
     expect(recentQueryOptions("ws", { newOnly: true, newSince: null }).request).toEqual({ workspaceId: "ws" });
     const previous = { entries: [], truncated: false, counts: { pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 }, needsReview: 0, newCount: 0 };
-    expect(options.placeholderData(previous)).toBe(previous);
+    expect(options.placeholderData(previous, { queryKey: recentQueryOptions("ws", {}).queryKey })).toBe(previous);
+  });
+
+  it("does not show a list asked for with another limit while the Tree's loads, only its counts", () => {
+    const entry = { path: "a.pdf", kind: "pdf" as const, mtimeMs: 1, size: 1, revision: "r1" };
+    const counts = { pdf: 60, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 };
+    const listed = { entries: [entry], truncated: true, truncatedBy: ["limit" as const], counts, needsReview: 2, newCount: 1, version: "v1" };
+    const list = recentQueryOptions("ws", {});
+    const tree = recentQueryOptions("ws", { limit: 1000 });
+    expect(tree.placeholderData(listed, { queryKey: list.queryKey })).toEqual({ entries: [], truncated: false, counts, needsReview: 2, newCount: 1, version: "v1" });
+    expect(list.placeholderData(listed, { queryKey: tree.queryKey })).toMatchObject({ entries: [], truncated: false });
+    expect(tree.placeholderData(listed, { queryKey: recentQueryOptions("ws", { query: "a", limit: 1000 }).queryKey })).toBe(listed);
   });
 });
 

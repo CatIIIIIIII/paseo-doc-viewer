@@ -33,12 +33,19 @@ export function recentQueryOptions(workspaceId: string, filter: BrowseFilter & {
     ...(newSince !== null ? { newSince } : {}),
     ...(newOnly ? { newOnly } : {}),
   };
+  const queryKey = ["docs.recent", workspaceId, query, group, needsReview, newSince, newOnly, limit] as const;
   return {
-    queryKey: ["docs.recent", workspaceId, query, group, needsReview, newSince, newOnly, limit] as const,
+    queryKey,
     request,
     refetchInterval: RECENT_POLL_MS,
     refetchOnWindowFocus: true,
-    placeholderData: (previous: DocsRecentList | undefined) => previous,
+    // A list asked for with another limit holds other documents and another notice: only its counts
+    // carry over while this one loads.
+    placeholderData: (previous: DocsRecentList | undefined, previousQuery?: { queryKey: readonly unknown[] }): DocsRecentList | undefined => {
+      if (!previous || !previousQuery || previousQuery.queryKey[queryKey.length - 1] === limit) return previous;
+      const { truncatedBy, unsupported, ...counted } = previous;
+      return { ...counted, entries: [], truncated: false };
+    },
   };
 }
 
