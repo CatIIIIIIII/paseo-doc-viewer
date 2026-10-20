@@ -1,6 +1,8 @@
 import { type DocumentGroup, KIND_GROUP } from "../shared/browse";
+import type { DocThumbnailInput, DocThumbnailOutput } from "../shared/rpc";
 import type { BrowseRow, RecentEntry } from "./recent";
-import { hasThumbnail } from "./thumbnails";
+import { createThumbnailLoader, hasThumbnail, pageThumbnailKey, thumbnailAnswer, thumbnailCache, type ThumbnailCache, type ThumbnailState } from "./thumbnails";
+import { cardThumbnailRetry } from "./turn-docs";
 
 export const PREVIEW_GROUPS: ReadonlySet<DocumentGroup> = new Set(["pdf", "powerpoint", "image"]);
 export const PREVIEW_MAX_BYTES = 64 * 1024 * 1024;
@@ -38,6 +40,67 @@ export function previewRows(rows: readonly BrowseRow[], columns: number): Previe
 }
 
 export const wantsPreview = (entry: Pick<RecentEntry, "kind" | "size">) => hasThumbnail(entry.kind) && entry.size <= PREVIEW_MAX_BYTES;
+
+// The paths of the tiles on screen, then of the next row of tiles after each, so it loads before it scrolls in.
+export function visibleTilePaths(items: readonly PreviewRow[], viewable: readonly number[]): Set<string> {
+  const rows = new Set<number>();
+  for (const index of viewable) {
+    rows.add(index);
+    const after = items.findIndex((item, at) => at > index && item.type === "tiles");
+    if (after >= 0) rows.add(after);
+  }
+  return new Set([...rows].flatMap((index) => {
+    const item = items[index];
+    return item?.type === "tiles" ? item.entries.map((entry) => entry.path) : [];
+  }));
+}
+
+export interface PreviewTarget {
+  path: string;
+  revision: string;
+}
+
+export interface PreviewLoader {
+  // Asks for the targets on screen (all of them while nothing is known) and for nothing else.
+  show(targets: readonly PreviewTarget[], visible: ReadonlySet<string> | null): void;
+  state(target: PreviewTarget): ThumbnailState | undefined;
+  subscribe(listener: () => void): () => void;
+  close(): void;
+}
+
+// One per workspace and width. A keystroke or a rewrite only changes the targets, so answers on the way,
+// failures and retries carry over: each path and revision is asked for once.
+export function createPreviewLoader({ workspaceId, width, fetch, cache = thumbnailCache }: {
+  workspaceId: string;
+  width: number;
+  fetch(input: DocThumbnailInput): Promise<DocThumbnailOutput>;
+  cache?: ThumbnailCache;
+}): PreviewLoader {
+  const id = ({ path, revision }: PreviewTarget) => `${path}\0${revision}`;
+  const target = (named: string): PreviewTarget => {
+    const at = named.lastIndexOf("\0");
+    return { path: named.slice(0, at), revision: named.slice(at + 1) };
+  };
+  const key = (path: string) => pageThumbnailKey(workspaceId, path, width, 0);
+  const loader = createThumbnailLoader<string>({
+    identify: (named) => {
+      const { path, revision } = target(named);
+      return { key: key(path), revision };
+    },
+    cache,
+    fetch: (named) => {
+      const { path, revision } = target(named);
+      return fetch({ workspaceId, path, index: 0, width, keepOpen: false, revision }).then(thumbnailAnswer);
+    },
+    retryAfter: cardThumbnailRetry,
+  });
+  return {
+    show: (targets, visible) => loader.want(targets.flatMap((each) => (visible === null || visible.has(each.path) ? [id(each)] : []))),
+    state: (each) => loader.state(id(each)),
+    subscribe: loader.subscribe,
+    close: loader.close,
+  };
+}
 
 export interface HeldRevision {
   seen: string;

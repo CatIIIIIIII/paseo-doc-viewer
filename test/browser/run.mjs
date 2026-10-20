@@ -1106,6 +1106,17 @@ try {
   expect((await wordRow.boundingBox()).width).toBeGreaterThan(600);
   await expect(wordRow.locator("img")).toHaveCount(0);
   await page.screenshot({ path: `${shots}/harness-previews.png`, fullPage: true });
+  // Typing narrows and widens the tiles; each file and revision is still asked for once, a failed one too.
+  const thumbnailsSettled = () => page.evaluate(() => window.__rpcCalls.every((call) => call.method !== "doc.thumbnail" || call.settled));
+  await expect.poll(thumbnailsSettled).toBe(true);
+  for (const query of ["p", "pd", "pdf", "pd", "p", ""]) {
+    await page.getByRole("textbox", { name: "Search documents", exact: true }).fill(query);
+    await nextFrame();
+  }
+  await expect.poll(thumbnailsSettled).toBe(true);
+  const previewCalls = await page.evaluate((from) => window.__rpcCalls.slice(from).filter((call) => call.method === "doc.thumbnail").map((call) => `${call.input.path} ${call.input.revision} ${call.input.width}`), previewsFrom);
+  expect(previewCalls.length).toBeGreaterThan(3);
+  expect(previewCalls.length).toBe(new Set(previewCalls).size);
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("report");
   await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(2);
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("");

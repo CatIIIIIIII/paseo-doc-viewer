@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PREVIEWS_MIN_WIDTH, previewGrid } from "../client/panel-layout";
-import { holdRevisions, nextRelease, PREVIEW_HOLD_MS, PREVIEW_MAX_BYTES, previewRows, wantsPreview } from "../client/previews";
+import { createPreviewLoader, holdRevisions, nextRelease, PREVIEW_HOLD_MS, PREVIEW_MAX_BYTES, type PreviewTarget, previewRows, visibleTilePaths, wantsPreview } from "../client/previews";
 import { browseRows, type RecentEntry } from "../client/recent";
+import { createThumbnailCache } from "../client/thumbnails";
 import { countGroups, type DocumentGroup } from "../shared/browse";
+import { ERROR_MESSAGES } from "../shared/errors";
+import type { DocThumbnailInput, DocThumbnailOutput } from "../shared/rpc";
 
 const entry = (path: string, kind: RecentEntry["kind"], mtimeMs = 1): RecentEntry => ({
   path,
@@ -85,5 +88,88 @@ describe("held revisions", () => {
     held = holdRevisions(held, [{ path: "a", revision: "3" }], 3_000 + PREVIEW_HOLD_MS);
     expect(held.get("a")!.held).toBe("3");
     expect(holdRevisions(held, [], 0).size).toBe(0);
+  });
+});
+
+describe("visible tiles", () => {
+  it("are the tile rows on screen and the next tile row after each", () => {
+    const entries = ["a", "b", "c", "d", "e", "f", "g"].map((name) => entry(`${name}.pdf`, "pdf"));
+    const rows = browseRows([...entries, entry("w.docx", "docx")], { counts: countGroups(entries), collapsed: new Set(), headers: true });
+    const items = previewRows(rows, 2);
+    expect(items.map((item) => item.type)).toEqual(["header", "tiles", "tiles", "tiles", "tiles", "header", "entry"]);
+    expect([...visibleTilePaths(items, [0, 1])]).toEqual(["a.pdf", "b.pdf", "c.pdf", "d.pdf"]);
+    expect([...visibleTilePaths(items, [4, 5, 6])]).toEqual(["g.pdf"]);
+    expect(visibleTilePaths(items, []).size).toBe(0);
+  });
+});
+
+describe("preview loader", () => {
+  const output = (path: string, revision: string): DocThumbnailOutput => ({ kind: "pdf", revision, index: 0, pageCount: 1, image: { mimeType: "image/jpeg", width: 10, height: 13, data: path } });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  function harness(broken: ReadonlySet<string> = new Set(), errorFor: (path: string) => Error = () => new Error("The file is damaged")) {
+    const calls: DocThumbnailInput[] = [];
+    const fetch = (input: DocThumbnailInput) => {
+      calls.push(input);
+      // Answers take a few turns, so some are still on the way when the next key is typed.
+      return new Promise<DocThumbnailOutput>((resolve, reject) => setTimeout(() => (broken.has(input.path) ? reject(errorFor(input.path)) : resolve(output(input.path, input.revision!))), 0));
+    };
+    const loader = createPreviewLoader({ workspaceId: "w", width: 160, fetch, cache: createThumbnailCache(100, 1_000_000) });
+    return { loader, calls, asked: () => calls.map((call) => call.path) };
+  }
+
+  it("asks once per path and revision while a search narrows and widens, failures included", async () => {
+    const names = ["plan", "pdf-guide", "report", "pd-notes", "q3", "deck-pdf", "summary", "paper", "map", "pdfs"];
+    const files: PreviewTarget[] = names.map((name) => ({ path: `${name}.pdf`, revision: "r1" }));
+    const { loader, calls, asked } = harness(new Set(["report.pdf", "pdfs.pdf"]));
+    const typed = (query: string) => files.filter((file) => file.path.replace(/\.pdf$/, "").includes(query));
+    for (const query of ["", "p", "pd", "pdf", "pd", "p", ""]) {
+      const targets = typed(query);
+      loader.show(targets, new Set(targets.map((target) => target.path)));
+      await settle();
+    }
+    for (let turn = 0; turn < 20; turn++) await settle();
+    expect(calls).toHaveLength(files.length);
+    expect(new Set(asked()).size).toBe(files.length);
+    expect(calls.every((call) => call.keepOpen === false && call.revision === "r1" && call.width === 160)).toBe(true);
+    expect(files.map((file) => loader.state(file)?.status)).toEqual(names.map((name) => (name === "report" || name === "pdfs" ? "failed" : "ready")));
+  });
+
+  it("asks for the tiles on screen only, and for a rewritten file's new revision once", async () => {
+    const files: PreviewTarget[] = ["a", "b", "c", "d", "e", "f"].map((name) => ({ path: `${name}.pdf`, revision: "r1" }));
+    const { loader, asked } = harness();
+    loader.show(files, new Set(["c.pdf", "d.pdf"]));
+    for (let turn = 0; turn < 5; turn++) await settle();
+    expect(asked()).toEqual(["c.pdf", "d.pdf"]);
+    loader.show(files, new Set(["e.pdf"]));
+    loader.show(files, new Set(["c.pdf", "d.pdf"]));
+    for (let turn = 0; turn < 5; turn++) await settle();
+    expect(asked()).toEqual(["c.pdf", "d.pdf", "e.pdf"]);
+    const rewritten = files.map((file) => (file.path === "c.pdf" ? { ...file, revision: "r2" } : file));
+    loader.show(rewritten, new Set(["c.pdf", "d.pdf"]));
+    for (let turn = 0; turn < 5; turn++) await settle();
+    expect(asked()).toEqual(["c.pdf", "d.pdf", "e.pdf", "c.pdf"]);
+    expect(loader.state(rewritten[2]!)?.status).toBe("ready");
+  });
+
+  it("asks a busy daemon again only once the tile is back on screen", async () => {
+    vi.useFakeTimers();
+    try {
+      const files: PreviewTarget[] = [{ path: "a.pdf", revision: "r1" }, { path: "b.pdf", revision: "r1" }];
+      const busy = new Set(["a.pdf"]);
+      const { loader, asked } = harness(busy, () => new Error(ERROR_MESSAGES.busy()));
+      loader.show(files, new Set(["a.pdf"]));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(loader.state(files[0]!)?.status).toBe("loading");
+      loader.show(files, new Set(["b.pdf"]));
+      busy.clear();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(asked()).toEqual(["a.pdf", "b.pdf"]);
+      loader.show(files, new Set(["a.pdf"]));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(asked()).toEqual(["a.pdf", "b.pdf", "a.pdf"]);
+      expect(loader.state(files[0]!)?.status).toBe("ready");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

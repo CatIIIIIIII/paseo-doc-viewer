@@ -17,7 +17,7 @@ import { DetailsHeader, DetailsRow } from "./documents-details";
 import { countText, PreviewTile, TileRow, usePreviews } from "./documents-previews";
 import { TreeActions, TreeList, useTreeExpansion } from "./documents-tree";
 import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, isExpanded, toggleFolder, treeRows } from "./folder-tree";
-import { type PreviewRow, previewRowKey, previewRows } from "./previews";
+import { type PreviewRow, previewRowKey, previewRows, visibleTilePaths } from "./previews";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
 import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, listFooter, noMatchDetail, type RecentEntry, treeNotice, unsupportedDetail } from "./recent";
@@ -129,17 +129,7 @@ function DocumentsList({
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: { index: number | null }[] }) => {
-    const shown = new Set<number>();
-    for (const { index } of viewableItems) {
-      if (index === null) continue;
-      shown.add(index);
-      const after = itemsRef.current.findIndex((item, at) => at > index && item.type === "tiles");
-      if (after >= 0) shown.add(after);
-    }
-    const paths = new Set([...shown].flatMap((index) => {
-      const item = itemsRef.current[index];
-      return item?.type === "tiles" ? item.entries.map((entry) => entry.path) : [];
-    }));
+    const paths = visibleTilePaths(itemsRef.current, viewableItems.flatMap(({ index }) => (index === null ? [] : [index])));
     setVisible((current) => (current && current.size === paths.size && [...paths].every((path) => current.has(path)) ? current : paths));
   }).current;
   const readThumbnail = useRpc(docThumbnailRpc);

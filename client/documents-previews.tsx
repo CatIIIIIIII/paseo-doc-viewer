@@ -7,18 +7,15 @@ import type { DocThumbnailInput, DocThumbnailOutput } from "../shared/rpc";
 import { baseName, KIND_ICON } from "./format";
 import { kindColor, type KindPalette } from "./kind-colors";
 import { PREVIEW_CAPTION_HEIGHT, type PreviewGrid } from "./panel-layout";
-import { type HeldRevision, holdRevisions, nextRelease, wantsPreview } from "./previews";
+import { createPreviewLoader, type HeldRevision, holdRevisions, nextRelease, type PreviewLoader, type PreviewTarget, wantsPreview } from "./previews";
 import type { RecentEntry } from "./recent";
-import { createThumbnailLoader, pageThumbnailKey, type Thumbnail, thumbnailAnswer, thumbnailCache, type ThumbnailLoader } from "./thumbnails";
-import { cardThumbnailRetry } from "./turn-docs";
+import type { Thumbnail } from "./thumbnails";
 import { StatusPill, type Styles } from "./ui";
 
 export interface Preview {
   thumbnail: Thumbnail | null;
   loading: boolean;
 }
-
-const NO_PREVIEW: Preview = { thumbnail: null, loading: false };
 
 export const countText = (kind: RecentEntry["kind"], count: number) => {
   const noun = kind === "pptx" ? "slide" : "page";
@@ -44,6 +41,7 @@ export function usePreviews(
   fetchThumbnail: (input: DocThumbnailInput) => Promise<DocThumbnailOutput>,
 ): (entry: RecentEntry) => Preview {
   const [tick, bump] = useReducer((value: number) => value + 1, 0);
+  const [, repaint] = useReducer((value: number) => value + 1, 0);
   const heldRef = useRef(new Map<string, HeldRevision>());
   const held = useMemo(() => (heldRef.current = holdRevisions(heldRef.current, entries, Date.now())), [entries, tick]);
   useEffect(() => {
@@ -54,44 +52,39 @@ export function usePreviews(
   }, [held]);
 
   const targets = useMemo(
-    () => entries.filter(wantsPreview).map((entry) => ({ path: entry.path, revision: held.get(entry.path)?.held ?? entry.revision })),
+    () => new Map(entries.filter(wantsPreview).map((entry): [string, PreviewTarget] => [entry.path, { path: entry.path, revision: held.get(entry.path)?.held ?? entry.revision }])),
     [entries, held],
   );
   const width = grid?.requestWidth ?? null;
-  const key = `${workspaceId}\0${width}\0${targets.map((target) => `${target.path}\0${target.revision}`).join("\0")}`;
-  const [built, setBuilt] = useState<{ key: string; loader: ThumbnailLoader; indexOf: Map<string, number>; paths: string[] } | null>(null);
+  const fetchRef = useRef(fetchThumbnail);
+  fetchRef.current = fetchThumbnail;
+  const key = `${workspaceId}\0${width}`;
+  const [built, setBuilt] = useState<{ key: string; loader: PreviewLoader } | null>(null);
   useEffect(() => {
-    if (width === null || targets.length === 0) return setBuilt(null);
-    const loader = createThumbnailLoader({
-      identify: (index) => ({ key: pageThumbnailKey(workspaceId, targets[index]!.path, width, 0), revision: targets[index]!.revision }),
-      cache: thumbnailCache,
-      fetch: (index) => fetchThumbnail({ workspaceId, path: targets[index]!.path, index: 0, width, keepOpen: false }).then(thumbnailAnswer),
-      retryAfter: cardThumbnailRetry,
-    });
-    const stop = loader.subscribe(bump);
-    const paths = targets.map((target) => target.path);
-    setBuilt({ key, loader, indexOf: new Map(paths.map((path, index) => [path, index])), paths });
+    if (width === null) return setBuilt(null);
+    const loader = createPreviewLoader({ workspaceId, width, fetch: (input) => fetchRef.current(input) });
+    const stop = loader.subscribe(repaint);
+    setBuilt({ key, loader });
     return () => {
       stop();
       loader.close();
     };
   }, [key]);
-  const current = built?.key === key ? built : null;
+  const loader = built?.key === key ? built.loader : null;
   const visibleKey = visible ? [...visible].join("\0") : null;
   useEffect(() => {
-    current?.loader.want(current.paths.flatMap((path, index) => (visible === null || visible.has(path) ? [index] : [])));
-  }, [current, visibleKey]);
+    loader?.show([...targets.values()], visible);
+  }, [loader, targets, visibleKey]);
 
   const shown = useRef(new Map<string, Thumbnail>());
   return (entry) => {
-    const index = current?.indexOf.get(entry.path);
-    if (index === undefined || !current) return shown.current.has(entry.path) ? { thumbnail: shown.current.get(entry.path)!, loading: false } : NO_PREVIEW;
-    const state = current.loader.state(index);
-    if (state?.status === "ready") {
+    const target = targets.get(entry.path);
+    const state = target && loader ? loader.state(target) : undefined;
+    if (target && loader && state?.status === "ready") {
       shown.current.set(entry.path, state.thumbnail);
       return { thumbnail: state.thumbnail, loading: false };
     }
-    return { thumbnail: shown.current.get(entry.path) ?? null, loading: state === undefined || state.status === "loading" };
+    return { thumbnail: shown.current.get(entry.path) ?? null, loading: target !== undefined && loader !== null && (state === undefined || state.status === "loading") };
   };
 }
 
