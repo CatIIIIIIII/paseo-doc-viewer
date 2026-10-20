@@ -23,7 +23,7 @@
 - Documents rows read as the file name first for screen readers, then type, folder, time and status. Before, they started with "Open" and the full path.
 - Thumbnails a turn card asks for (`keepOpen: false`) open a PDF for that one call, so they never push the document open in the viewer out of the daemon's open set. They wait behind page map thumbnails, and a client asks for one at a time across all its cards, the card mounted last first. When the daemon is busy, the card asks again a little later, at a random point; that includes a thumbnail whose time ran out while it waited behind other PDF work. A thumbnail that ran out of time otherwise is not asked for again. If PDFium was still drawing it, the daemon does not try that file again for 10 minutes or until it changes, because each try restarts PDFium.
 - `doc.thumbnail` takes an optional `revision`: a file changed since fails at once with "The file changed since it was listed", without being rendered. The daemon keeps thumbnails in a cache of their own, apart from pages, and bounds a PDF thumbnail's height to twice its width.
-- The page map asks a busy daemon for a thumbnail again by itself, soon and up to 3 times. The thumbnail shows as loading meanwhile, and Retry appears only after the last try. Pressing Retry shows it as loading at once.
+- The page map asks a busy daemon for a thumbnail again by itself, soon and up to 3 times. The thumbnail shows as loading meanwhile, and Retry appears only after the last try. Pressing Retry shows it as loading at once. A page scrolled away from meanwhile is asked for only once it is back on screen.
 
 ## 0.5.2 (2026-10-19)
 

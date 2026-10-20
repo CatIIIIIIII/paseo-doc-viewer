@@ -252,6 +252,36 @@ describe("thumbnail loader", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("does not ask again, ahead of the pages on screen, for a page scrolled away from while it waited, and asks once it is wanted again", async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: number[] = [];
+      const held: (() => void)[] = [];
+      const map = createPageMapThumbnails({ workspaceId: "w", path: "scrolled.pdf", revision: "r", width: 160 }, async ({ index }) => {
+        calls.push(index);
+        if (index < 2) throw new Error(ERROR_MESSAGES.busy());
+        await new Promise<void>((resolve) => held.push(resolve));
+        return { kind: "pdf" as const, revision: "r", index, pageCount: 106, image: image(`page${index}`) };
+      });
+      const release = async () => {
+        held.splice(0).forEach((resolve) => resolve());
+        await vi.advanceTimersByTimeAsync(0);
+      };
+      map.want([0, 1]);
+      await vi.advanceTimersByTimeAsync(0);
+      map.want([100, 101, 102, 103, 104, 105]);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(map.state(0)).toBeUndefined();
+      await release();
+      expect(calls).toEqual([0, 1, 100, 101, 102, 103]);
+      map.want([0, 1]);
+      await release();
+      expect(calls.slice(6)).toEqual([0, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a file the daemon says changed since as stale, without asking again", async () => {
     const calls: number[] = [];
     const loader = createThumbnailLoader({

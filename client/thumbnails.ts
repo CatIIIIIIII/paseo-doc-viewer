@@ -186,7 +186,9 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
         if (delay === null) return;
         const timer = setTimeout(() => {
           timers.delete(timer);
-          again(index);
+          // Scrolled away from meanwhile: it is asked for once wanted again, not ahead of what is on screen.
+          if (wanted.includes(index)) again(index);
+          else states.delete(index);
         }, delay);
         timers.add(timer);
       },
