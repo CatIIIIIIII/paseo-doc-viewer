@@ -365,25 +365,33 @@ try {
   await page.getByRole("button", { name: "Remove pin on page 42", exact: true }).click();
   await expect(page.getByRole("button", { name: /^Open pin:/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Close page map", exact: true }).click();
-  // Closing the map stops further thumbnail requests; only those already sent may finish.
+  // Closing the map stops further thumbnail requests. Pages 1 and 2 are held unanswered until the map
+  // is gone, so page 3 is still queued at unmount; their late answers must not send it.
   await page.unroute("**/rpc", slowThumbnails);
-  const verySlow = async (route) => {
-    if (route.request().postDataJSON().method === "doc.thumbnail") await new Promise((resolve) => setTimeout(resolve, 600));
-    await route.continue().catch(() => {});
+  const held = [];
+  let holding = true;
+  const holdThumbnails = async (route) => {
+    if (holding && route.request().postDataJSON().method === "doc.thumbnail") held.push(route);
+    else await route.continue().catch(() => {});
   };
-  await page.route("**/rpc", verySlow);
+  const thumbnailCalls = () => page.evaluate(() => window.__rpcCalls.filter((call) => call.method === "doc.thumbnail")
+    .map((call) => ({ page: `${call.input.path} ${call.input.index + 1}`, settled: call.settled })));
+  const callsBeforeMap = (await thumbnailCalls()).length;
+  const callsSinceMap = async () => (await thumbnailCalls()).slice(callsBeforeMap);
+  await page.route("**/rpc", holdThumbnails);
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
   await page.getByRole("button", { name: "Page map", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Open page 3", exact: true })).toBeVisible();
+  const statementPages = () => held.map((route) => route.request().postDataJSON().input).filter((input) => input.path === "statement.pdf").map((input) => input.index + 1).sort();
+  await expect.poll(statementPages).toEqual([1, 2]);
   await page.getByRole("button", { name: "Close page map", exact: true }).click();
   await expect(page.getByRole("button", { name: "Open page 3", exact: true })).toHaveCount(0);
-  // Requests that settle before the unmount cleanup may still refill the queue; count from after it.
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))));
-  const sentAfterClose = thumbnails.requested.length;
-  await page.waitForTimeout(1500);
-  expect(thumbnails.requested.length).toBe(sentAfterClose);
+  holding = false;
+  for (const route of held) await route.continue();
+  // Once every call is settled, any refill they caused is already listed.
+  await expect.poll(async () => (await callsSinceMap()).every((call) => call.settled)).toBe(true);
+  expect((await callsSinceMap()).map((call) => call.page).sort()).toEqual(["statement.pdf 1", "statement.pdf 2"]);
   await expect.poll(() => thumbnails.inFlight).toBe(0);
-  await page.unroute("**/rpc", verySlow);
+  await page.unroute("**/rpc", holdThumbnails);
   // Review marks follow explicit presses only, for the revision on screen.
   const reviews = [];
   const recordReview = (request) => { if (request.url().endsWith("/rpc") && request.postDataJSON()?.method === "viewer-state.review") reviews.push(request.postDataJSON().input); };
