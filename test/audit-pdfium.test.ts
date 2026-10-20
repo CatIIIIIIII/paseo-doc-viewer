@@ -26,10 +26,13 @@ function file(root: string, name: string, revision = "1") {
 describe("audit: PDFium isolation", () => {
   it("keeps the event loop responsive while rendering a 3 KB nested-form PDF", async () => {
     const root = workspace({ "nested.pdf": nestedFormPdf(9) });
+    // CPU this thread spent between ticks: work that held the event loop, which a busy machine does not
+    // inflate the way it delays the timer itself.
+    const cpuMs = () => { const { user, system } = process.threadCpuUsage(); return (user + system) / 1000; };
     let maxLag = 0;
-    let last = performance.now();
+    let last = cpuMs();
     const probe = setInterval(() => {
-      const now = performance.now();
+      const now = cpuMs();
       maxLag = Math.max(maxLag, now - last);
       last = now;
     }, 10);
