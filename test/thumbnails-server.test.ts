@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cacheKeys } from "../server/cache";
 import { renderPage, renderThumbnail } from "../server/documents";
 import { pdfiumStats } from "../server/pdfium";
 import { heavy } from "../server/heavy";
+import { errorText, ERROR_MESSAGES } from "../shared/errors";
 import { docThumbnailRpc } from "../shared/rpc";
-import { THUMBNAIL_MAX_WIDTH_PX } from "../shared/limits";
+import { RPC_DEADLINE_MS, THUMBNAIL_MAX_WIDTH_PX } from "../shared/limits";
 import { decode, type Image } from "imagescript";
 import { alphaRampPng, noisePng, textPdf } from "./fixtures/generators";
 import { decodePng, workspace, workspaceWithFixtures } from "./helpers";
@@ -16,13 +17,15 @@ const deferred = () => {
 };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
+afterEach(() => vi.useRealTimers());
+
 describe("background heavy work", () => {
   it("runs one background job at a time and never takes the last slot from waiting foreground work", async () => {
     const order: string[] = [];
     const gates = Array.from({ length: 5 }, deferred);
     const job = (name: string, gate: ReturnType<typeof deferred>) => async () => { order.push(`start ${name}`); await gate.promise; };
-    const first = heavy(job("thumb a", gates[0]!), { background: true });
-    const second = heavy(job("thumb b", gates[1]!), { background: true });
+    const first = heavy(job("thumb a", gates[0]!), { lane: "background" });
+    const second = heavy(job("thumb b", gates[1]!), { lane: "background" });
     await settle();
     expect(order).toEqual(["start thumb a"]);
     const page = heavy(job("page", gates[2]!));
@@ -42,7 +45,7 @@ describe("background heavy work", () => {
   it("rejects background work beyond the queue bound instead of piling it up", async () => {
     const gate = deferred();
     const running = [heavy(() => gate.promise), heavy(() => gate.promise)];
-    const queued = Array.from({ length: 40 }, () => heavy(async () => "done", { background: true }).catch((error: Error) => error));
+    const queued = Array.from({ length: 40 }, () => heavy(async () => "done", { lane: "background" }).catch((error: Error) => error));
     await settle();
     gate.resolve();
     const results = await Promise.all(queued);
@@ -51,6 +54,39 @@ describe("background heavy work", () => {
     expect(rejected.length).toBeGreaterThan(0);
     expect(results.filter((result) => result === "done").length).toBeGreaterThan(0);
     expect((rejected[0] as Error).message).toMatch(/busy/);
+  });
+  it("starts thumbnails of files nobody is reading only when no page map thumbnail waits, and bounds them apart", async () => {
+    const order: string[] = [];
+    const gate = deferred();
+    const job = (name: string) => async () => { order.push(name); await gate.promise; };
+    const foreground = heavy(() => gate.promise);
+    const runningCard = heavy(job("card 0"), { lane: "idle" });
+    const cards = Array.from({ length: 12 }, (_, i) => heavy(job(`card ${i + 1}`), { lane: "idle" }).catch((error: Error) => error));
+    const pageMap = Array.from({ length: 3 }, (_, i) => heavy(job(`map ${i}`), { lane: "background" }));
+    await settle();
+    expect(order).toEqual(["card 0"]);
+    gate.resolve();
+    await Promise.all([foreground, runningCard, ...pageMap]);
+    const results = await Promise.all(cards);
+    expect(order.slice(1, 4)).toEqual(["map 0", "map 1", "map 2"]);
+    expect(results.filter((result) => result instanceof Error).map((error) => errorText(error))).toEqual(Array(4).fill(errorText(ERROR_MESSAGES.busy())));
+  });
+
+  it("stops waiting for the background slot while half the budget is left, so slow means slow", async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const fresh = (await import("../server/heavy")).heavy;
+    const hung = fresh(() => new Promise(() => {}), { lane: "background" }).catch((error: Error) => error);
+    let waitedFor = Number.NaN;
+    const started = Date.now();
+    const queued = fresh(async () => "ran", { lane: "idle" }).catch((error: Error) => {
+      waitedFor = Date.now() - started;
+      return error;
+    });
+    await vi.advanceTimersByTimeAsync(21_000);
+    expect(errorText(await queued)).toBe(errorText(ERROR_MESSAGES.busy()));
+    expect(waitedFor).toBe(RPC_DEADLINE_MS / 2);
+    expect(errorText(await hung)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
   });
 });
 

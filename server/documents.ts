@@ -25,7 +25,7 @@ import { recordCells, type FullValue } from "./data-table";
 import { indexJsonl, jsonlFullValue, jsonlRecords, jsonlWindow } from "./jsonl";
 import { openParquet, parquetFullValue, parquetModelBytes, parquetRecords, parquetWindow } from "./parquet";
 import { blockPage, docxBlocks, docxModelBytes, fitDocxImage, loadDocx, verifyDocx, type DocxModel, type SourceBlock } from "./docx";
-import { heavy } from "./heavy";
+import { heavy, type Lane } from "./heavy";
 import { animationAsGif, imageAnimation, imageSize, renderImage, type AnimationMimeType, type ImageFamily } from "./images";
 import { readChunk, sliceChunk, videoMimeType, audioMimeType } from "./media";
 import { resolveInside } from "./paths";
@@ -142,6 +142,9 @@ const cached = <T>(file: DocumentFile, name: string, compute: () => Promise<T>, 
 const heavyCached = <T>(file: DocumentFile, name: string, compute: (signal: AbortSignal) => Promise<T>, sizeOf?: (value: T) => number) =>
   cached(file, name, () => heavy(compute), sizeOf);
 
+// A thumbnail not kept open is for a file nobody is reading; it waits behind the page map.
+const thumbnailLane = (keepOpen: boolean | undefined): Lane => (keepOpen === false ? "idle" : "background");
+
 function fitFor(maxWidth: number | undefined): Fit {
   return { maxWidth: Math.min(maxWidth ?? DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX), maxBytes: IMAGE_BUDGET_BYTES };
 }
@@ -213,11 +216,11 @@ function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamil
         return { kind, revision: file.revision, sourceWidth: source.width, sourceHeight: source.height, image };
       });
     },
-    thumbnail: async (file, { index, width }) => {
+    thumbnail: async (file, { index, width, keepOpen }) => {
       inRange(index, 1, "Page");
       const edge = Math.min(width, THUMBNAIL_MAX_WIDTH_PX);
       const fit = { maxWidth: edge, maxEdge: edge, maxBytes: THUMBNAIL_MAX_BYTES, jpeg: true };
-      const image = await heavy(async () => renderImage(await readFile(file.path), family, fit), { background: true });
+      const image = await heavy(async () => renderImage(await readFile(file.path), family, fit), { lane: thumbnailLane(keepOpen) });
       return { kind, revision: file.revision, image };
     },
     chunk: async (file, { offset, length, mimeType }) => {
@@ -246,7 +249,7 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
     // Thumbnails skip the shared cache so a grid cannot evict the pages being read; the client keeps them.
     thumbnail: async (file, { index, width, keepOpen }) => {
       const fit = { maxWidth: Math.min(width, THUMBNAIL_MAX_WIDTH_PX), maxBytes: THUMBNAIL_MAX_BYTES };
-      const { pageCount, image } = await heavy((signal) => renderPdfPage(file, index, fit, signal, { hold: keepOpen !== false }), { background: true });
+      const { pageCount, image } = await heavy((signal) => renderPdfPage(file, index, fit, signal, { hold: keepOpen !== false }), { lane: thumbnailLane(keepOpen) });
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
     text: async (file, { index }) => ({
