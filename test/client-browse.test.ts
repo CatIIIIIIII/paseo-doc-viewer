@@ -170,6 +170,9 @@ describe("documents panel empty and footer text", () => {
     expect(truncationNotice(12, ["entries"], false)).toBe("Only the first 50,000 entries of this workspace were scanned");
     expect(truncationNotice(1000, ["limit", "entries", "depth"], false)).toBe(
       "Showing the 1,000 most recently changed documents. Only the first 50,000 entries of this workspace were scanned. Folders more than 16 levels deep were not scanned");
+    expect(truncationNotice(312, ["bytes"], false)).toBe("Showing the 312 most recently changed documents, as many names as fit in 8 MB");
+    expect(truncationNotice(312, ["limit", "bytes", "folder"], true)).toBe(
+      "Showing the 312 most recently changed matches, as many names as fit in 8 MB. Folders with more than 5,000 entries were only partly scanned");
   });
 
   it("reads a cut list from a daemon that gives no reason as cut at the limit", () => {

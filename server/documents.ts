@@ -3,8 +3,8 @@ import type { CellDetail, DocCellOutput, DocIssuesOutput, DocSearchOutput } from
 import { createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { CELL_FULL_MAX_CHARS, DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, RPC_DEADLINE_MS, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS } from "../shared/limits";
-import type { ReviewStatus } from "../shared/browse";
+import { CELL_FULL_MAX_CHARS, DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, MAX_RESPONSE_BYTES, REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, RPC_DEADLINE_MS, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS } from "../shared/limits";
+import { RECENT_CUTS, type ReviewStatus } from "../shared/browse";
 import { KIND_REGISTRY, detectKind, extensionOf, kindForPath, type DocumentKind, type PagedRpc } from "../shared/kinds";
 import type {
   DocBlocksOutput,
@@ -489,7 +489,23 @@ export async function readMediaChunk(ref: DocumentRef, request: ChunkRequest): P
 }
 
 // Review status is computed only when some document has been marked reviewed.
-export async function listRecent(root: string, request: Omit<DocsRecentInput, "workspaceId">, store = viewerStateStore): Promise<DocsRecentOutput> {
+// Hostile names (control characters escape to six bytes each, paths run to 4 KiB) could otherwise make
+// 1,000 entries about 24 MB.
+const RECENT_BUDGET_BYTES = MAX_RESPONSE_BYTES - 64 * 1024;
+
+// As JSON: each entry and its comma, and the brackets less the comma the last entry goes without.
+function withinBudget<T>(entries: readonly T[], budget: number): T[] {
+  let bytes = 1;
+  const over = entries.findIndex((entry) => (bytes += Buffer.byteLength(JSON.stringify(entry), "utf8") + 1) > budget);
+  return over === -1 ? [...entries] : entries.slice(0, over);
+}
+
+export async function listRecent(
+  root: string,
+  request: Omit<DocsRecentInput, "workspaceId">,
+  store = viewerStateStore,
+  budget = RECENT_BUDGET_BYTES,
+): Promise<DocsRecentOutput> {
   const marks = await store.marks();
   const keyOf = marks.size > 0 ? await store.scannedKeys(root) : null;
   const status = (entry: RecentEntry): { review?: ReviewStatus; opened: boolean } | undefined => {
@@ -499,14 +515,12 @@ export async function listRecent(root: string, request: Omit<DocsRecentInput, "w
     return { review, opened: mark.opened === entry.revision };
   };
   const { truncatedBy, ...listed } = await recentDocuments(root, request, keyOf ? status : undefined);
-  return {
-    ...listed,
-    entries: listed.entries.map(({ path, kind, mtimeMs, size, revision, review, isNew }) => ({
-      path, kind, mtimeMs, size, revision, ...(review ? { review } : {}), ...(isNew ? { isNew: true as const } : {}),
-    })),
-    truncated: truncatedBy.length > 0,
-    ...(truncatedBy.length > 0 ? { truncatedBy } : {}),
-  };
+  const wire = listed.entries.map(({ path, kind, mtimeMs, size, revision, review, isNew }) => ({
+    path, kind, mtimeMs, size, revision, ...(review ? { review } : {}), ...(isNew ? { isNew: true as const } : {}),
+  }));
+  const entries = withinBudget(wire, budget);
+  const cuts = entries.length < wire.length ? RECENT_CUTS.filter((cut) => cut === "bytes" || truncatedBy.includes(cut)) : truncatedBy;
+  return { ...listed, entries, truncated: cuts.length > 0, ...(cuts.length > 0 ? { truncatedBy: cuts } : {}) };
 }
 
 const blockText = (block: SourceBlock) =>

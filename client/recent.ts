@@ -8,10 +8,11 @@ import {
   KIND_GROUP,
   newestFirst,
   type RecentCut,
+  SCAN_CUTS,
   type ScanCut,
 } from "../shared/browse";
 import { extensionOf } from "../shared/kinds";
-import { RECENT_MAX_DEPTH, RECENT_MAX_FOLDER_ENTRIES, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
+import { MAX_RESPONSE_BYTES, RECENT_MAX_DEPTH, RECENT_MAX_FOLDER_ENTRIES, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { docsRecentRpc, type DocsRecentOutput } from "../shared/rpc";
 import { baseName, formatCount, GROUP_FILES, KIND_LABEL, parentDir, relativeTime } from "./format";
 import { encodeSiblings } from "./siblings";
@@ -71,7 +72,7 @@ const SCAN_NOTES: { readonly [C in ScanCut]: string } = {
   depth: `Folders more than ${RECENT_MAX_DEPTH} levels deep were not scanned`,
 };
 
-const scanNotes = (cuts: readonly RecentCut[]) => cuts.flatMap((cut) => (cut === "limit" ? [] : [SCAN_NOTES[cut]]));
+const scanNotes = (cuts: readonly RecentCut[]) => SCAN_CUTS.filter((cut) => cuts.includes(cut)).map((cut) => SCAN_NOTES[cut]);
 
 // An older daemon says only that the list was cut, which reads as the limit.
 export const recentCuts = ({ truncated, truncatedBy }: { truncated: boolean; truncatedBy?: readonly RecentCut[] }): readonly RecentCut[] =>
@@ -94,8 +95,9 @@ export function unsupportedDetail(paths: readonly string[]): string | null {
 
 // Why the list may hold fewer documents than the workspace, one sentence per reason; null when it holds them all.
 export function truncationNotice(listed: number, cuts: readonly RecentCut[], filtered: boolean): string | null {
-  const shown = cuts.includes("limit") ? [`Showing the ${formatCount(listed)} most recently changed ${filtered ? "matches" : "documents"}`] : [];
-  const notes = [...shown, ...scanNotes(cuts)];
+  const shown = `Showing the ${formatCount(listed)} most recently changed ${filtered ? "matches" : "documents"}`;
+  const cut = cuts.includes("bytes") ? [`${shown}, as many names as fit in ${MAX_RESPONSE_BYTES / 1024 ** 2} MB`] : cuts.includes("limit") ? [shown] : [];
+  const notes = [...cut, ...scanNotes(cuts)];
   return notes.length > 0 ? notes.join(". ") : null;
 }
 

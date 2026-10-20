@@ -1,6 +1,6 @@
 import { opendir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, matchesQuery, newestFirst, queryTerms, RECENT_CUTS, type RecentCut, type ReviewStatus, type ScanCut } from "../shared/browse";
+import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, matchesQuery, newestFirst, queryTerms, type RecentCut, type ReviewStatus, SCAN_CUTS, type ScanCut } from "../shared/browse";
 import { RECENT_MAX_DEPTH, RECENT_MAX_ENTRIES, RECENT_MAX_FOLDER_ENTRIES, RECENT_MAX_LIMIT, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { kindForPath, type DocumentKind } from "../shared/kinds";
 import type { ScannedFolders } from "../shared/turn-docs";
@@ -76,7 +76,7 @@ interface Scan extends ScannedFolders {
   entries: RecentEntry[];
   // Other files, so a search can say a file exists but is not a supported type.
   unsupported: string[];
-  // Why the scan stopped short of the whole workspace, in RECENT_CUTS order; empty when it read everything.
+  // Why the scan stopped short of the whole workspace, in SCAN_CUTS order; empty when it read everything.
   cuts: ScanCut[];
 }
 
@@ -206,7 +206,7 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
     }
   }
   if (queue.size > 0) cuts.add("entries");
-  return { entries: newestFirst(found), unsupported, cuts: RECENT_CUTS.filter((cut): cut is ScanCut => cut !== "limit" && cuts.has(cut)), dirs, repos };
+  return { entries: newestFirst(found), unsupported, cuts: SCAN_CUTS.filter((cut) => cuts.has(cut)), dirs, repos };
 }
 
 // Null when it cannot be told from a missing birth time, for which Node reports 0 or the change time.
