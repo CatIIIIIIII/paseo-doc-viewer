@@ -166,6 +166,17 @@ describe("PDF thumbnails", () => {
     expect((await renderThumbnail({ root, path: "moved.pdf" }, { index: 0, width: 120, keepOpen: false, revision: current })).revision).toBe(current);
   });
 
+  it("forgets each document a card opened once it is closed", async () => {
+    const files = Object.fromEntries(await Promise.all(["f", "g", "h"].map(async (name) => [`${name}.pdf`, await textPdf([name])] as const)));
+    const root = workspace(files);
+    await renderThumbnail({ root, path: "f.pdf" }, { index: 0, width: 80, keepOpen: false });
+    await settle();
+    const documents = pdfiumStats().documents;
+    for (const name of "gh") await renderThumbnail({ root, path: `${name}.pdf` }, { index: 0, width: 80, keepOpen: false });
+    await settle();
+    expect(pdfiumStats().documents).toBe(documents);
+  });
+
   it("bounds the requested width in the RPC schema", () => {
     const input = { workspaceId: "w", path: "a.pdf", index: 0 };
     expect(docThumbnailRpc.input.safeParse({ ...input, width: 160 }).success).toBe(true);

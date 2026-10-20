@@ -170,6 +170,8 @@ async function pump(): Promise<void> {
   if (job.request.op === "open") {
     stats.opens++;
     opened.add(job.request.key);
+  } else if (job.request.op === "close") {
+    opened.delete(job.request.key);
   }
   const transfer = job.request.op === "open" ? [job.request.bytes.buffer as ArrayBuffer] : [];
   target.postMessage({ id: job.id, request: job.request }, transfer);
@@ -216,6 +218,6 @@ export function pdfiumGeneration(): number {
   return generation;
 }
 
-export function pdfiumStats(): { spawns: number; opens: number; alive: boolean } {
-  return { ...stats, alive: worker !== undefined };
+export function pdfiumStats(): { spawns: number; opens: number; alive: boolean; documents: number } {
+  return { ...stats, alive: worker !== undefined, documents: opened.size };
 }
