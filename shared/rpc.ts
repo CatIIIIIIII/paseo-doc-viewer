@@ -296,6 +296,9 @@ export const docsRecentRpc = defineRpc({
     // unless reviewed, or opened in the viewer at their current revision.
     newSince: z.number().nonnegative().optional(),
     newOnly: z.boolean().optional(),
+    // The version of the list the client holds: while it is current the daemon answers { unchanged: true }.
+    // Older daemons ignore it and send the list.
+    since: z.string().max(64).optional(),
   }),
   output: z.object({
     entries: z.array(
@@ -318,7 +321,9 @@ export const docsRecentRpc = defineRpc({
     newCount: z.number().int().nonnegative(),
     // Up to 3 files matching the query that the viewer cannot open, sent only when no document matched.
     unsupported: z.array(z.string()).max(3).optional(),
-  }),
+    // Changes whenever anything above does. Older daemons send none.
+    version: z.string().max(64).optional(),
+  }).or(z.object({ unchanged: z.literal(true), version: z.string().max(64) })),
 });
 
 // Records that Documents was opened in a workspace and returns the previous time, or null the first time.
@@ -422,3 +427,4 @@ export type MediaChunkOutput = RpcOutput<typeof mediaChunkRpc>;
 export type DocsRecentInput = RpcInput<typeof docsRecentRpc>;
 export type ViewerStateReadOutput = RpcOutput<typeof viewerStateReadRpc>;
 export type DocsRecentOutput = RpcOutput<typeof docsRecentRpc>;
+export type DocsRecentList = Exclude<DocsRecentOutput, { unchanged: true }>;

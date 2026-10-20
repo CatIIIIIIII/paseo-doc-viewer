@@ -1,7 +1,7 @@
 import { type PluginOpenScreenInput, type PluginWorkspacePanelProps, useRpc } from "@getpaseo/plugin/client";
 import { FlatList, Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type LayoutChangeEvent, PixelRatio, Pressable, Text, View } from "react-native";
 import type { DocumentView } from "../shared/documents-view";
@@ -20,7 +20,7 @@ import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, isExpanded, setEx
 import { type PreviewRow, previewRowKey, previewRows, visibleTilePaths } from "./previews";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
-import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, noMatchDetail, type RecentEntry, recentCuts, truncationNotice, unsupportedDetail } from "./recent";
+import { type BrowseRow, browseRows, documentScreen, entryLabel, fetchRecent, filterChips, noMatchDetail, type RecentEntry, recentCuts, truncationNotice, unsupportedDetail } from "./recent";
 import { siblingWindow } from "./siblings";
 import { TipsCard, TipsLink, useTips } from "./tips-card";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, statusIcon, type Styles } from "./ui";
@@ -33,6 +33,17 @@ const SWITCH_LABELS_MIN_WIDTH = 600;
 const SWITCH_INLINE_MIN_WIDTH = 360;
 const NO_GROUPS: ReadonlySet<DocumentGroup> = new Set();
 const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
+const CLOCK_TICK_MS = 60_000;
+
+// Times read in minutes, so rows redraw once a minute instead of on every poll.
+function useClock(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -94,9 +105,10 @@ function DocumentsList({
   const searched = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const newSince = useLastVisit(host?.id, workspaceId);
   const listRecent = useRpc(docsRecentRpc);
+  const queryClient = useQueryClient();
   const tree = view === "tree";
   const { request, ...options } = recentQueryOptions(workspaceId, { query: searched, group, needsReview, newOnly, newSince, limit: tree ? RECENT_MAX_LIMIT : undefined });
-  const recent = useQuery({ ...options, queryFn: () => listRecent(request) });
+  const recent = useQuery({ ...options, queryFn: () => fetchRecent(listRecent, request, queryClient.getQueryData(options.queryKey)) });
   const filtering = queryTerms(query).length > 0 || group !== null || needsReview || newOnly;
   const pending = recent.isPlaceholderData || searched !== query;
   const entries = useMemo(
@@ -122,6 +134,20 @@ function DocumentsList({
     () => (tree ? treeRows(folderTree(entries), (chain, depth) => isExpanded(expansion, chain, depth)) : []),
     [tree, entries, expansion],
   );
+  const shape = useMemo(() => treeLayout(width, layout.compact), [width, layout.compact]);
+  const folderRowsRef = useRef(folderRows);
+  folderRowsRef.current = folderRows;
+  const toggleFolder = useCallback(
+    (path: string, open: boolean) => {
+      const row = folderRowsRef.current.find((each) => each.type === "folder" && each.path === path);
+      updateExpansion((current) => setExpanded(current, row?.type === "folder" ? row.chain : [path], open));
+    },
+    [updateExpansion],
+  );
+  const openFromTree = useCallback(
+    (path: string) => openScreen(documentScreen(workspaceId, path, siblingWindow(folderFiles(folderRowsRef.current, path), path))),
+    [openScreen, workspaceId],
+  );
   const columnsCount = grid?.columns ?? 0;
   const items: readonly PreviewRow[] = useMemo(() => (columnsCount > 0 ? previewRows(rows, columnsCount) : rows), [rows, columnsCount]);
   const tileEntries = useMemo(() => items.flatMap((item) => (item.type === "tiles" ? item.entries : [])), [items]);
@@ -135,7 +161,7 @@ function DocumentsList({
   const readThumbnail = useRpc(docThumbnailRpc);
   const preview = usePreviews(workspaceId, tileEntries, grid, visible, readThumbnail);
   const openPath = useCallback((path: string) => openScreen(documentScreen(workspaceId, path)), [openScreen, workspaceId]);
-  const now = recent.dataUpdatedAt || Date.now();
+  const now = useClock();
   const tips = useTips();
   const readSettings = useRpc(viewerSettingsRpc.read);
   const palette = useKindPalette(theme, () => readSettings({}), recent.dataUpdatedAt);
@@ -185,7 +211,6 @@ function DocumentsList({
 
   const controlHeight = layout.compact ? 44 : 36;
   const columns = view === "details" ? detailsColumns(width, layout.compact) : null;
-  const shape = treeLayout(width, layout.compact);
   const switchInline = width === 0 || width >= SWITCH_INLINE_MIN_WIDTH;
   const viewSwitch = (
     <ViewSwitch
@@ -198,7 +223,6 @@ function DocumentsList({
       onChange={setView}
     />
   );
-  const openFromTree = (path: string) => openScreen(documentScreen(workspaceId, path, siblingWindow(folderFiles(folderRows, path), path)));
   const cuts = recentCuts(recent.data);
   const notice = truncationNotice(entries.length, cuts, filtering);
   const footerNotice = tree ? null : notice;
@@ -293,7 +317,7 @@ function DocumentsList({
           palette={palette}
           now={now}
           footer={footer}
-          onToggle={(chain, open) => updateExpansion((current) => setExpanded(current, chain, open))}
+          onToggle={toggleFolder}
           onOpen={openFromTree}
         />
       ) : (

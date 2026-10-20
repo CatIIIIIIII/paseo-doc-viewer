@@ -1,6 +1,6 @@
 import type { SearchCursor, SearchMatch } from "../shared/search";
 import type { CellDetail, DocCellOutput, DocIssuesOutput, DocSearchOutput } from "../shared/rpc";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { CELL_FULL_MAX_CHARS, DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX, MAX_RESPONSE_BYTES, REVIEW_IMAGE_MAX_BASE64_CHARS, REVIEW_IMAGE_MAX_EDGE_PX, RPC_DEADLINE_MS, THUMBNAIL_MAX_WIDTH_PX, XLSX_MAX_CELL_CHARS, XLSX_MAX_COLUMNS } from "../shared/limits";
@@ -15,7 +15,7 @@ import type {
   DocTextOutput,
   DocThumbnailOutput,
   DocsRecentInput,
-  DocsRecentOutput,
+  DocsRecentList,
   MediaChunkOutput,
 } from "../shared/rpc";
 import { estimateBytes, memo } from "./cache";
@@ -502,10 +502,10 @@ function withinBudget<T>(entries: readonly T[], budget: number): T[] {
 
 export async function listRecent(
   root: string,
-  request: Omit<DocsRecentInput, "workspaceId">,
+  request: Omit<DocsRecentInput, "workspaceId" | "since">,
   store = viewerStateStore,
   budget = RECENT_BUDGET_BYTES,
-): Promise<DocsRecentOutput> {
+): Promise<DocsRecentList & { version: string }> {
   const marks = await store.marks();
   const keyOf = marks.size > 0 ? await store.scannedKeys(root) : null;
   const status = (entry: RecentEntry): { review?: ReviewStatus; opened: boolean } | undefined => {
@@ -520,7 +520,8 @@ export async function listRecent(
   }));
   const entries = withinBudget(wire, budget);
   const cuts = entries.length < wire.length ? RECENT_CUTS.filter((cut) => cut === "bytes" || truncatedBy.includes(cut)) : truncatedBy;
-  return { ...listed, entries, truncated: cuts.length > 0, ...(cuts.length > 0 ? { truncatedBy: cuts } : {}) };
+  const list = { ...listed, entries, truncated: cuts.length > 0, ...(cuts.length > 0 ? { truncatedBy: cuts } : {}) };
+  return { ...list, version: createHash("sha256").update(JSON.stringify(list)).digest("base64url").slice(0, 22) };
 }
 
 const blockText = (block: SourceBlock) =>

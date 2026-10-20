@@ -13,7 +13,7 @@ import {
 } from "../shared/browse";
 import { extensionOf } from "../shared/kinds";
 import { MAX_RESPONSE_BYTES, RECENT_MAX_DEPTH, RECENT_MAX_FOLDER_ENTRIES, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
-import { docsRecentRpc, type DocsRecentOutput } from "../shared/rpc";
+import { docsRecentRpc, type DocsRecentInput, type DocsRecentList, type DocsRecentOutput } from "../shared/rpc";
 import { baseName, formatCount, GROUP_FILES, KIND_LABEL, parentDir, relativeTime } from "./format";
 import { encodeSiblings } from "./siblings";
 
@@ -21,7 +21,20 @@ export const DOCUMENT_SCREEN_ID = "document";
 export const DOCUMENTS_PANEL_ID = "documents";
 export const SETTINGS_SCREEN_ID = "viewer";
 
-export type RecentEntry = DocsRecentOutput["entries"][number];
+export type RecentEntry = DocsRecentList["entries"][number];
+
+// Sends the version of the list it holds, so a list that did not change comes back in a few bytes.
+// An older daemon ignores the version and sends the whole list.
+export async function fetchRecent(
+  call: (input: DocsRecentInput) => Promise<DocsRecentOutput>,
+  request: DocsRecentInput,
+  held?: DocsRecentList,
+): Promise<DocsRecentList> {
+  const answer = await call(held?.version ? { ...request, since: held.version } : request);
+  if (!("unchanged" in answer)) return answer;
+  if (held) return held;
+  throw new Error("docs.recent answered unchanged to a request without a version");
+}
 
 export type BrowseRow =
   | { type: "header"; group: DocumentGroup; shown: number; total: number; collapsed: boolean }
@@ -118,13 +131,14 @@ const isReading = (entry: RecentEntry) => READING_GROUPS.includes(KIND_GROUP[ent
 // supported file of any type. The list is capped, so when screenshots crowd documents out of it the
 // per-group counts tell which groups to ask for; those calls reuse the daemon's workspace scan.
 export async function mostRelevant(rpc: CommandContext["rpc"], workspaceId: string): Promise<RecentEntry | undefined> {
-  const { entries, counts } = await rpc(docsRecentRpc, { workspaceId });
+  const list = (request: DocsRecentInput) => fetchRecent((input) => rpc(docsRecentRpc, input), request);
+  const { entries, counts } = await list({ workspaceId });
   const newest = newestFirst(entries);
   const reading = newest.find(isReading);
   if (reading) return reading;
   const missing = READING_GROUPS.filter((group) => counts[group] > 0);
   if (missing.length === 0) return newest[0];
-  const found = await Promise.all(missing.map((group) => rpc(docsRecentRpc, { workspaceId, group, limit: 1 })));
+  const found = await Promise.all(missing.map((group) => list({ workspaceId, group, limit: 1 })));
   return newestFirst(found.flatMap((result) => result.entries))[0] ?? newest[0];
 }
 

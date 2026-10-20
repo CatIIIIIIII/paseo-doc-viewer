@@ -1,10 +1,13 @@
-import { utimesSync, writeFileSync } from "node:fs";
+import { realpathSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import contribute from "../index.server";
 import { listRecent, openDocument, renderPage } from "../server/documents";
+import { forgetScan } from "../server/recent";
 import { RECENT_MAX_ENTRIES, RECENT_MAX_LIMIT } from "../shared/limits";
+import { docsRecentRpc, type DocsRecentList } from "../shared/rpc";
 import { textPdf } from "./fixtures/generators.ts";
-import { workspace } from "./helpers";
+import { responseBytes, workspace } from "./helpers";
 
 async function pageData(root: string, path: string, index = 0): Promise<string> {
   const page = await renderPage({ root, path }, { index });
@@ -83,5 +86,24 @@ describe("S3: the most recently changed document is one tap away", () => {
     const recent = await listRecent(workspace(files), { limit: RECENT_MAX_LIMIT * 10 });
     expect(recent.entries).toHaveLength(RECENT_MAX_LIMIT);
     expect(recent).toMatchObject({ truncated: true, truncatedBy: ["limit"] });
+  });
+
+  it("S3: a poll for a list that did not change gets a few bytes back, and a change sends the list again", async () => {
+    const root = workspace({ "report.pdf": "%PDF-1.4", "deck.pptx": "placeholder" });
+    const handlers = new Map<string, (input: unknown, context: unknown) => Promise<unknown>>();
+    contribute({ registerSettings: () => ({ read: async () => ({ status: "ready", revision: "", values: { turnCards: true } }), subscribe: () => () => {} }), on: () => () => {}, handle: (contract: { name: string }, handler: never) => handlers.set(contract.name, handler) } as never);
+    const paseo = { workspaces: { list: async () => ({ entries: [{ id: "ws", workspaceDirectory: root }], pageInfo: { hasMore: false } }) } };
+    const poll = async (since?: string) => docsRecentRpc.output.parse(await handlers.get("docs.recent")!(docsRecentRpc.input.parse({ workspaceId: "ws", since }), { paseo }));
+    const first = (await poll()) as DocsRecentList;
+    expect(first.version).toEqual(expect.any(String));
+    const unchanged = await poll(first.version);
+    expect(unchanged).toEqual({ unchanged: true, version: first.version });
+    expect(responseBytes(unchanged)).toBeLessThan(64);
+    expect(await poll("an older version")).toEqual(first);
+    utimesSync(join(root, "report.pdf"), 5_000, 5_000);
+    forgetScan(realpathSync(root));
+    const changed = (await poll(first.version)) as DocsRecentList;
+    expect(changed.version).not.toBe(first.version);
+    expect(changed.entries.map((entry) => entry.path)).toEqual(["deck.pptx", "report.pdf"]);
   });
 });

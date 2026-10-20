@@ -1,5 +1,5 @@
 import { type BrowseFilter, queryTerms } from "../shared/browse";
-import type { DocsRecentInput, DocsRecentOutput } from "../shared/rpc";
+import type { DocsRecentInput, DocsRecentList } from "../shared/rpc";
 
 export const REVISION_POLL_MS = 5_000;
 export const RECENT_POLL_MS = 5_000;
@@ -38,7 +38,7 @@ export function recentQueryOptions(workspaceId: string, filter: BrowseFilter & {
     request,
     refetchInterval: RECENT_POLL_MS,
     refetchOnWindowFocus: true,
-    placeholderData: (previous: DocsRecentOutput | undefined) => previous,
+    placeholderData: (previous: DocsRecentList | undefined) => previous,
   };
 }
 

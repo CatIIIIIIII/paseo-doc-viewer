@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { FlatList, Icon } from "@getpaseo/plugin/client/react-native";
-import { type ReactElement, useCallback, useEffect, useState } from "react";
+import { memo, type ReactElement, useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { baseName, humanSize, KIND_ICON, relativeTime } from "./format";
 import { treeExpansions, type TreeExpansion, type TreeRow } from "./folder-tree";
@@ -83,22 +83,36 @@ export function TreeList({
   palette: KindPalette;
   now: number;
   footer: ReactElement | null;
-  onToggle(chain: readonly string[], open: boolean): void;
+  onToggle(path: string, open: boolean): void;
   onOpen(path: string): void;
 }) {
+  // Rows take only values that survive a poll, so an unchanged row is not drawn again.
+  const renderItem = useCallback(
+    ({ item }: { item: TreeRow<RecentEntry> }) =>
+      item.type === "folder" ? (
+        <FolderRow
+          theme={theme}
+          styles={styles}
+          layout={layout}
+          path={item.path}
+          name={item.name}
+          depth={item.depth}
+          count={item.count}
+          expanded={item.expanded}
+          onToggle={onToggle}
+        />
+      ) : (
+        <FileRow theme={theme} styles={styles} layout={layout} entry={item.entry} depth={item.depth} palette={palette} now={now} onOpen={onOpen} />
+      ),
+    [theme, styles, layout, palette, now, onToggle, onOpen],
+  );
   return (
     <FlatList
       data={rows}
       keyExtractor={rowKey}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ padding: 8, paddingBottom: 8 + styles.bottomInset }}
-      renderItem={({ item }: { item: TreeRow<RecentEntry> }) =>
-        item.type === "folder" ? (
-          <FolderRow theme={theme} styles={styles} layout={layout} row={item} onPress={() => onToggle(item.chain, !item.expanded)} />
-        ) : (
-          <FileRow theme={theme} styles={styles} layout={layout} row={item} palette={palette} now={now} onPress={() => onOpen(item.entry.path)} />
-        )
-      }
+      renderItem={renderItem}
       ListFooterComponent={footer}
     />
   );
@@ -116,40 +130,57 @@ const rowStyle = (theme: PluginTheme, layout: TreeLayout, depth: number) =>
     backgroundColor: pressed || hovered ? theme.colors.surface2 : "transparent",
   });
 
-function FolderRow({ theme, styles, layout, row, onPress }: ChromeProps & { row: Extract<TreeRow<RecentEntry>, { type: "folder" }>; onPress(): void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${row.name}, folder, ${row.count} ${row.count === 1 ? "document" : "documents"}`}
-      aria-expanded={row.expanded}
-      onPress={onPress}
-      style={rowStyle(theme, layout, row.depth)}
-    >
-      <Icon name={row.expanded ? "ChevronDown" : "ChevronRight"} size={layout.iconSize} color={theme.colors.foregroundMuted} />
-      <Text style={[styles.text, { fontSize: layout.nameSize, fontWeight: "600", flexShrink: 1 }]} numberOfLines={1}>
-        {row.name}
-      </Text>
-      <Text style={styles.label}>{row.count}</Text>
-    </Pressable>
-  );
-}
-
-function FileRow({
+const FolderRow = memo(function FolderRow({
   theme,
   styles,
   layout,
-  row,
+  path,
+  name,
+  depth,
+  count,
+  expanded,
+  onToggle,
+}: ChromeProps & { path: string; name: string; depth: number; count: number; expanded: boolean; onToggle(path: string, open: boolean): void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${name}, folder, ${count} ${count === 1 ? "document" : "documents"}`}
+      aria-expanded={expanded}
+      onPress={() => onToggle(path, !expanded)}
+      style={rowStyle(theme, layout, depth)}
+    >
+      <Icon name={expanded ? "ChevronDown" : "ChevronRight"} size={layout.iconSize} color={theme.colors.foregroundMuted} />
+      <Text style={[styles.text, { fontSize: layout.nameSize, fontWeight: "600", flexShrink: 1 }]} numberOfLines={1}>
+        {name}
+      </Text>
+      <Text style={styles.label}>{count}</Text>
+    </Pressable>
+  );
+});
+
+const sameEntry = (a: RecentEntry, b: RecentEntry) =>
+  Object.keys(a).length === Object.keys(b).length && (Object.keys(a) as (keyof RecentEntry)[]).every((field) => a[field] === b[field]);
+
+// The entry by value: a poll that moves a changed file to the top hands over the entries after it as copies.
+const sameFileRow = <P extends { entry: RecentEntry }>(a: P, b: P) =>
+  (Object.keys(a) as (keyof P)[]).every((key) => (key === "entry" ? sameEntry(a.entry, b.entry) : a[key] === b[key]));
+
+const FileRow = memo(function FileRow({
+  theme,
+  styles,
+  layout,
+  entry,
+  depth,
   palette,
   now,
-  onPress,
-}: ChromeProps & { row: Extract<TreeRow<RecentEntry>, { type: "file" }>; palette: KindPalette; now: number; onPress(): void }) {
-  const { entry } = row;
+  onOpen,
+}: ChromeProps & { entry: RecentEntry; depth: number; palette: KindPalette; now: number; onOpen(path: string): void }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={entryLabel(entry, now, [humanSize(entry.size)])}
-      onPress={onPress}
-      style={rowStyle(theme, layout, row.depth)}
+      onPress={() => onOpen(entry.path)}
+      style={rowStyle(theme, layout, depth)}
     >
       <Icon name={KIND_ICON[entry.kind]} size={layout.iconSize} color={kindColor(palette, entry.kind)} />
       <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -164,4 +195,4 @@ function FileRow({
       </Text>
     </Pressable>
   );
-}
+}, sameFileRow);
