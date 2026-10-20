@@ -16,6 +16,8 @@ interface ChromeProps {
 }
 
 const ROW_PADDING = 8;
+// The notice keeps this much room beside Expand all and Collapse all, or takes a row of its own above them.
+const NOTICE_MIN_WIDTH = 240;
 
 // On the web the rows form a tree: react-native-web passes role and aria-level through. React Native has
 // no tree role, so there the rows stay buttons and a folder's label speaks its level.
@@ -47,24 +49,26 @@ export function TreeActions({
   onCollapseAll,
 }: ChromeProps & { notice: string | null; onExpandAll(): void; onCollapseAll(): void }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8 + ROW_PADDING, paddingTop: 8 }}>
-      <Text style={[styles.muted, { flex: 1 }]}>{notice ?? ""}</Text>
-      <ToolbarButton
-        theme={theme}
-        styles={styles}
-        icon="ChevronsUpDown"
-        label={layout.actionLabels ? "Expand all" : undefined}
-        accessibilityLabel="Expand all folders"
-        onPress={onExpandAll}
-      />
-      <ToolbarButton
-        theme={theme}
-        styles={styles}
-        icon="ChevronsDownUp"
-        label={layout.actionLabels ? "Collapse all" : undefined}
-        accessibilityLabel="Collapse all folders"
-        onPress={onCollapseAll}
-      />
+    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, paddingHorizontal: 8 + ROW_PADDING, paddingTop: 8 }}>
+      {notice ? <Text style={[styles.muted, { flexGrow: 1, flexShrink: 1, flexBasis: NOTICE_MIN_WIDTH }]}>{notice}</Text> : null}
+      <View style={{ flexDirection: "row", gap: 8, marginLeft: "auto" }}>
+        <ToolbarButton
+          theme={theme}
+          styles={styles}
+          icon="ChevronsUpDown"
+          label={layout.actionLabels ? "Expand all" : undefined}
+          accessibilityLabel="Expand all folders"
+          onPress={onExpandAll}
+        />
+        <ToolbarButton
+          theme={theme}
+          styles={styles}
+          icon="ChevronsDownUp"
+          label={layout.actionLabels ? "Collapse all" : undefined}
+          accessibilityLabel="Collapse all folders"
+          onPress={onCollapseAll}
+        />
+      </View>
     </View>
   );
 }
