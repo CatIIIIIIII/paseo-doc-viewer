@@ -6,9 +6,10 @@ import * as pluginServer from "@getpaseo/plugin/server";
 import { describe, expect, it } from "vitest";
 import * as zod from "zod";
 import { renderPdfPage } from "../server/pdf";
+import { ERROR_MESSAGES } from "../shared/errors";
 import { textPdf } from "./fixtures/generators.ts";
 import { nestedFormPdf } from "./fixtures/hostile";
-import { decodePng, workspace } from "./helpers";
+import { decodePng, longestBlockMs, workspace } from "./helpers";
 import { compileLikePaseo, evaluateBundle } from "./paseo-compile";
 
 // Audit (post 0.4.0): PDFium rendered synchronously inside the plugin's only event loop, so heavy()'s
@@ -29,23 +30,13 @@ describe("audit: PDFium isolation", () => {
     // The first render loads PDFium, decoding its WASM on this thread; done here, that stays out of the
     // window measured below, which holds only the nested render.
     await renderPdfPage(file(root, "ok.pdf"), 0, fit);
-    // CPU this thread spent between ticks: work that held the event loop, which a busy machine does not
-    // inflate the way it delays the timer itself.
-    const cpuMs = () => { const { user, system } = process.threadCpuUsage(); return (user + system) / 1000; };
-    let maxLag = 0;
-    let last = cpuMs();
-    const probe = setInterval(() => {
-      const now = cpuMs();
-      maxLag = Math.max(maxLag, now - last);
-      last = now;
-    }, 10);
-    try {
-      await renderPdfPage(file(root, "nested.pdf"), 0, fit);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    } finally {
-      clearInterval(probe);
-    }
-    expect(maxLag).toBeLessThan(500);
+    // On a loaded machine the nested render can run past PDFium's 20 s deadline. The worker renders until
+    // then either way, so the window holds the same work.
+    const nested = () =>
+      renderPdfPage(file(root, "nested.pdf"), 0, fit).catch((error: Error) => {
+        if (error.message !== ERROR_MESSAGES.tooSlow()) throw error;
+      });
+    expect(await longestBlockMs(nested)).toBeLessThan(500);
   }, 60_000);
 
   it("renders an ordinary PDF right after another PDF aborted the WASM module", async () => {
