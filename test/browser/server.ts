@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { revisionOf } from "../../server/revision";
 import contribute from "../../index.server";
 import { scanIssues, searchDocument } from "../../server/documents";
+import { scannedDocuments } from "../../server/recent";
 import { searchGenerations } from "../../server/search";
 import { readFileSync } from "node:fs";
 import { DOCUMENT_RPCS } from "../../shared/rpc";
@@ -84,6 +85,9 @@ const server = createServer(async (request, response) => {
       ] }));
     return;
   }
+  // Simulates an agent's turn ending after it wrote files: the plugin then rescans the workspace, so the
+  // next list reads the files as they are now instead of a scan cached from before the write.
+  if (request.url === "/turn-ended") { await scannedDocuments(root, { fresh: true }); response.end("ok"); return; }
   if (request.url !== "/rpc") { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><html><head><meta charset="utf-8"><title>Viewer test harness</title></head><body style="background:#111827;color:#e5e7eb;font-family:system-ui"><div id="root"></div><script src="/bundle.js"></script></body></html>'); return; }
   try {
     let body = ""; for await (const part of request) body += part;

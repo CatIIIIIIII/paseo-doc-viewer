@@ -69,13 +69,20 @@ try {
   page = await browser.newPage({ viewport: { width: 1100, height: 1000 }, acceptDownloads: true });
   const failures = [];
   page.on("pageerror", (error) => { failures.push(error.message); console.error("Browser error:", error.message); });
-  // RPC calls the page made from index `from` on that match, all of them answered.
+  // For each RPC call the page made from index `from` on that matches, whether it has been answered.
   const rpcCallsFrom = (from, method, input = {}) => page.evaluate(({ from, method, input }) => {
     const matches = (value, expected) => Object.entries(expected).every(([key, want]) => (want !== null && typeof want === "object" ? matches(value?.[key], want) : value?.[key] === want));
-    const found = window.__rpcCalls.slice(from).filter((call) => call.method === method && matches(call.input, input));
-    return found.length > 0 && found.every((call) => call.settled) ? found.length : 0;
+    return window.__rpcCalls.slice(from).filter((call) => call.method === method && matches(call.input, input)).map((call) => call.settled);
   }, { from, method, input });
   const rpcCallCount = () => page.evaluate(() => window.__rpcCalls.length);
+  // Waits until such calls were made and all are answered. A poll sent after a change has seen it, so the
+  // screen then shows the change within a render; the long limit only bounds a call that never comes.
+  const rpcAnswered = (from, method, input) => expect.poll(async () => {
+    const calls = await rpcCallsFrom(from, method, input);
+    return calls.length > 0 && calls.every(Boolean);
+  }, { message: `${method} answered`, timeout: 30_000 }).toBe(true);
+  // Lets a render the last answer caused reach the screen, before a check that it changed nothing there.
+  const nextFrame = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))));
   // The viewer saves its position a second after the last change, and at once when it closes, so a
   // reopen after every save is answered reads the latest.
   const reopenViewer = async () => {
@@ -202,8 +209,11 @@ try {
   await page.getByRole("button", { name: "many.csv", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("needle");
+  const sinceManySearch = await rpcCallCount();
   await page.getByRole("button", { name: "Search", exact: true }).click();
-  await expect(page.getByText("120 matches", { exact: true })).toBeVisible({ timeout: 15000 });
+  // The client asks for the next part as soon as one answers, so all answered means the search is done.
+  await rpcAnswered(sinceManySearch, "doc.search", { path: "many.csv", query: "needle" });
+  await expect(page.getByText("120 matches", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Search more", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "contract.docx", exact: true }).click();
   await expect.poll(() => page.getByText("Unit", { exact: true }).evaluate((cell) => {
@@ -243,79 +253,117 @@ try {
   const video = await page.locator("video").evaluate(playUntilAdvanced);
   expect(video.currentTime).toBeGreaterThan(0); expect(video.muted).toBe(false); expect(video.tracks).toBe(1);
   // A slow media transfer shows feedback immediately and can be cancelled before its response arrives.
-  const slowMedia = async (route) => {
-    if (route.request().postDataJSON().method === "media.chunk") await new Promise((resolve) => setTimeout(resolve, 500));
-    await route.continue().catch(() => {});
+  // Its chunk is held until after the cancel or navigation; once the late answer is handled, the
+  // transfer must have asked for nothing more and shown nothing.
+  let holdingMedia = true;
+  const heldMedia = [];
+  const holdMedia = async (route) => {
+    if (holdingMedia && route.request().postDataJSON().method === "media.chunk") heldMedia.push(route);
+    else await route.continue().catch(() => {});
   };
-  await page.route("**/rpc", slowMedia);
+  const releaseMedia = async (since) => {
+    holdingMedia = false;
+    for (const route of heldMedia.splice(0)) await route.continue().catch(() => {});
+    await rpcAnswered(since, "media.chunk");
+    expect(await rpcCallsFrom(since, "media.chunk")).toEqual([true]);
+    await nextFrame();
+    holdingMedia = true;
+  };
+  await page.route("**/rpc", holdMedia);
+  let sinceMedia = await rpcCallCount();
   await page.getByRole("button", { name: "animated.webp", exact: true }).click();
   await expect(page.getByRole("progressbar", { name: "Loading animation", exact: true })).toBeVisible();
+  await expect.poll(() => heldMedia.length).toBe(1);
   await page.getByRole("button", { name: "Cancel loading", exact: true }).click();
   await expect(page.getByRole("button", { name: "Load animation", exact: true })).toBeVisible();
-  await page.waitForTimeout(650);
+  await releaseMedia(sinceMedia);
   await expect(page.getByRole("button", { name: "Load animation", exact: true })).toBeVisible();
   await expect(page.getByRole("img").first()).toBeVisible();
+  sinceMedia = await rpcCallCount();
   await page.getByRole("button", { name: "clip.mp4", exact: true }).click();
   await expect(page.getByRole("progressbar", { name: "Loading video", exact: true })).toBeVisible();
+  await expect.poll(() => heldMedia.length).toBe(1);
   await page.getByRole("button", { name: "Cancel loading", exact: true }).click();
   await expect(page.getByRole("button", { name: /^Load video/ })).toBeVisible();
-  await page.waitForTimeout(650);
+  await releaseMedia(sinceMedia);
   await expect(page.locator("video")).toHaveCount(0);
+  sinceMedia = await rpcCallCount();
   await page.getByRole("button", { name: /^Load video/ }).click();
   await expect(page.getByRole("progressbar", { name: "Loading video", exact: true })).toBeVisible();
+  await expect.poll(() => heldMedia.length).toBe(1);
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
   await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeVisible();
-  await page.waitForTimeout(650);
+  await releaseMedia(sinceMedia);
   await expect(page.locator("video")).toHaveCount(0);
-  await page.unroute("**/rpc", slowMedia);
+  await page.unroute("**/rpc", holdMedia);
   // Adversarial lifecycle checks: a late request must not populate a new query
-  // or create a Save link after the user cancelled preparation.
+  // or create a Save link after the user cancelled preparation. Each first request is held until
+  // after the change or cancel, and the checks run once its late answer is handled.
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
-  const delaySearch = async (route) => {
-    if (route.request().postDataJSON().method === "doc.search") await new Promise((resolve) => setTimeout(resolve, 250));
-    await route.continue().catch(() => {});
+  const heldSearch = [];
+  const holdSearch = async (route) => {
+    if (heldSearch.length === 0 && route.request().postDataJSON().method === "doc.search") heldSearch.push(route);
+    else await route.continue().catch(() => {});
   };
-  await page.route("**/rpc", delaySearch);
+  await page.route("**/rpc", holdSearch);
+  const sinceStaleSearch = await rpcCallCount();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("statement");
   await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect.poll(() => heldSearch.length).toBe(1);
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("no such phrase");
-  // The stale burst spans several delayed RPCs; wait for all of them to land.
-  await page.waitForTimeout(2000);
+  await heldSearch[0].continue();
+  // The stale search stops at its late answer: it asks for no further part.
+  await rpcAnswered(sinceStaleSearch, "doc.search", { query: "statement" });
+  expect(await rpcCallsFrom(sinceStaleSearch, "doc.search", { query: "statement" })).toEqual([true]);
+  await nextFrame();
   await expect(page.getByRole("button", { name: /^Page \d+:/ })).toHaveCount(0);
   await expect(page.getByText("3 matches", { exact: true })).toHaveCount(0);
-  await page.unroute("**/rpc", delaySearch);
+  await page.unroute("**/rpc", holdSearch);
   await page.getByRole("button", { name: "broken.pdf", exact: true }).click();
-  const delayChunk = async (route) => {
-    if (route.request().postDataJSON().method === "file.chunk") await new Promise((resolve) => setTimeout(resolve, 250));
-    await route.continue().catch(() => {});
+  const heldChunk = [];
+  const holdChunk = async (route) => {
+    if (heldChunk.length === 0 && route.request().postDataJSON().method === "file.chunk") heldChunk.push(route);
+    else await route.continue().catch(() => {});
   };
-  await page.route("**/rpc", delayChunk);
+  await page.route("**/rpc", holdChunk);
+  const sinceDownload = await rpcCallCount();
   await page.getByRole("button", { name: "Download original", exact: true }).click();
   await expect(page.getByLabel("Preparing original file", { exact: true })).toBeVisible();
+  await expect.poll(() => heldChunk.length).toBe(1);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.waitForTimeout(400);
+  await heldChunk[0].continue();
+  await rpcAnswered(sinceDownload, "file.chunk");
+  expect(await rpcCallsFrom(sinceDownload, "file.chunk")).toEqual([true]);
+  await nextFrame();
   await expect(page.getByRole("link", { name: "Save original file", exact: true })).toHaveCount(0);
-  await page.unroute("**/rpc", delayChunk);
-  const delayPosition = async (route) => {
-    if (route.request().postDataJSON().method === "viewer-state.read") await new Promise((resolve) => setTimeout(resolve, 1900));
-    await route.continue().catch(() => {});
+  await page.unroute("**/rpc", holdChunk);
+  // A slow position read does not hold up reading: the viewer opens when its own wait for the read
+  // ends. The reads are held until the reader has turned the page.
+  let holdingReads = true;
+  const heldReads = [];
+  const holdReads = async (route) => {
+    if (holdingReads && route.request().postDataJSON().method === "viewer-state.read") heldReads.push(route);
+    else await route.continue().catch(() => {});
   };
-  await page.route("**/rpc", delayPosition);
-  const writes = [];
-  const recordWrite = (request) => { if (request.url().endsWith("/rpc") && request.postDataJSON()?.method === "viewer-state.write") writes.push(request); };
-  page.on("request", recordWrite);
+  await page.route("**/rpc", holdReads);
+  const sinceSlowRead = await rpcCallCount();
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeVisible({ timeout: 3000 });
   await page.getByRole("button", { name: "Next page", exact: true }).click();
-  await page.waitForTimeout(700);
   await expect(page.getByText("2 / 3", { exact: true })).toBeVisible();
-  // After the read timed out, a late answer must not enable writes over unread history.
+  holdingReads = false;
+  for (const route of heldReads.splice(0)) await route.continue().catch(() => {});
+  await rpcAnswered(sinceSlowRead, "viewer-state.read", { path: "statement.pdf" });
+  await nextFrame();
+  await expect(page.getByText("2 / 3", { exact: true })).toBeVisible();
+  // After the read timed out, a late answer must not enable writes over unread history. Closing
+  // saves a pending position at once, so a save the late answer had enabled would be sent there.
   await page.getByRole("button", { name: "Next page", exact: true }).click();
-  await page.waitForTimeout(1300);
-  expect(writes).toHaveLength(0);
-  page.off("request", recordWrite);
-  await page.unroute("**/rpc", delayPosition);
+  await expect(page.getByText("3 / 3", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close viewer", exact: true }).click();
+  expect(await rpcCallsFrom(sinceSlowRead, "viewer-state.write")).toEqual([]);
+  await page.getByRole("button", { name: "Reopen viewer", exact: true }).click();
+  await page.unroute("**/rpc", holdReads);
   const thumbnails = { requested: [], inFlight: 0, maxInFlight: 0 };
   const isThumbnail = (request) => request.url().endsWith("/rpc") && request.postDataJSON()?.method === "doc.thumbnail";
   page.on("request", (request) => { if (!isThumbnail(request)) return; thumbnails.requested.push(request.postDataJSON().input.index); thumbnails.maxInFlight = Math.max(thumbnails.maxInFlight, ++thumbnails.inFlight); });
@@ -366,9 +414,11 @@ try {
   const rewritten = await PDFDocument.load(await readFile(`${directory}/report.pdf`));
   rewritten.removePage(0);
   await writeFile(`${root}/report.pdf`, await rewritten.save());
+  const sinceReportRewrite = await rpcCallCount();
   await page.getByRole("button", { name: "Page map", exact: true }).click();
+  await rpcAnswered(sinceReportRewrite, "doc.open", { path: "report.pdf" });
   const changedPin = page.getByRole("button", { name: /^Open pin: Page 42, Chart, May need checking/ });
-  await expect(changedPin).toBeVisible({ timeout: 12000 });
+  await expect(changedPin).toBeVisible();
   await page.getByRole("button", { name: "Confirm pin on page 42", exact: true }).click();
   await expect(page.getByRole("button", { name: "Open pin: Page 42, Chart", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Remove pin on page 42", exact: true }).click();
@@ -406,11 +456,20 @@ try {
   const recordReview = (request) => { if (request.url().endsWith("/rpc") && request.postDataJSON()?.method === "viewer-state.review") reviews.push(request.postDataJSON().input); };
   page.on("request", recordReview);
   const touch = async (name, seconds) => { await writeFile(`${root}/${name}`, await readFile(`${root}/${name}`)); await utimes(`${root}/${name}`, seconds, seconds); };
+  // An agent writes, then its turn ends, which rescans the workspace. Returns the call count to wait from.
+  const agentWrote = async (write) => {
+    await write();
+    await page.request.get(`http://127.0.0.1:${port}/turn-ended`);
+    return rpcCallCount();
+  };
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  const sinceTurnedPage = await rpcCallCount();
   await page.getByRole("button", { name: "Next page", exact: true }).click();
-  await page.waitForTimeout(1300);
+  // The page turn is saved a second later; that save must not mark the document reviewed.
+  await rpcAnswered(sinceTurnedPage, "viewer-state.write", { path: "statement.pdf" });
+  await nextFrame();
   await expect(page.getByRole("button", { name: "Mark reviewed", exact: true })).toBeVisible();
-  expect(reviews).toHaveLength(0);
+  expect(await rpcCallsFrom(sinceTurnedPage, "viewer-state.review")).toEqual([]);
   await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
   await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
   expect(reviews).toHaveLength(1);
@@ -441,8 +500,9 @@ try {
   await expect(page.getByRole("button", { name: /^long\.pdf, PDF, [^,]*$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Needs review/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^New, / })).toHaveCount(0);
-  await touch("statement.pdf", Date.now() / 1000 + 60);
-  await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible({ timeout: 15000 });
+  const sinceListRewrite = await agentWrote(() => touch("statement.pdf", Date.now() / 1000 + 60));
+  await rpcAnswered(sinceListRewrite, "docs.recent");
+  await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible();
   // Needs review leads the filter row, so it is not scrolled off on a phone.
   await expect(page.getByRole("button", { name: /^(Needs review|All), / }).first()).toHaveAttribute("aria-label", "Needs review, 1 document");
   const chipIcon = (target, name, icon) => target.getByRole("button", { name, exact: typeof name === "string" }).locator(`[aria-hidden="true"] [data-icon="${icon}"]`);
@@ -457,11 +517,11 @@ try {
   await touch("statement.pdf", Date.now() / 1000 + 120);
   const sinceRewrite = await rpcCallCount();
   await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
-  await expect.poll(() => rpcCallsFrom(sinceRewrite, "viewer-state.review")).toBe(1);
+  await expect.poll(() => rpcCallsFrom(sinceRewrite, "viewer-state.review")).toEqual([true]);
   await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toHaveCount(0);
   await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
   // The viewer shows the rewrite once a revision poll answers, one poll interval at most.
-  await expect.poll(() => rpcCallsFrom(sinceRewrite, "doc.open", { path: "statement.pdf" }), { timeout: 15_000 }).toBeGreaterThan(0);
+  await rpcAnswered(sinceRewrite, "doc.open", { path: "statement.pdf" });
   await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
   await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Documents", exact: true }).click();
@@ -529,11 +589,15 @@ try {
   await expect(page.getByRole("button", { name: "Send review to Docs agent", exact: true })).toBeVisible();
   // When the preselected agent turns busy it stays selected, and the screen says why Send is off.
   await page.evaluate(() => window.__setAgentStatus("docs", "running"));
-  await expect(page.getByRole("radio", { name: "Docs agent, Busy", exact: true })).toBeVisible({ timeout: 12000 });
+  const sinceBusy = await rpcCallCount();
+  await rpcAnswered(sinceBusy, "agents.list");
+  await expect(page.getByRole("radio", { name: "Docs agent, Busy", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send review to Docs agent", exact: true })).toHaveAttribute("aria-disabled", "true");
   await expect(page.getByText("Docs agent is busy. Wait until it is idle, or copy the review.", { exact: true })).toBeVisible();
   await page.evaluate(() => window.__setAgentStatus("docs", "idle"));
-  await expect(page.getByRole("radio", { name: "Docs agent, Idle", exact: true })).toBeVisible({ timeout: 12000 });
+  const sinceIdle = await rpcCallCount();
+  await rpcAnswered(sinceIdle, "agents.list");
+  await expect(page.getByRole("radio", { name: "Docs agent, Idle", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send review to Docs agent", exact: true })).not.toHaveAttribute("aria-disabled", "true");
   await expect(page.getByText(/ is busy\. Wait until it is idle/)).toHaveCount(0);
   await page.getByRole("radio", { name: "Racing agent, Idle", exact: true }).click();
@@ -545,7 +609,9 @@ try {
   await expect(page.getByText("2 notes", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.__sentReviews.length)).toBe(0);
   await page.request.get(`http://127.0.0.1:${port}/touch/statement.pdf`);
-  await expect(page.getByText("Older revision: the file changed since this note", { exact: true })).toHaveCount(2, { timeout: 12000 });
+  const sinceNoteRewrite = await rpcCallCount();
+  await rpcAnswered(sinceNoteRewrite, "doc.open", { path: "statement.pdf" });
+  await expect(page.getByText("Older revision: the file changed since this note", { exact: true })).toHaveCount(2);
   await expect(preview).toContainText("\"statement.pdf\", older version (modified ");
   await expect(page.getByRole("button", { name: "Attach page 1 image", exact: true })).toHaveAttribute("aria-disabled", "true");
   await page.screenshot({ path: `${directory}/review-screen.png`, fullPage: true });
@@ -571,12 +637,12 @@ try {
   const beforeWideZoom = await rpcCallCount();
   await page.getByRole("button", { name: "Zoom in", exact: true }).click();
   await expect(page.getByText("1.5x", { exact: true })).toBeVisible();
-  await expect.poll(() => rpcCallsFrom(beforeWideZoom, "viewer-state.write", { path: "statement.pdf", position: { zoom: 1.5 } })).toBeGreaterThan(0);
+  await rpcAnswered(beforeWideZoom, "viewer-state.write", { path: "statement.pdf", position: { zoom: 1.5 } });
   const phone = page;
   await phone.setViewportSize({ width: 390, height: 844 });
   // A file the agent wrote since Documents was last opened is new until reviewed. Reloading
   // starts a new app session, so this visit compares against the first one above.
-  await writeFile(`${root}/fresh.csv`, "a,b\n1,2\n");
+  await agentWrote(() => writeFile(`${root}/fresh.csv`, "a,b\n1,2\n"));
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ })).toBeVisible();
@@ -596,8 +662,9 @@ try {
   await phone.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, changed [^,]*$/ })).toBeVisible();
   await expect(phone.getByRole("button", { name: /^New, / })).toHaveCount(0);
-  await writeFile(`${root}/fresh.csv`, "a,b\n1,2\n3,4\n");
-  await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ })).toBeVisible({ timeout: 15_000 });
+  const sinceFreshRewrite = await agentWrote(() => writeFile(`${root}/fresh.csv`, "a,b\n1,2\n3,4\n"));
+  await rpcAnswered(sinceFreshRewrite, "docs.recent");
+  await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ })).toBeVisible();
   await expect(phone.getByRole("button", { name: "New, 1 document", exact: true })).toBeVisible();
   // Tips fit a phone: reopened from under the list, one card above the search box, 44 pt targets, no overflow.
   await phone.getByRole("button", { name: "Show tips", exact: true }).click();
@@ -654,7 +721,7 @@ try {
   await phone.getByRole("button", { name: "Zoom in", exact: true }).click();
   await phone.getByRole("button", { name: "Zoom in", exact: true }).click();
   await expect(phone.getByText("2x", { exact: true })).toBeVisible();
-  await expect.poll(() => rpcCallsFrom(beforePhoneZoom, "viewer-state.write", { path: "statement.pdf", position: { zoom: 2 } })).toBeGreaterThan(0);
+  await rpcAnswered(beforePhoneZoom, "viewer-state.write", { path: "statement.pdf", position: { zoom: 2 } });
   await phone.setViewportSize({ width: 1100, height: 1000 });
   await phone.goto(`http://127.0.0.1:${port}/`);
   await expect(phone.getByText("1.5x", { exact: true })).toBeVisible();

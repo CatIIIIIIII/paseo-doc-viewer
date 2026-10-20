@@ -6,7 +6,7 @@ import { createDocumentsPanel } from "../../client/documents-panel";
 import { setHostClient } from "../../client/host-client";
 import { ReviewScreen } from "../../client/review-screen";
 import { createTurnDocsCard, legacyTurnDocsCard } from "../../client/turn-docs-card";
-import { callRpc } from "./plugin-shim";
+import { callRpc, recordCall } from "./plugin-shim";
 const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 const theme = { colors: { foreground: "#e5e7eb", foregroundMuted: "#9ca3af", surface0: "#111827", surface1: "#1f2937", surface2: "#374151", border: "#4b5563", accent: "#6366f1", accentForeground: "#fff", statusDanger: "#f87171", statusWarning: "#fbbf24", statusSuccess: "#34d399" } };
 // Fake agents: "racing" reads as idle in the list but busy when re-checked at submission,
@@ -28,7 +28,8 @@ const sent: unknown[] = [];
   agents[index] = { ...agents[index], status };
 };
 (globalThis as any).__fakePaseo = { agents: {
-  list: async () => ({ entries: agents.map((each) => ({ agent: each })) }),
+  // Logged with the RPC calls, so a check can wait for a list that started after a status change.
+  list: () => recordCall("agents.list", {}, async () => ({ entries: agents.map((each) => ({ agent: each })) })),
   ref: (id: string) => ({
     refresh: async () => { const found = agents.find((each) => each.id === id); return found ? { agent: id === "racing" ? { ...found, status: "running" } : found } : null; },
     send: async (text: string, options: unknown) => { if (id === "broken") throw new Error("sendAgentMessage rejected"); sent.push({ id, text, options }); },
