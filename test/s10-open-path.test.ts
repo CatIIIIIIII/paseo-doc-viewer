@@ -116,14 +116,14 @@ describe("S10: open a document by path despite the missing Files-tree hook", () 
       if (contract.name !== "docs.recent") throw new Error(`unexpected rpc ${contract.name}`);
       return {
         entries: [
-          { path: "build/main.pdf", kind: "pdf", mtimeMs: 3, size: 10 },
-          { path: "notes.docx", kind: "docx", mtimeMs: 1, size: 10 },
+          { path: "build/main.pdf", kind: "pdf", mtimeMs: 1, size: 10 },
+          { path: "notes.docx", kind: "docx", mtimeMs: 3, size: 10 },
         ],
         truncated: false,
       };
     });
     await command!.onSelect({ context: "workspace", workspace: { id: "ws-1" }, rpc, openScreen, openPanel: vi.fn() });
-    // A PDF reads inside the workspace's Documents panel.
+    // Every kind, not only PDFs, reads inside the workspace's Documents panel.
     expect(openScreen).not.toHaveBeenCalled();
     expect(clientOpenPanel).toHaveBeenCalledWith("documents", { workspaceId: "ws-1" });
   });

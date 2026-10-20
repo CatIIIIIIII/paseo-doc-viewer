@@ -176,7 +176,7 @@ export function PageViewer({ workspaceId, path, revision, kind, count, password,
   return (
     <View style={styles.screen}>
       {count > 0 ? (
-        <View style={[styles.toolbar, kind === "pdf" && styles.compact ? { flexWrap: "wrap", rowGap: 4 } : null]}>
+        <View style={[styles.toolbar, styles.compact ? { flexWrap: "wrap", rowGap: 4 } : null]}>
           {kind === "pdf" ? (
             <PageNavigation active={active} count={count} theme={theme} styles={styles} onChange={setIndex} />
           ) : paged ? (

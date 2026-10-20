@@ -31,7 +31,8 @@ export function makeStyles(theme: PluginTheme, compact: boolean, bottomInset = 0
     },
     toolbarSpacer: { flex: 1 },
     toolbarGroup: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
-    rangeLabel: { minWidth: 132, textAlign: "center" as const },
+    // 104 lets ‹ label › fit a 230 pt explorer column; longer ranges wrap there.
+    rangeLabel: { minWidth: compact ? 104 : 132, flexShrink: 1, textAlign: "center" as const },
     text: { color: c.foreground, fontSize: 14 },
     content: { color: c.foreground, fontSize: compact ? 16 : 15, lineHeight: compact ? 24 : 22 },
     muted: { color: c.foregroundMuted, fontSize: 12 },

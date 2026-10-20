@@ -80,7 +80,7 @@ var opened = [];
 var context = {
   args: "", context: "workspace", workspace: { id: "ws" },
   openScreen: function (input) { opened.push(input); }, openPanel: noop,
-  rpc: function () { return Promise.resolve({ entries: [{ path: "a.pdf", kind: "pdf", mtimeMs: 1, size: 1 }, { path: "b/new.pdf", kind: "pdf", mtimeMs: 9, size: 1 }], truncated: false }); }
+  rpc: function () { return Promise.resolve({ entries: [{ path: "a.pdf", kind: "pdf", mtimeMs: 1, size: 1 }, { path: "b/new.docx", kind: "docx", mtimeMs: 9, size: 1 }], truncated: false }); }
 };
 log(JSON.stringify({ step: "contribute", cleanup: typeof cleanup, screens: registered.screen.length, commands: registered.cc.length, panels: registered.panel.length, slash: registered.slash.length, timeline: registered.timeline.map(function (c) { return c.kind + "@" + c.version; }), settings: registered.settings.length, title: registered.screen[0].title({ path: "report/main.pdf" }) }));
 // setTimeout is stubbed, so let the header probe's promise chain settle before reading buttons.

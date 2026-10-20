@@ -1,6 +1,5 @@
 import type { PluginClientContext, PluginOpenScreenInput } from "@getpaseo/plugin/client";
 import { createPanelReader } from "./client/panel-reader";
-import { kindForPath } from "./shared/kinds";
 import { DocumentScreen } from "./client/document-screen";
 import { documentTitle } from "./client/format";
 import { createDocumentsPanel } from "./client/documents-panel";
@@ -18,7 +17,7 @@ export default function contribute(client: PluginClientContext) {
   const reader = createPanelReader();
   const openDocument = (input: PluginOpenScreenInput) => {
     const { workspaceId, path, siblings } = input.params ?? {};
-    if (input.screenId === DOCUMENT_SCREEN_ID && workspaceId && path && kindForPath(path) === "pdf") {
+    if (input.screenId === DOCUMENT_SCREEN_ID && workspaceId && path) {
       reader.select(workspaceId, { path, siblings });
       client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId });
     } else {
@@ -49,7 +48,7 @@ export default function contribute(client: PluginClientContext) {
       icon: "FileText",
       context: "workspace",
       locations: ["workspace", "explorer"],
-      Component: createDocumentsPanel(openDocument, reader),
+      Component: createDocumentsPanel((input) => client.openScreen(input), reader),
     }),
     client.addSlashCommand({
       name: "doc",

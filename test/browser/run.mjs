@@ -557,20 +557,24 @@ try {
   await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(1);
   await page.screenshot({ path: `${directory}/needs-review.png`, fullPage: true });
   await page.getByRole("button", { name: /^statement\.pdf, PDF, / }).click();
-  await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
-  await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
+  // Documents keeps its list, hidden, under the reader, so text checks look at what is shown.
+  const reviewPill = page.getByText("Changed since review", { exact: true }).filter({ visible: true });
+  await expect(reviewPill).toBeVisible();
   // A rewrite the open viewer has not picked up yet must not be marked reviewed.
   await touch("statement.pdf", Date.now() / 1000 + 120);
   const sinceRewrite = await rpcCallCount();
   await markReviewed.click();
   await expect.poll(() => rpcCallsFrom(sinceRewrite, "viewer-state.review")).toEqual([true]);
   await expect(markReviewed).toHaveAttribute("aria-pressed", "false");
-  await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
+  await expect(reviewPill).toBeVisible();
   // The viewer shows the rewrite once a revision poll answers, one poll interval at most.
   await rpcAnswered(sinceRewrite, "doc.open", { path: "statement.pdf" });
   await markReviewed.click();
   await expect(markReviewed).toHaveAttribute("aria-pressed", "true");
-  await showDocuments(page);
+  // Back finds the list as it was left, still filtered to Needs review, and refreshed at once.
+  await page.getByRole("button", { name: "Back to documents", exact: true }).click();
+  await expect(page.getByText("No files changed since review", { exact: true })).toBeVisible({ timeout: 2000 });
+  await page.getByRole("button", { name: "Needs review, 0 documents", exact: true }).click();
   await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   page.off("request", recordReview);
   // A timer does not run while a window is away, so the times are read again when it gets focus or shows again.
@@ -717,7 +721,11 @@ try {
   const openedMark = phone.waitForResponse((response) => response.url().endsWith("/rpc") && response.request().postData()?.includes('"viewer-state.opened"'));
   await phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ }).click();
   expect(await (await openedMark).json()).toEqual({ marked: true });
-  await showDocuments(phone);
+  // A CSV reads inside Documents too; Back keeps the New filter, so the opened file has left it.
+  await expect(phone.locator("main").getByLabel("fresh.csv", { exact: true })).toBeVisible();
+  await phone.getByRole("button", { name: "Back to documents", exact: true }).click();
+  await expect(phone.getByText("No new files", { exact: true })).toBeVisible();
+  await phone.getByRole("button", { name: "New, 0 documents", exact: true }).click();
   await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, changed [^,]*$/ })).toBeVisible();
   await expect(phone.getByRole("button", { name: /^New, / })).toHaveCount(0);
   const sinceFreshRewrite = await agentWrote(() => writeFile(`${root}/fresh.csv`, "a,b\n1,2\n3,4\n"));
@@ -1239,10 +1247,17 @@ try {
   await folderRow("exports").click();
   await fileRow("run-2.csv").click();
   const runs = Array.from({ length: 12 }, (_, index) => `exports/run-${index + 1}.csv`);
-  expect(JSON.parse(await page.evaluate(() => window.__openedScreen.params.siblings))).toEqual(runs);
   await expect(page.getByText("Document 2 of 12", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next document", exact: true }).click();
   await expect(page.getByText("Document 3 of 12", { exact: true })).toBeVisible();
+  // Open in tab hands the document and its folder to the standalone screen.
+  expect(await page.evaluate(() => window.__openedScreen)).toBeUndefined();
+  await page.getByRole("button", { name: "Open in tab", exact: true }).click();
+  const tabbed = await page.evaluate(() => window.__openedScreen);
+  expect(tabbed).toMatchObject({ screenId: "document", params: { workspaceId: "workspace", path: "exports/run-3.csv" } });
+  expect(JSON.parse(tabbed.params.siblings)).toEqual(runs);
+  await expect(page.getByText("Document 3 of 12", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back to documents", exact: true })).toHaveCount(0);
   await showDocuments(page);
   await fileRow("run-2.csv").focus();
   await page.keyboard.press("Space");
@@ -1289,6 +1304,19 @@ try {
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(230);
   await page.screenshot({ path: `${shots}/harness-sidebar-reader.png` });
   await page.getByRole("button", { name: "Back to documents", exact: true }).click();
+  for (const name of ["contract.docx", "invoices.xlsx", "deck.pptx", "clip.mp4", "tone.wav", "animated.webp"]) {
+    await page.getByRole("textbox", { name: "Search documents", exact: true }).fill(name.split(".")[0]);
+    await fileRow(name).click();
+    await expect(page.getByRole("button", { name: "Download original", exact: true })).toBeVisible();
+    for (const control of ["Back to documents", "Open in tab", "Download original"]) {
+      const box = await page.getByRole("button", { name: control, exact: true }).boundingBox();
+      expect(box.x + box.width, `${name}: ${control}`).toBeLessThanOrEqual(230);
+    }
+    expect(await page.evaluate(() => document.querySelector("main").scrollWidth), name).toBe(230);
+    await page.screenshot({ path: `${shots}/harness-sidebar-${name}.png` });
+    await page.getByRole("button", { name: "Back to documents", exact: true }).click();
+  }
+  await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://127.0.0.1:${port}/?compact`);
   await showDocuments(page);
@@ -1324,6 +1352,46 @@ try {
   await page.goto(`http://127.0.0.1:${port}`);
   await showDocuments(page);
   await viewButton("List view").click();
+  // Every kind reads inside Documents, Previous and Next cross kinds there, and Back finds the
+  // search, type filter, collapsed headings and scroll as they were left.
+  await page.evaluate(() => { window.__openedScreen = undefined; });
+  const heading = (name) => page.getByRole("button", { name: new RegExp(`^${name}, \\d+( of \\d+)?$`) });
+  const readerTitle = (pattern) => page.locator("main").getByLabel(pattern).filter({ visible: true });
+  await heading("Images").click();
+  await expect(heading("Images")).toHaveAttribute("aria-expanded", "false");
+  const listScroller = page.getByRole("button", { name: /^contract\.docx, / }).evaluateHandle((element) => {
+    for (let node = element.parentElement; node; node = node.parentElement) if (node.scrollHeight > node.clientHeight + 40 && /auto|scroll/.test(getComputedStyle(node).overflowY)) return node;
+    return null;
+  });
+  const scrolled = await (await listScroller).evaluate((node) => { node.scrollTop = 200; return node.scrollTop; });
+  expect(scrolled).toBeGreaterThan(100);
+  await page.getByRole("button", { name: /^contract\.docx, / }).click();
+  await expect(readerTitle("contract.docx")).toBeVisible();
+  await expect(page.getByText(/^Document \d+ of \d+$/)).toBeVisible();
+  await page.getByRole("button", { name: "Previous document", exact: true }).click();
+  await expect(readerTitle(/\.pdf$/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Page map", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Next document", exact: true }).click();
+  await expect(readerTitle("contract.docx")).toBeVisible();
+  await page.getByRole("button", { name: "Next document", exact: true }).click();
+  await expect(readerTitle(/\.(xlsx|csv|tsv|jsonl|parquet)$/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back to documents", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.__openedScreen)).toBeUndefined();
+  await page.screenshot({ path: `${shots}/harness-panel-sheet.png` });
+  await page.getByRole("button", { name: "Back to documents", exact: true }).click();
+  await expect(heading("Images")).toHaveAttribute("aria-expanded", "false");
+  expect(await (await listScroller).evaluate((node) => node.scrollTop)).toBe(scrolled);
+  await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("contract");
+  await page.getByRole("button", { name: /^Word, \d+ documents?$/ }).click();
+  await page.getByRole("button", { name: /^contract\.docx, / }).click();
+  await expect(readerTitle("contract.docx")).toBeVisible();
+  await page.getByRole("button", { name: "Back to documents", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Search documents", exact: true })).toHaveValue("contract");
+  await expect(page.getByRole("button", { name: /^Word, \d+ documents?$/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(viewButton("List view")).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: /^All, \d+ documents$/ }).click();
+  await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("");
+  await heading("Images").click();
   // A workspace without documents says what the scan did not reach, as a search that finds nothing does.
   const emptyScan = (route) => route.request().postDataJSON().method === "docs.recent"
     ? route.fulfill({ json: { entries: [], truncated: true, truncatedBy: ["entries", "depth"], counts: { pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 }, needsReview: 0, newCount: 0, version: "empty" } })
@@ -1335,5 +1403,5 @@ try {
   await expect(page.getByText(/ appear here\. Only the first 50,000 entries of this workspace were scanned\. Folders more than 16 levels deep were not scanned$/)).toBeVisible();
   await page.unroute("**/rpc", emptyScan);
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, current page marked, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, one button name in both states, Documents status, Needs review and New filters, rewrite race), Documents times read again on focus, New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide under one name with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains that stay open when a file splits them, tree items with levels, toggle, Space on rows, Expand all and Collapse all, search opens matches, folder siblings for the stepper, PDFs read in Documents with the stepper and in sidebar width, kept per layout class, sidebar row, phone fit), empty Documents saying what the scan did not reach.");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, current page marked, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, one button name in both states, Documents status, Needs review and New filters, rewrite race), Documents times read again on focus, New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide under one name with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains that stay open when a file splits them, tree items with levels, toggle, Space on rows, Expand all and Collapse all, search opens matches, folder siblings for the stepper, PDFs read in Documents with the stepper and in sidebar width, kept per layout class, sidebar row, phone fit), empty Documents saying what the scan did not reach, every kind read in Documents (sidebar fit, Previous and Next across kinds, Open in tab with folder siblings, Back keeps search, type filter, New and Needs review, collapsed headings and scroll).");
 } catch (error) { await saveFailure(); throw timedOut ? new Error(overLimit, { cause: error }) : error; } finally { await cleanUp(); }

@@ -1,5 +1,5 @@
 // One store per plugin client, shared by its panel and document-opening actions.
-// Keep the selected PDF when switching tabs or temporarily unmounting the panel.
+// Keep the selected document when switching tabs or temporarily unmounting the panel.
 // `siblings` is the encoded documentScreen param, so the embedded reader keeps Previous and Next.
 export interface PanelSelection {
   path: string;
