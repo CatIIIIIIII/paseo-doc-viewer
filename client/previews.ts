@@ -1,7 +1,7 @@
 import { type DocumentGroup, KIND_GROUP } from "../shared/browse";
 import type { DocThumbnailInput, DocThumbnailOutput } from "../shared/rpc";
 import type { BrowseRow, RecentEntry } from "./recent";
-import { createThumbnailLoader, hasThumbnail, pageThumbnailKey, thumbnailAnswer, thumbnailCache, type ThumbnailCache, type ThumbnailState } from "./thumbnails";
+import { createThumbnailLoader, hasThumbnail, pageThumbnailKey, thumbnailAnswer, thumbnailCache, type ThumbnailCache, thumbnailCacheKey, type ThumbnailState } from "./thumbnails";
 import { cardThumbnailRetry } from "./turn-docs";
 
 export const PREVIEW_GROUPS: ReadonlySet<DocumentGroup> = new Set(["pdf", "powerpoint", "image"]);
@@ -64,6 +64,7 @@ export interface PreviewLoader {
   // Asks for the targets on screen (all of them while nothing is known) and for nothing else.
   show(targets: readonly PreviewTarget[], visible: ReadonlySet<string> | null): void;
   state(target: PreviewTarget): ThumbnailState | undefined;
+  cacheKey(target: PreviewTarget): string;
   subscribe(listener: () => void): () => void;
   close(): void;
 }
@@ -97,6 +98,7 @@ export function createPreviewLoader({ workspaceId, width, fetch, cache = thumbna
   return {
     show: (targets, visible) => loader.want(targets.flatMap((each) => (visible === null || visible.has(each.path) ? [id(each)] : []))),
     state: (each) => loader.state(id(each)),
+    cacheKey: (each) => thumbnailCacheKey(key(each.path), each.revision),
     subscribe: loader.subscribe,
     close: loader.close,
   };

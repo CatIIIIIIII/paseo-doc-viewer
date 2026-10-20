@@ -9,7 +9,7 @@ import { kindColor, type KindPalette } from "./kind-colors";
 import { PREVIEW_CAPTION_HEIGHT, type PreviewGrid } from "./panel-layout";
 import { createPreviewLoader, type HeldRevision, holdRevisions, nextRelease, type PreviewLoader, type PreviewTarget, wantsPreview } from "./previews";
 import type { RecentEntry } from "./recent";
-import type { Thumbnail } from "./thumbnails";
+import { type Thumbnail, thumbnailCache } from "./thumbnails";
 import { StatusPill, type Styles } from "./ui";
 
 export interface Preview {
@@ -76,15 +76,22 @@ export function usePreviews(
     loader?.show([...targets.values()], visible);
   }, [loader, targets, visibleKey]);
 
-  const shown = useRef(new Map<string, Thumbnail>());
+  // The last picture drawn for each path, as its key in the bounded thumbnail cache, so a rewritten file
+  // keeps it until the new one arrives. Paths no longer listed are dropped.
+  const shown = useRef(new Map<string, string>());
+  useEffect(() => {
+    for (const path of shown.current.keys()) if (!targets.has(path)) shown.current.delete(path);
+  }, [targets]);
   return (entry) => {
     const target = targets.get(entry.path);
     const state = target && loader ? loader.state(target) : undefined;
     if (target && loader && state?.status === "ready") {
-      shown.current.set(entry.path, state.thumbnail);
+      shown.current.set(entry.path, loader.cacheKey(target));
       return { thumbnail: state.thumbnail, loading: false };
     }
-    return { thumbnail: shown.current.get(entry.path) ?? null, loading: target !== undefined && loader !== null && (state === undefined || state.status === "loading") };
+    const last = shown.current.get(entry.path);
+    const thumbnail = last === undefined ? null : thumbnailCache.get(last) ?? null;
+    return { thumbnail, loading: target !== undefined && loader !== null && (state === undefined || state.status === "loading") };
   };
 }
 

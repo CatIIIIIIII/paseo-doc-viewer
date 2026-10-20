@@ -113,8 +113,9 @@ describe("preview loader", () => {
       // Answers take a few turns, so some are still on the way when the next key is typed.
       return new Promise<DocThumbnailOutput>((resolve, reject) => setTimeout(() => (broken.has(input.path) ? reject(errorFor(input.path)) : resolve(output(input.path, input.revision!))), 0));
     };
-    const loader = createPreviewLoader({ workspaceId: "w", width: 160, fetch, cache: createThumbnailCache(100, 1_000_000) });
-    return { loader, calls, asked: () => calls.map((call) => call.path) };
+    const cache = createThumbnailCache(100, 1_000_000);
+    const loader = createPreviewLoader({ workspaceId: "w", width: 160, fetch, cache });
+    return { loader, cache, calls, asked: () => calls.map((call) => call.path) };
   }
 
   it("asks once per path and revision while a search narrows and widens, failures included", async () => {
@@ -136,7 +137,7 @@ describe("preview loader", () => {
 
   it("asks for the tiles on screen only, and for a rewritten file's new revision once", async () => {
     const files: PreviewTarget[] = ["a", "b", "c", "d", "e", "f"].map((name) => ({ path: `${name}.pdf`, revision: "r1" }));
-    const { loader, asked } = harness();
+    const { loader, cache, asked } = harness();
     loader.show(files, new Set(["c.pdf", "d.pdf"]));
     for (let turn = 0; turn < 5; turn++) await settle();
     expect(asked()).toEqual(["c.pdf", "d.pdf"]);
@@ -149,6 +150,9 @@ describe("preview loader", () => {
     for (let turn = 0; turn < 5; turn++) await settle();
     expect(asked()).toEqual(["c.pdf", "d.pdf", "e.pdf", "c.pdf"]);
     expect(loader.state(rewritten[2]!)?.status).toBe("ready");
+    // The panel keeps only this key for the last picture of a path; the picture stays in the bounded cache.
+    expect(cache.get(loader.cacheKey(files[2]!))).toMatchObject({ type: "image", image: { data: "c.pdf" } });
+    expect(loader.cacheKey(files[2]!)).not.toBe(loader.cacheKey(rewritten[2]!));
   });
 
   it("asks a busy daemon again only once the tile is back on screen", async () => {
