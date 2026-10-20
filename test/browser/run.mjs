@@ -35,6 +35,22 @@ await build({ ...base, entryPoints: ["test/browser/app.tsx"], outfile: `${direct
 } });
 await build({ ...base, entryPoints: ["test/browser/server.ts"], outfile: `${directory}/server.cjs`, platform: "node", format: "cjs", external: ["@getpaseo/plugin", "zod"] });
 const server = spawn(process.execPath, [`${directory}/server.cjs`], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, PASEO_DOC_VIEWER_STATE_DIR: stateDirectory } });
+const RUN_LIMIT_MS = 10 * 60_000;
+const watchdog = setTimeout(() => {
+  console.error(`Browser checks did not finish in ${RUN_LIMIT_MS / 60_000} minutes`);
+  server.kill("SIGTERM");
+  process.exit(1);
+}, RUN_LIMIT_MS);
+// Runs in the page: play() and the first advance share one deadline, so a play() that never settles fails.
+const playUntilAdvanced = (element) => new Promise((resolve, reject) => {
+  const finish = (settle, value) => { clearTimeout(timer); element.removeEventListener("timeupdate", advanced); element.pause(); settle(value); };
+  const timer = setTimeout(() => finish(reject, new Error(`playback did not advance in 5 s: ${element.currentTime}`)), 5000);
+  const advanced = () => {
+    if (element.currentTime > 0) finish(resolve, { currentTime: element.currentTime, duration: element.duration, muted: element.muted, error: element.error?.message, tracks: element.captureStream().getAudioTracks().length });
+  };
+  element.addEventListener("timeupdate", advanced);
+  element.play().then(advanced, (error) => finish(reject, error));
+});
 let browser;
 let page;
 try {
@@ -201,38 +217,14 @@ try {
   await expect(page.getByRole("button", { name: "Download original", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "tone.wav", exact: true }).click();
   await expect(page.locator("audio")).toBeVisible();
-  const media = await page.locator("audio").evaluate(async (element) => {
-    await element.play();
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`playback did not advance in 5 s: ${element.currentTime}`)), 5000);
-      const advanced = () => {
-        if (element.currentTime <= 0) return;
-        clearTimeout(timer); element.removeEventListener("timeupdate", advanced); resolve();
-      };
-      element.addEventListener("timeupdate", advanced); advanced();
-    });
-    const result = { currentTime: element.currentTime, duration: element.duration, muted: element.muted, error: element.error?.message };
-    element.pause(); return result;
-  });
+  const media = await page.locator("audio").evaluate(playUntilAdvanced);
   expect(media.currentTime).toBeGreaterThan(0);
   expect(media.duration).toBeCloseTo(1, 1); expect(media.muted).toBe(false); expect(media.error).toBeUndefined();
   await page.screenshot({ path: `${directory}/audio.png`, fullPage: true });
   await page.getByRole("button", { name: "audible.webm", exact: true }).click();
   await expect(page.locator("video")).toBeVisible();
-  const video = await page.locator("video").evaluate(async (element) => {
-    await element.play();
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`playback did not advance in 5 s: ${element.currentTime}`)), 5000);
-      const advanced = () => {
-        if (element.currentTime <= 0) return;
-        clearTimeout(timer); element.removeEventListener("timeupdate", advanced); resolve();
-      };
-      element.addEventListener("timeupdate", advanced); advanced();
-    });
-    const result = { time: element.currentTime, muted: element.muted, tracks: element.captureStream().getAudioTracks().length };
-    element.pause(); return result;
-  });
-  expect(video.time).toBeGreaterThan(0); expect(video.muted).toBe(false); expect(video.tracks).toBe(1);
+  const video = await page.locator("video").evaluate(playUntilAdvanced);
+  expect(video.currentTime).toBeGreaterThan(0); expect(video.muted).toBe(false); expect(video.tracks).toBe(1);
   // A slow media transfer shows feedback immediately and can be cancelled before its response arrives.
   const slowMedia = async (route) => {
     if (route.request().postDataJSON().method === "media.chunk") await new Promise((resolve) => setTimeout(resolve, 500));
@@ -710,4 +702,4 @@ try {
   expect(failures).toEqual([]);
   console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint).");
   console.log(`Screenshots: ${directory}`);
-} catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }
+} catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { clearTimeout(watchdog); await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }
