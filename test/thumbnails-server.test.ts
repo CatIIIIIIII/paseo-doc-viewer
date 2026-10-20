@@ -266,6 +266,45 @@ describe("image thumbnails", () => {
     expect(decodePng(overlay.image.data).width).toBe(80);
   });
 
+  it("skips decoding an image whose time ran out while it was read, and decodes it when asked again", async () => {
+    const root = workspace({ "photo.png": noisePng(400, 300) });
+    const reading = deferred();
+    const read = deferred();
+    let decodes = 0;
+    vi.resetModules();
+    vi.doMock("node:fs/promises", async (importOriginal) => {
+      const fs = await importOriginal<typeof import("node:fs/promises")>();
+      const readFile = (async (...args: Parameters<typeof fs.readFile>) => {
+        if (String(args[0]).endsWith("photo.png")) {
+          reading.resolve();
+          await read.promise;
+        }
+        return fs.readFile(...args);
+      }) as typeof fs.readFile;
+      return { ...fs, readFile, default: { ...fs, readFile } };
+    });
+    vi.doMock("../server/images", async (importOriginal) => {
+      const images = await importOriginal<typeof import("../server/images")>();
+      return { ...images, renderImage: (...args: Parameters<typeof images.renderImage>) => (decodes++, images.renderImage(...args)) };
+    });
+    try {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      const fresh = await import("../server/documents");
+      const card = () => fresh.renderThumbnail({ root, path: "photo.png" }, { index: 0, width: 80, keepOpen: false });
+      const late = card().catch((error: Error) => error);
+      await reading.promise;
+      await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
+      expect(errorText(await late)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
+      read.resolve();
+      expect(await card()).toMatchObject({ kind: "image-raster", image: { width: 80, height: 60 } });
+      expect(decodes).toBe(1);
+    } finally {
+      vi.doUnmock("node:fs/promises");
+      vi.doUnmock("../server/images");
+      vi.resetModules();
+    }
+  });
+
   it("bounds the height of a tall image too, and sends a small image as it is", async () => {
     const small = noisePng(40, 30);
     const root = workspace({ "tall.png": noisePng(60, 600), "small.png": small });
