@@ -212,6 +212,26 @@ describe("thumbnail loader", () => {
     }
   });
 
+  it("shows a thumbnail as loading while it waits to be asked for again, and as failed after the last try or an error not retried", async () => {
+    vi.useFakeTimers();
+    try {
+      const map = createPageMapThumbnails({ workspaceId: "w", path: "pending.pdf", revision: "r", width: 160 }, async ({ index }) => {
+        throw new Error(index === 0 ? ERROR_MESSAGES.busy() : ERROR_MESSAGES.tooSlow());
+      });
+      const seen: string[] = [];
+      map.subscribe(() => seen.push(map.state(0)!.status));
+      map.want([0, 1]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(map.state(0)).toEqual({ status: "loading" });
+      expect(map.state(1)).toMatchObject({ status: "failed" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(seen).toEqual(["loading", "loading", "loading", "loading", "failed"]);
+      expect(map.state(0)).toMatchObject({ status: "failed" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a file the daemon says changed since as stale, without asking again", async () => {
     const calls: number[] = [];
     const loader = createThumbnailLoader({

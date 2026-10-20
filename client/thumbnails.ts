@@ -160,6 +160,12 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
     pump();
   };
 
+  const again = (index: number) => {
+    states.delete(index);
+    if (!wanted.includes(index)) wanted.unshift(index);
+    pump();
+  };
+
   const start = (index: number) => {
     inFlight++;
     states.set(index, { status: "loading" });
@@ -173,12 +179,13 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
         if (isError(error, ERROR_MESSAGES.fileChanged())) return settle(index, { status: "stale" });
         const failed = (failures.get(index) ?? 0) + 1;
         failures.set(index, failed);
-        settle(index, { status: "failed", error });
         const delay = closed ? null : retryAfter?.(error, failed) ?? null;
+        // A thumbnail asked for again by itself stays loading until then; only the last answer shows as failed.
+        settle(index, delay === null ? { status: "failed", error } : { status: "loading" });
         if (delay === null) return;
         const timer = setTimeout(() => {
           timers.delete(timer);
-          loader.retry(index);
+          again(index);
         }, delay);
         timers.add(timer);
       },
@@ -199,10 +206,7 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
       pump();
     },
     retry(index) {
-      if (states.get(index)?.status !== "failed") return;
-      states.delete(index);
-      if (!wanted.includes(index)) wanted.unshift(index);
-      pump();
+      if (states.get(index)?.status === "failed") again(index);
     },
     subscribe(listener) {
       listeners.add(listener);
