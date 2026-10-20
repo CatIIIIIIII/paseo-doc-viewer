@@ -183,6 +183,13 @@ describe("PDF thumbnails", () => {
     expect(thumbnail.image).toMatchObject({ width: 8, height: 160 });
   });
 
+  it("asks for the password on a card although the page map unlocked the file", async () => {
+    const root = workspaceWithFixtures("locked.pdf");
+    await renderThumbnail({ root, path: "locked.pdf", password: "secret" }, { index: 0, width: 80 });
+    const card = renderThumbnail({ root, path: "locked.pdf" }, { index: 0, width: 80, keepOpen: false });
+    await expect(card).rejects.toThrow(errorText(ERROR_MESSAGES.pdfPasswordRequired()));
+  });
+
   it("bounds the requested width in the RPC schema", () => {
     const input = { workspaceId: "w", path: "a.pdf", index: 0 };
     expect(docThumbnailRpc.input.safeParse({ ...input, width: 160 }).success).toBe(true);

@@ -129,6 +129,17 @@ describe("thumbnail loader", () => {
     expect(pageMap.state(1)).toBeUndefined();
   });
 
+  it("does not show a card the page 1 a password unlocked in the page map", () => {
+    const cache = createThumbnailCache(100, 1_000_000);
+    cache.set(`${pageThumbnailKey("w", "locked.pdf", 80, 0, true)}\0r`, image("unlocked"));
+    const card = createThumbnailLoader({
+      identify: () => ({ key: pageThumbnailKey("w", "locked.pdf", 80, 0), revision: "r" }),
+      cache,
+      fetch: () => new Promise(() => {}),
+    });
+    expect(card.state(0)).toBeUndefined();
+  });
+
   it("asks a busy daemon again by itself with the card's retry policy, never work that ran out of time, and stops once closed", async () => {
     vi.useFakeTimers();
     try {

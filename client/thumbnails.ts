@@ -28,7 +28,9 @@ export function gridLayout(width: number, compact: boolean) {
   return { columns, gap, cellWidth, imageHeight, rowHeight: imageHeight + LABEL_HEIGHT + gap };
 }
 
-export const pageThumbnailKey = (workspaceId: string, path: string, width: number, index: number) => `${workspaceId}\0${path}\0${width}\0${index}`;
+// Pages drawn with a password are kept apart: a turn card keeps the icon for a file that needs one.
+export const pageThumbnailKey = (workspaceId: string, path: string, width: number, index: number, unlocked = false) =>
+  `${workspaceId}\0${path}\0${width}\0${index}${unlocked ? "\0unlocked" : ""}`;
 
 // A few fixed widths keep the shared cache useful across small layout changes.
 export function thumbnailWidth(cellWidth: number, pixelRatio: number): number {

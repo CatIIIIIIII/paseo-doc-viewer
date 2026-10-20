@@ -44,7 +44,7 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
   useEffect(() => {
     if (width === null) return;
     const next = createThumbnailLoader({
-      identify: (index) => ({ key: pageThumbnailKey(workspaceId, path, width, index), revision }),
+      identify: (index) => ({ key: pageThumbnailKey(workspaceId, path, width, index, password !== undefined), revision }),
       cache: thumbnailCache,
       fetch: (index) => fetchThumbnail({ workspaceId, path, password, index, width }),
     });
