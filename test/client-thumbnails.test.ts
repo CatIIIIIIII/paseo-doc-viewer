@@ -225,11 +225,31 @@ describe("thumbnail loader", () => {
       expect(map.state(0)).toEqual({ status: "loading" });
       expect(map.state(1)).toMatchObject({ status: "failed" });
       await vi.advanceTimersByTimeAsync(5_000);
-      expect(seen).toEqual(["loading", "loading", "loading", "loading", "failed"]);
+      expect(seen.filter((status, at) => status !== seen[at - 1])).toEqual(["loading", "failed"]);
       expect(map.state(0)).toMatchObject({ status: "failed" });
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shows a thumbnail as loading as soon as Retry asks for it again, or as ready if another loader drew it meanwhile", async () => {
+    const { loader, calls, cache } = harness();
+    const seen: (string | undefined)[] = [];
+    loader.subscribe(() => seen.push(loader.state(1)?.status));
+    loader.want([1]);
+    calls[0]!.reject(new Error("busy"));
+    await flush();
+    loader.retry(1);
+    expect(seen).toEqual(["failed", "loading"]);
+    calls[1]!.reject(new Error("busy"));
+    await flush();
+    const other = harness("r1", cache);
+    other.loader.want([1]);
+    other.calls[0]!.resolve();
+    await flush();
+    loader.retry(1);
+    expect(seen).toEqual(["failed", "loading", "failed", "ready"]);
+    expect(calls).toHaveLength(2);
   });
 
   it("shows a file the daemon says changed since as stale, without asking again", async () => {

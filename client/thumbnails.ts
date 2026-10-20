@@ -164,6 +164,7 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
     states.delete(index);
     if (!wanted.includes(index)) wanted.unshift(index);
     pump();
+    for (const listener of listeners) listener();
   };
 
   const start = (index: number) => {
