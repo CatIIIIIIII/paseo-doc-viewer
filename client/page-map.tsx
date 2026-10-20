@@ -7,7 +7,7 @@ import { PIN_LABEL_MAX_CHARS } from "../shared/limits";
 import { docThumbnailRpc } from "../shared/rpc";
 import type { PagePin } from "../shared/viewer-state";
 import { pinStatus } from "./pins";
-import { createThumbnailLoader, gridLayout, pageThumbnailKey, thumbnailAnswer, thumbnailCache, type ThumbnailLoader, type ThumbnailState, thumbnailWidth, visibleOrder } from "./thumbnails";
+import { createPageMapThumbnails, gridLayout, type ThumbnailLoader, type ThumbnailState, thumbnailWidth, visibleOrder } from "./thumbnails";
 import { type Styles, ToolbarButton } from "./ui";
 import { useViewerMarks } from "./use-viewer-marks";
 
@@ -43,11 +43,7 @@ export function PageMap({ workspaceId, path, password, revision, count, active, 
 
   useEffect(() => {
     if (width === null) return;
-    const next = createThumbnailLoader({
-      identify: (index) => ({ key: pageThumbnailKey(workspaceId, path, width, index, password !== undefined), revision }),
-      cache: thumbnailCache,
-      fetch: (index) => fetchThumbnail({ workspaceId, path, password, index, width }).then(thumbnailAnswer),
-    });
+    const next = createPageMapThumbnails({ workspaceId, path, password, revision, width }, fetchThumbnail);
     const stop = next.subscribe(refresh);
     setLoader(next);
     return () => {

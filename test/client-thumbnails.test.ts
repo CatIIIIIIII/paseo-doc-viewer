@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { cardThumbnail, cardThumbnailRetry, TURN_THUMBNAIL_MAX_BYTES } from "../client/turn-docs";
+import { cardThumbnail, cardThumbnailRetry, TURN_THUMBNAIL_MAX_BYTES, TURN_THUMBNAIL_WIDTH } from "../client/turn-docs";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { CARD_THUMBNAILS_IN_FLIGHT } from "../client/card-thumbnails";
 import { createRequestQueue, createThumbnailCache, createThumbnailLoader, gridLayout, hasThumbnail, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
@@ -130,15 +130,26 @@ describe("thumbnail loader", () => {
     expect(pageMap.state(1)).toBeUndefined();
   });
 
-  it("does not show a card the page 1 a password unlocked in the page map", () => {
-    const cache = createThumbnailCache(100, 1_000_000);
-    cache.set(`${pageThumbnailKey("w", "locked.pdf", 80, 0, true)}\0r`, { type: "image", image: image("unlocked") });
-    const card = createThumbnailLoader({
-      identify: () => ({ key: pageThumbnailKey("w", "locked.pdf", 80, 0), revision: "r" }),
-      cache,
-      fetch: () => new Promise(() => {}),
-    });
-    expect(card.state(0)).toBeUndefined();
+  it("keeps a page the page map drew with a password off a card at the same width, and shares one drawn without", async () => {
+    vi.resetModules();
+    const { createPageMapThumbnails } = await import("../client/thumbnails");
+    const { cardThumbnailIndices, createCardThumbnails } = await import("../client/card-thumbnails");
+    const drawn = async (input: { path: string }) => ({ kind: "pdf" as const, revision: "r", index: 0, pageCount: 1, image: image(input.path) });
+    for (const [path, password] of [["locked.pdf", "secret"], ["open.pdf", undefined]] as const) {
+      const pageMap = createPageMapThumbnails({ workspaceId: "w", path, password, revision: "r", width: TURN_THUMBNAIL_WIDTH }, drawn);
+      pageMap.want([0]);
+      await flush();
+      expect(pageMap.state(0)?.status).toBe("ready");
+    }
+    const asked: string[] = [];
+    const client = { rpc: (_contract: unknown, input: { path: string }) => (asked.push(input.path), new Promise(() => {})) } as never;
+    const files = ["locked.pdf", "open.pdf"].map((path) => ({ path, kind: "pdf" as const, size: 1_000, revision: "r", status: "new" as const }));
+    const card = createCardThumbnails(client, { workspaceId: "w", files });
+    card.want(cardThumbnailIndices(files));
+    await flush();
+    expect(card.state(0)).toEqual({ status: "loading" });
+    expect(card.state(1)).toEqual({ status: "ready", thumbnail: { type: "image", image: image("open.pdf"), count: 1 } });
+    expect(asked).toEqual(["locked.pdf"]);
   });
 
   it("asks a busy daemon again by itself with the card's retry policy, never work that ran out of time, and stops once closed", async () => {

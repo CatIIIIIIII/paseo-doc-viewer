@@ -1,6 +1,6 @@
 import { ERROR_MESSAGES, isError } from "../shared/errors";
 import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
-import type { DocThumbnailOutput } from "../shared/rpc";
+import type { DocThumbnailInput, DocThumbnailOutput } from "../shared/rpc";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
 
 type EncodedImage = Extract<DocThumbnailOutput, { kind: "pdf" }>["image"];
@@ -217,6 +217,18 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
     },
   };
   return loader;
+}
+
+// One per open page map. Pages drawn with a password are kept apart, so a card never shows them.
+export function createPageMapThumbnails(
+  { workspaceId, path, password, revision, width }: Pick<DocThumbnailInput, "workspaceId" | "path" | "password" | "width"> & { revision: string },
+  fetch: (input: DocThumbnailInput) => Promise<DocThumbnailOutput>,
+): ThumbnailLoader {
+  return createThumbnailLoader({
+    identify: (index) => ({ key: pageThumbnailKey(workspaceId, path, width, index, password !== undefined), revision }),
+    cache: thumbnailCache,
+    fetch: (index) => fetch({ workspaceId, path, password, index, width }).then(thumbnailAnswer),
+  });
 }
 
 export interface RequestQueue {
