@@ -111,11 +111,18 @@ describe("groupChanges", () => {
     expect(summary(groupChanges(files, after, null, T0))).toEqual({ files: ["unknown/b.pdf"], groups: ["checkout:wt:1"] });
   });
 
-  it("treats a repo that was deleted and checked out again, or initialized in an existing folder, as new", () => {
-    const files = changed("again/a.pdf", "init/b.pdf");
-    const after = folders({ again: born, init: old }, ["again", "init"]);
-    const baseline = known([], true, { dirs: ["again", "init", "gone"], repos: ["again", "gone"] });
-    expect(summary(groupChanges(files, after, baseline, T0))).toEqual({ files: [], groups: ["checkout:again:1", "checkout:init:1"] });
+  it("with a complete baseline, folds no folder that existed, even one deleted and made again during the turn", () => {
+    const files = changed(...many("out", 13), "again/a.pdf");
+    const after = folders({ out: born, again: born }, ["again"]);
+    const baseline = known([], true, { dirs: ["out", "again"], repos: ["again"] });
+    expect(summary(groupChanges(files, after, baseline, T0))).toEqual({ files: [...many("out", 13), "again/a.pdf"], groups: [] });
+  });
+
+  it("treats a repo initialized in an existing folder as new", () => {
+    const files = changed("init/b.pdf");
+    const after = folders({ init: old }, ["init"]);
+    const baseline = known([], true, { dirs: ["init", "gone"], repos: ["gone"] });
+    expect(summary(groupChanges(files, after, baseline, T0))).toEqual({ files: [], groups: ["checkout:init:1"] });
   });
 
   it("adds nothing for a repo the turn deleted", () => {

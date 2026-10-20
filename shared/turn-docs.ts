@@ -97,9 +97,12 @@ export function groupChanges(
 ): { files: TurnDocsFile[]; groups: TurnDocsGroup[] } {
   const from = startedAt - TURN_WINDOW_SLACK_MS;
   const memo = new Map<string, "checkout" | "folder" | null>();
+  // A complete baseline lists every folder that existed, so one deleted and made again during the turn
+  // (rm -rf out, then a build) is not new. Only without one does a birth time inside the turn decide.
   const isNew = (dir: string) => {
+    if (baseline?.complete) return !baseline.dirs.has(dir);
     const born = after.dirs.get(dir);
-    return (baseline?.complete === true && !baseline.dirs.has(dir)) || (born != null && born >= from);
+    return born != null && born >= from;
   };
   const newRepo = (dir: string) =>
     after.repos.has(dir) && (isNew(dir) || (baseline?.complete === true && baseline.dirs.has(dir) && !baseline.repos.has(dir)));
