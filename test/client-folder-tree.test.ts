@@ -10,6 +10,7 @@ import {
   type TreeRow,
   treeRows,
 } from "../client/folder-tree";
+import { baseName, documentTitle, parentDir } from "../client/format";
 import { TREE_MAX_INDENT_LEVELS, treeIndent, treeLayout } from "../client/panel-layout";
 import { treeNotice } from "../client/recent";
 import { DOCUMENT_SIBLINGS_MAX, siblingWindow } from "../client/siblings";
@@ -86,6 +87,16 @@ describe("folder tree", () => {
   it("keeps a search's matches and the folders above them", () => {
     const rows = treeRows(folderTree(filterEntries(files, { query: "summary" })), () => true);
     expect(shown(rows)).toEqual(["v reports/2026 (2)", "  v q2 (1)", "    summary.pdf", "  v q3/weekly (1)", "    summary.pdf"]);
+  });
+
+  it("keeps a backslash in a file name instead of reading a folder from it", () => {
+    const odd = [{ path: "dir/we\\ird.pdf", kind: "pdf" as const, mtimeMs: 1 }, { path: "dir/plain.pdf", kind: "pdf" as const, mtimeMs: 1 }];
+    const rows = treeRows(folderTree(odd), () => true);
+    expect(shown(rows)).toEqual(["v dir (2)", "  plain.pdf", "  we\\ird.pdf"]);
+    expect(baseName("dir/we\\ird.pdf")).toBe("we\\ird.pdf");
+    expect(parentDir("dir/we\\ird.pdf")).toBe("dir");
+    expect(folderFiles(rows, "dir/we\\ird.pdf")).toEqual(["dir/plain.pdf", "dir/we\\ird.pdf"]);
+    expect(documentTitle({ path: "dir/we\\ird.pdf" })).toBe("we\\ird.pdf · dir");
   });
 
   it("gives a file the files of its own folder as they are shown", () => {

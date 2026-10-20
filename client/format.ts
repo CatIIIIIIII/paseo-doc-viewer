@@ -2,13 +2,14 @@ import { errorCode, errorText, type ErrorCode } from "../shared/errors";
 import type { DocumentGroup } from "../shared/browse";
 import type { DocumentKind } from "../shared/kinds";
 
+// The daemon sends "/" on every OS; a backslash is part of a POSIX file name.
 export function baseName(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
+  const parts = path.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? path;
 }
 
 export function parentDir(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
+  const parts = path.split("/").filter(Boolean);
   return parts.slice(0, -1).join("/");
 }
 
