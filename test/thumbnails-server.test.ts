@@ -145,21 +145,45 @@ describe("PDF thumbnails", () => {
     expect(cacheKeys().length).toBe(pages);
   });
 
-  it("does not try a card thumbnail that ran out of time again at that revision, so PDFium restarts once", async () => {
+  it("does not try a card thumbnail PDFium was still drawing at its deadline again for a while, so PDFium restarts once", async () => {
     const root = workspace({ "slow.pdf": nestedFormPdf(9) });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     vi.resetModules();
     const fresh = await import("../server/documents");
+    const { SLOW_THUMBNAIL_MS } = await import("../server/thumbnails");
     const { pdfiumStats: stats } = await import("../server/pdfium");
     const card = () => fresh.renderThumbnail({ root, path: "slow.pdf" }, { index: 0, width: 80, keepOpen: false }).catch((error: Error) => error);
     const slow = card();
     await realDelay(300);
     await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
     expect(errorText(await slow)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
-    vi.useRealTimers();
     const { opens, spawns } = stats();
     expect(errorText(await card())).toBe(errorText(ERROR_MESSAGES.tooSlow()));
     expect(stats()).toMatchObject({ opens, spawns });
+    vi.setSystemTime(Date.now() + SLOW_THUMBNAIL_MS);
+    expect(await card()).toMatchObject({ kind: "pdf", pageCount: 1 });
+    expect(stats().opens).toBe(opens + 1);
+  }, 30_000);
+
+  it("tries a card thumbnail again when its time ran out while its PDFium call waited behind other work", async () => {
+    const root = workspace({ "fast.pdf": await textPdf(["fast"]) });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.resetModules();
+    const fresh = await import("../server/documents");
+    const { pdfium, pdfiumStats: stats } = await import("../server/pdfium");
+    await pdfium({ op: "open", key: "viewer", bytes: nestedFormPdf(9) });
+    const viewer = Array.from({ length: 3 }, () => pdfium({ op: "render", key: "viewer", index: 0, width: 800, height: 800 }, { timeoutMs: 10 * RPC_DEADLINE_MS }));
+    const card = () => fresh.renderThumbnail({ root, path: "fast.pdf" }, { index: 0, width: 80, keepOpen: false }).catch((error: Error) => error);
+    const { opens, spawns } = stats();
+    const queued = card();
+    for (let waited = 0; stats().queued < viewer.length && waited < 10_000; waited += 10) await realDelay(10);
+    await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
+    expect(errorText(await queued)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
+    expect(stats()).toMatchObject({ opens, spawns });
+    vi.useRealTimers();
+    await Promise.all(viewer);
+    expect(stats().opens).toBe(opens);
+    expect(await card()).toMatchObject({ kind: "pdf", pageCount: 1 });
   }, 30_000);
 
   it("answers a card listing an older revision after a stat, without rendering", async () => {
