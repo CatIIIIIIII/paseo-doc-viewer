@@ -1,6 +1,6 @@
 import { ERROR_MESSAGES, isError } from "../shared/errors";
 import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
-import { revisionModifiedAt } from "../shared/revision";
+import { revisionChangedAt } from "../shared/revision";
 import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
 
 // "Changed while this turn ran", never "written by this agent": the card comes from file times,
@@ -40,12 +40,14 @@ export function cardThumbnailRetry(error: unknown, failures: number, random = Ma
 
 export type TurnFilePill = "new" | "changed" | "opened";
 
+// Opened at the card's revision, or at one changed strictly later; a tie between two different
+// revisions cannot say which came first, so it keeps the turn's verdict.
 export function turnFilePill(file: Pick<TurnDocsFile, "status" | "revision">, opened: string | undefined): TurnFilePill {
   if (opened === undefined) return file.status;
   if (opened === file.revision) return "opened";
-  const openedAt = revisionModifiedAt(opened);
-  const changedAt = revisionModifiedAt(file.revision);
-  return openedAt !== null && changedAt !== null && openedAt >= changedAt ? "opened" : file.status;
+  const openedAt = revisionChangedAt(opened);
+  const changedAt = revisionChangedAt(file.revision);
+  return openedAt !== null && changedAt !== null && openedAt > changedAt ? "opened" : file.status;
 }
 
 export const TURN_FILE_PILL = {

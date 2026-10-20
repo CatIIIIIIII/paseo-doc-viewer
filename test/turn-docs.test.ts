@@ -1,8 +1,12 @@
+import { copyFileSync, statSync, utimesSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { revisionOf } from "../server/revision";
 import { createTurnDocs, type TurnDocsHost } from "../server/turn-docs";
 import { sharedOpenedMarks } from "../client/opened-marks";
 import { turnDocsNote, turnDocsTitle, turnFilePill } from "../client/turn-docs";
 import { documentRevision } from "../shared/revision";
+import { workspace } from "./helpers";
 import {
   changedDuringTurn,
   TIMELINE_DATA_MAX_BYTES,
@@ -103,7 +107,39 @@ describe("card row pill", () => {
     expect(turnFilePill(row("new"), atTurn)).toBe("opened");
     expect(turnFilePill(row("changed"), documentRevision(120, T0 + 5_000, T0 + 5_000))).toBe("opened");
     expect(turnFilePill(row("new"), documentRevision(90, T0 - 5_000, T0 - 5_000))).toBe("new");
-    expect(turnFilePill(row("changed"), "not-a-revision")).toBe("changed");
+    expect(turnFilePill(row("changed"), "not a revision")).toBe("changed");
+  });
+
+  it("compares change times like the card does, so a copy keeping an old mtime is not taken as opened", () => {
+    const openedBefore = documentRevision(90, T0 - 5_000, T0 - 5_000);
+    const copiedOver = { status: "changed" as const, revision: documentRevision(100, T0 - 60_000, T0 + 10_000) };
+    expect(turnFilePill(copiedOver, openedBefore)).toBe("changed");
+    const openedCopyLater = documentRevision(100, T0 - 90_000, T0 + 20_000);
+    expect(turnFilePill(row("new"), openedCopyLater)).toBe("opened");
+    expect(turnFilePill(row("new"), documentRevision(100, T0 + 20_000, T0 - 90_000))).toBe("opened");
+  });
+
+  it("keeps the turn's verdict when two different revisions changed at the same time", () => {
+    expect(turnFilePill(row("changed"), documentRevision(120, T0, T0))).toBe("changed");
+    expect(turnFilePill({ status: "changed", revision: documentRevision(100, T0, T0 + 10) }, documentRevision(100, T0, T0))).toBe("changed");
+    expect(turnFilePill(row("new"), documentRevision(100, T0, T0 + 1))).toBe("opened");
+  });
+
+  it("matches a real cp -p: the card says Changed and the row does not say Opened", () => {
+    const root = workspace({ "report.pdf": "opened version", "backup.pdf": "older copy" });
+    const report = join(root, "report.pdf");
+    const past = new Date(Date.now() - 3_600_000);
+    utimesSync(join(root, "backup.pdf"), past, past);
+    const opened = revisionOf(statSync(report));
+    const startedAt = Date.now();
+    const baseline = { revisions: new Map([["report.pdf", opened]]), complete: true };
+    copyFileSync(join(root, "backup.pdf"), report);
+    utimesSync(report, past, past);
+    const info = statSync(report);
+    const after = { path: "report.pdf", kind: "pdf" as const, size: info.size, revision: revisionOf(info), changedMs: Math.max(info.mtimeMs, info.ctimeMs) };
+    const [listed] = changedDuringTurn([after], baseline, startedAt);
+    expect(listed).toMatchObject({ path: "report.pdf", status: "changed" });
+    expect(turnFilePill(listed!, opened)).toBe("changed");
   });
 
   it("hears marks through one emitter per global object, and stops after unsubscribing", () => {
