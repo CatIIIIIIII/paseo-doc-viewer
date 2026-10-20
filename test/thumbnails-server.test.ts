@@ -120,9 +120,21 @@ describe("PDF thumbnails", () => {
     expect(opens()).toBe(before + 5);
     await renderPage({ root, path: "viewer.pdf" }, { index: 0, maxWidth: 640 });
     expect(opens()).toBe(before + 5);
-    for (const name of "abcde") await renderThumbnail({ root, path: `${name}.pdf` }, { index: 0, width: 80 });
+    for (const name of "abcde") await renderThumbnail({ root, path: `${name}.pdf` }, { index: 0, width: 120 });
     await renderPage({ root, path: "viewer.pdf" }, { index: 0, maxWidth: 480 });
     expect(opens()).toBe(before + 11);
+  });
+
+  it("keeps thumbnails in a cache of their own, so asking again neither renders again nor evicts pages", async () => {
+    const root = workspace({ "cached.pdf": await textPdf(["cached"]) });
+    const opens = () => pdfiumStats().opens;
+    const before = opens();
+    const pages = cacheKeys().length;
+    const first = await renderThumbnail({ root, path: "cached.pdf" }, { index: 0, width: 80, keepOpen: false });
+    const again = await renderThumbnail({ root, path: "cached.pdf" }, { index: 0, width: 80, keepOpen: false });
+    expect(again.image).toEqual(first.image);
+    expect(opens()).toBe(before + 1);
+    expect(cacheKeys().length).toBe(pages);
   });
 
   it("bounds the requested width in the RPC schema", () => {

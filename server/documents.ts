@@ -18,7 +18,7 @@ import type {
   DocsRecentOutput,
   MediaChunkOutput,
 } from "../shared/rpc";
-import { estimateBytes, memo } from "./cache";
+import { createMemo, estimateBytes, memo } from "./cache";
 import { isEncryptedOoxml } from "./cfb";
 import { csvCells, csvFullCell, csvWindow, indexCsv } from "./csv";
 import { recordCells, type FullValue } from "./data-table";
@@ -145,6 +145,13 @@ const heavyCached = <T>(file: DocumentFile, name: string, compute: (signal: Abor
 // A thumbnail not kept open is for a file nobody is reading; it waits behind the page map.
 const thumbnailLane = (keepOpen: boolean | undefined): Lane => (keepOpen === false ? "idle" : "background");
 
+// Thumbnails have a cache of their own, so a page map or a timeline of cards cannot evict the pages
+// being read, and a card asking again, or another client, does not decode the file again.
+const thumbnails = createMemo({ maxBytes: 16 * MiB, maxEntries: 1024 });
+const thumbnailCached = <T>(file: DocumentFile, { index, width, keepOpen }: ThumbnailRequest, compute: (signal: AbortSignal) => Promise<T>) =>
+  thumbnails.memo({ path: file.path, revision: file.revision, name: `${index}\0${width}\0${file.passwordKey}` }, () =>
+    heavy(compute, { lane: thumbnailLane(keepOpen) }));
+
 function fitFor(maxWidth: number | undefined): Fit {
   return { maxWidth: Math.min(maxWidth ?? DEFAULT_RENDER_WIDTH_PX, MAX_RENDER_EDGE_PX), maxBytes: IMAGE_BUDGET_BYTES };
 }
@@ -216,11 +223,16 @@ function imageHandler(kind: "image-raster" | "image-decoded", family: ImageFamil
         return { kind, revision: file.revision, sourceWidth: source.width, sourceHeight: source.height, image };
       });
     },
-    thumbnail: async (file, { index, width, keepOpen }) => {
-      inRange(index, 1, "Page");
-      const edge = Math.min(width, THUMBNAIL_MAX_WIDTH_PX);
+    thumbnail: async (file, request) => {
+      inRange(request.index, 1, "Page");
+      const edge = Math.min(request.width, THUMBNAIL_MAX_WIDTH_PX);
       const fit = { maxWidth: edge, maxEdge: edge, maxBytes: THUMBNAIL_MAX_BYTES, jpeg: true };
-      const image = await heavy(async () => renderImage(await readFile(file.path), family, fit), { lane: thumbnailLane(keepOpen) });
+      const image = await thumbnailCached(file, request, async (signal) => {
+        const bytes = await readFile(file.path);
+        // Decoding cannot be stopped once it starts, so a call already out of time skips it.
+        signal.throwIfAborted();
+        return renderImage(bytes, family, fit);
+      });
       return { kind, revision: file.revision, image };
     },
     chunk: async (file, { offset, length, mimeType }) => {
@@ -246,10 +258,10 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
       const { pageCount, image } = await heavyCached(file, `page\0${index}\0${fit.maxWidth}`, (signal) => renderPdfPage(file, index, fit, signal));
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
-    // Thumbnails skip the shared cache so a grid cannot evict the pages being read; the client keeps them.
-    thumbnail: async (file, { index, width, keepOpen }) => {
+    thumbnail: async (file, request) => {
+      const { index, width, keepOpen } = request;
       const fit = { maxWidth: Math.min(width, THUMBNAIL_MAX_WIDTH_PX), maxBytes: THUMBNAIL_MAX_BYTES };
-      const { pageCount, image } = await heavy((signal) => renderPdfPage(file, index, fit, signal, { hold: keepOpen !== false }), { lane: thumbnailLane(keepOpen) });
+      const { pageCount, image } = await thumbnailCached(file, request, (signal) => renderPdfPage(file, index, fit, signal, { hold: keepOpen !== false }));
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },
     text: async (file, { index }) => ({
