@@ -40,16 +40,13 @@ function enqueue(queue: Slot[], waitMs: number): Promise<void> {
   });
 }
 
-const backgroundFree = (lane: Exclude<Lane, "foreground">) =>
-  active < MAX_CONCURRENT && background < MAX_BACKGROUND && waiting.foreground.length === 0 && (lane === "background" || waiting.background.length === 0);
-
 function acquire(lane: Lane): Promise<void> {
   if (lane === "foreground") {
     if (active >= MAX_CONCURRENT) return enqueue(waiting.foreground, RPC_DEADLINE_MS);
     active++;
     return Promise.resolve();
   }
-  if (backgroundFree(lane)) {
+  if (active < MAX_CONCURRENT && background < MAX_BACKGROUND && waiting.foreground.length === 0) {
     active++;
     background++;
     return Promise.resolve();
