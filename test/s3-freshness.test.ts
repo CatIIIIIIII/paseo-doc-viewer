@@ -82,6 +82,6 @@ describe("S3: the most recently changed document is one tap away", () => {
     for (let i = 0; i < RECENT_MAX_LIMIT + 5; i++) files[`out/run-${i}.csv`] = "a\n";
     const recent = await listRecent(workspace(files), { limit: RECENT_MAX_LIMIT * 10 });
     expect(recent.entries).toHaveLength(RECENT_MAX_LIMIT);
-    expect(recent).toMatchObject({ truncated: true, truncatedBy: "limit" });
+    expect(recent).toMatchObject({ truncated: true, truncatedBy: ["limit"] });
   });
 });

@@ -7,9 +7,11 @@ import {
   groupEntries,
   KIND_GROUP,
   newestFirst,
+  type RecentCut,
+  type ScanCut,
 } from "../shared/browse";
 import { extensionOf } from "../shared/kinds";
-import { RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
+import { RECENT_MAX_DEPTH, RECENT_MAX_FOLDER_ENTRIES, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { docsRecentRpc, type DocsRecentOutput } from "../shared/rpc";
 import { baseName, formatCount, GROUP_FILES, KIND_LABEL, parentDir, relativeTime } from "./format";
 import { encodeSiblings } from "./siblings";
@@ -63,13 +65,23 @@ export function filterChips(counts: GroupCounts, selected: DocumentGroup | null)
   return [{ group: null, count: total }, ...present.map((group) => ({ group, count: counts[group] }))];
 }
 
-export function noMatchDetail({ query = "", group = null, needsReview = false, newOnly = false }: BrowseFilter, scanIncomplete: boolean): string {
+const SCAN_NOTES: { readonly [C in ScanCut]: string } = {
+  entries: `Only the first ${formatCount(RECENT_MAX_SCANNED_ENTRIES)} entries of this workspace were scanned`,
+  folder: `Folders with more than ${formatCount(RECENT_MAX_FOLDER_ENTRIES)} entries were only partly scanned`,
+  depth: `Folders more than ${RECENT_MAX_DEPTH} levels deep were not scanned`,
+};
+
+const scanNotes = (cuts: readonly RecentCut[]) => cuts.flatMap((cut) => (cut === "limit" ? [] : [SCAN_NOTES[cut]]));
+
+// An older daemon says only that the list was cut, which reads as the limit.
+export const recentCuts = ({ truncated, truncatedBy }: { truncated: boolean; truncatedBy?: readonly RecentCut[] }): readonly RecentCut[] =>
+  truncatedBy ?? (truncated ? ["limit"] : []);
+
+export function noMatchDetail({ query = "", group = null, needsReview = false, newOnly = false }: BrowseFilter, cuts: readonly RecentCut[]): string {
   const files = `${newOnly ? "new " : ""}${group ? GROUP_FILES[group] : "files"}${needsReview ? " changed since review" : ""}`;
   const text = query.trim();
   const detail = text ? `No ${files} match "${text}"` : needsReview || newOnly ? `No ${files}` : `No ${files} in this workspace`;
-  return scanIncomplete
-    ? `${detail}. Only the first ${formatCount(RECENT_MAX_SCANNED_ENTRIES)} entries of this workspace were searched`
-    : detail;
+  return [detail, ...scanNotes(cuts)].join(". ");
 }
 
 // A search that only matched files the viewer cannot open says so instead of "No files match".
@@ -80,14 +92,11 @@ export function unsupportedDetail(paths: readonly string[]): string | null {
   return `Found ${paths.join(", ")}, but ${verdict}. The viewer opens PDF, Word, Excel, CSV, TSV, PowerPoint, image, video and audio files.`;
 }
 
-export function listFooter(shown: number, filtered: boolean): string {
-  return filtered ? `Showing the ${shown} most recent matches` : `Showing the ${shown} most recently changed`;
-}
-
-export function treeNotice(listed: number, truncatedBy: "limit" | "scan" | undefined, filtered: boolean): string | null {
-  if (truncatedBy === "scan") return `Showing the documents in the first ${formatCount(RECENT_MAX_SCANNED_ENTRIES)} entries of this workspace`;
-  if (truncatedBy === "limit") return `Showing the ${formatCount(listed)} most recently changed ${filtered ? "matches" : "documents"}`;
-  return null;
+// Why the list may hold fewer documents than the workspace, one sentence per reason; null when it holds them all.
+export function truncationNotice(listed: number, cuts: readonly RecentCut[], filtered: boolean): string | null {
+  const shown = cuts.includes("limit") ? [`Showing the ${formatCount(listed)} most recently changed ${filtered ? "matches" : "documents"}`] : [];
+  const notes = [...shown, ...scanNotes(cuts)];
+  return notes.length > 0 ? notes.join(". ") : null;
 }
 
 export function documentScreen(workspaceId: string, path: string, siblings?: readonly string[]): PluginOpenScreenInput {

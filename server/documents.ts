@@ -498,12 +498,14 @@ export async function listRecent(root: string, request: Omit<DocsRecentInput, "w
     const review = mark.reviewed === undefined ? undefined : mark.reviewed === entry.revision ? "reviewed" : "changed";
     return { review, opened: mark.opened === entry.revision };
   };
-  const listed = await recentDocuments(root, request, keyOf ? status : undefined);
+  const { truncatedBy, ...listed } = await recentDocuments(root, request, keyOf ? status : undefined);
   return {
     ...listed,
     entries: listed.entries.map(({ path, kind, mtimeMs, size, revision, review, isNew }) => ({
       path, kind, mtimeMs, size, revision, ...(review ? { review } : {}), ...(isNew ? { isNew: true as const } : {}),
     })),
+    truncated: truncatedBy.length > 0,
+    ...(truncatedBy.length > 0 ? { truncatedBy } : {}),
   };
 }
 

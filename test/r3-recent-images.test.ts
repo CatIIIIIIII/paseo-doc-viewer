@@ -29,7 +29,7 @@ describe("R3: docs.recent finds the newest file in big trees", () => {
     writeFileSync(join(root, "z-reports", "newest.pdf"), "%PDF-1.4");
     const result = await listRecent(root, {});
     expect(result.entries.map((entry) => entry.path)).toContain("z-reports/newest.pdf");
-    expect(result).toMatchObject({ truncated: true, truncatedBy: "scan" });
+    expect(result).toMatchObject({ truncated: true, truncatedBy: ["folder"] });
   }, 30_000);
 
   it("skips dependency folders and Office lock files but lists build output", async () => {
@@ -62,8 +62,28 @@ describe("R3: docs.recent finds the newest file in big trees", () => {
     utimesSync(join(root, "build"), future, future);
     const result = await listRecent(root, {});
     expect(result.entries.map((entry) => entry.path)).toEqual(["src/report.pdf"]);
-    expect(result.truncated).toBe(true);
+    expect(result).toMatchObject({ truncated: true, truncatedBy: ["entries"] });
   }, 60_000);
+
+  it("says a scan that skipped folders nested too deep was cut by depth, not by its entry budget", async () => {
+    const chain = Array.from({ length: 17 }, (_, index) => `d${index + 1}`).join("/");
+    const root = workspace({ "report.pdf": "%PDF-1.4", [`${chain}/deep.pdf`]: "%PDF-1.4" });
+    const result = await listRecent(root, {});
+    expect(result.entries.map((entry) => entry.path)).toEqual(["report.pdf"]);
+    expect(result).toMatchObject({ truncated: true, truncatedBy: ["depth"] });
+    const shallow = workspace({ "report.pdf": "%PDF-1.4", [`${chain.split("/").slice(0, 16).join("/")}/deep.pdf`]: "%PDF-1.4" });
+    expect(await listRecent(shallow, {})).toMatchObject({ truncated: false });
+  });
+
+  it("gives every reason when the limit and the scan both cut the list", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 5_001; i++) files[`big/f${i}.txt`] = "";
+    for (let i = 0; i < 3; i++) files[`out/run-${i}.pdf`] = "%PDF-1.4";
+    files[`${Array.from({ length: 17 }, (_, index) => `d${index}`).join("/")}/deep.pdf`] = "%PDF-1.4";
+    const result = await listRecent(workspace(files), { limit: 2 });
+    expect(result.entries).toHaveLength(2);
+    expect(result).toMatchObject({ truncated: true, truncatedBy: ["limit", "folder", "depth"] });
+  }, 30_000);
 });
 
 describe("R3: GIF renders", () => {

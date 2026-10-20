@@ -15,10 +15,8 @@ import {
 } from "../client/folder-tree";
 import { baseName, documentTitle, parentDir } from "../client/format";
 import { TREE_MAX_INDENT_LEVELS, treeIndent, treeLayout } from "../client/panel-layout";
-import { treeNotice } from "../client/recent";
 import { DOCUMENT_SIBLINGS_MAX, siblingWindow } from "../client/siblings";
 import { filterEntries } from "../shared/browse";
-import { RECENT_MAX_LIMIT } from "../shared/limits";
 
 const files = [
   "notes.docx",
@@ -178,13 +176,5 @@ describe("tree layout", () => {
     expect(treeLayout(390, true)).toMatchObject({ rowHeight: 44, size: true, status: "short", actionLabels: true });
     expect(treeLayout(900, false)).toMatchObject({ rowHeight: 28, size: true, status: "full" });
     expect(treeLayout(300, false)).toMatchObject({ size: false, status: "none", actionLabels: false });
-  });
-
-  it("says when the daemon listed only part of the workspace", () => {
-    expect(treeNotice(12, undefined, false)).toBeNull();
-    expect(treeNotice(RECENT_MAX_LIMIT, "limit", false)).toBe("Showing the 1,000 most recently changed documents");
-    expect(treeNotice(RECENT_MAX_LIMIT, "limit", true)).toBe("Showing the 1,000 most recently changed matches");
-    expect(treeNotice(50, "limit", false)).toBe("Showing the 50 most recently changed documents");
-    expect(treeNotice(RECENT_MAX_LIMIT, "scan", false)).toBe("Showing the documents in the first 50,000 entries of this workspace");
   });
 });

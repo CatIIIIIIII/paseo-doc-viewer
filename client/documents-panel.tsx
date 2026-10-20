@@ -20,7 +20,7 @@ import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, isExpanded, setEx
 import { type PreviewRow, previewRowKey, previewRows, visibleTilePaths } from "./previews";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
-import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, listFooter, noMatchDetail, type RecentEntry, treeNotice, unsupportedDetail } from "./recent";
+import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, noMatchDetail, type RecentEntry, recentCuts, truncationNotice, unsupportedDetail } from "./recent";
 import { siblingWindow } from "./siblings";
 import { TipsCard, TipsLink, useTips } from "./tips-card";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, statusIcon, type Styles } from "./ui";
@@ -199,10 +199,13 @@ function DocumentsList({
     />
   );
   const openFromTree = (path: string) => openScreen(documentScreen(workspaceId, path, siblingWindow(folderFiles(folderRows, path), path)));
+  const cuts = recentCuts(recent.data);
+  const notice = truncationNotice(entries.length, cuts, filtering);
+  const footerNotice = tree ? null : notice;
   const footer =
-    recent.data.truncated || tipsLink ? (
+    footerNotice || tipsLink ? (
       <View style={{ padding: 8, gap: 8 }}>
-        {recent.data.truncated && !tree ? <Text style={styles.muted}>{listFooter(entries.length, filtering)}</Text> : null}
+        {footerNotice ? <Text style={styles.muted}>{footerNotice}</Text> : null}
         {tipsLink}
       </View>
     ) : null;
@@ -263,7 +266,7 @@ function DocumentsList({
           theme={theme}
           styles={styles}
           layout={shape}
-          notice={treeNotice(recent.data.entries.length, recent.data.truncatedBy, filtering)}
+          notice={notice}
           onExpandAll={() => updateExpansion(() => ALL_EXPANDED)}
           onCollapseAll={() => updateExpansion(() => ALL_COLLAPSED)}
         />
@@ -277,7 +280,7 @@ function DocumentsList({
             styles={styles}
             icon={recent.data.unsupported ? "FileX" : "SearchX"}
             title={recent.data.unsupported ? "Not a supported file type" : "No matching documents"}
-            detail={unsupportedDetail(recent.data.unsupported ?? []) ?? noMatchDetail({ query, group, needsReview, newOnly }, recent.data.truncated)}
+            detail={unsupportedDetail(recent.data.unsupported ?? []) ?? noMatchDetail({ query, group, needsReview, newOnly }, cuts)}
             action={{ label: "Clear filters", onPress: clearFilters }}
           />
         )

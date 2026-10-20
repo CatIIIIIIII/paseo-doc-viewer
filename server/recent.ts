@@ -1,7 +1,7 @@
 import { opendir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, matchesQuery, newestFirst, queryTerms, type ReviewStatus } from "../shared/browse";
-import { RECENT_MAX_ENTRIES, RECENT_MAX_LIMIT, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
+import { countGroups, type BrowseFilter, type GroupCounts, filterEntries, matchesQuery, newestFirst, queryTerms, RECENT_CUTS, type RecentCut, type ReviewStatus, type ScanCut } from "../shared/browse";
+import { RECENT_MAX_DEPTH, RECENT_MAX_ENTRIES, RECENT_MAX_FOLDER_ENTRIES, RECENT_MAX_LIMIT, RECENT_MAX_SCANNED_ENTRIES } from "../shared/limits";
 import { kindForPath, type DocumentKind } from "../shared/kinds";
 import type { ScannedFolders } from "../shared/turn-docs";
 import { revisionOf } from "./revision";
@@ -21,8 +21,6 @@ export interface RecentEntry {
 const SKIPPED_DIRECTORIES = new Set(["node_modules", "__pycache__", "venv", "target", "vendor"]);
 const DEFERRED_DIRECTORIES = new Set(["build", "dist", "out"]);
 const SKIPPED_FILE_PREFIXES = ["~$", "._"];
-const MAX_DIRECTORY_ENTRIES = 5_000;
-const MAX_DEPTH = 16;
 const MIN_REUSE_MS = 4_000;
 const REUSE_FACTOR = 10;
 
@@ -78,7 +76,8 @@ interface Scan extends ScannedFolders {
   entries: RecentEntry[];
   // Other files, so a search can say a file exists but is not a supported type.
   unsupported: string[];
-  complete: boolean;
+  // Why the scan stopped short of the whole workspace, in RECENT_CUTS order; empty when it read everything.
+  cuts: ScanCut[];
 }
 
 const MAX_UNSUPPORTED_NAMES = 10_000;
@@ -90,7 +89,7 @@ export async function recentDocuments(
   root: string,
   { limit = RECENT_MAX_ENTRIES, query, group, needsReview, newOnly, newSince }: BrowseFilter & { limit?: number; newSince?: number } = {},
   marks?: (entry: RecentEntry) => { review?: ReviewStatus; opened: boolean } | undefined,
-): Promise<{ entries: RecentEntry[]; truncated: boolean; truncatedBy?: "limit" | "scan"; counts: GroupCounts; needsReview: number; newCount: number; unsupported?: string[] }> {
+): Promise<{ entries: RecentEntry[]; truncatedBy: RecentCut[]; counts: GroupCounts; needsReview: number; newCount: number; unsupported?: string[] }> {
   const scan = await sharedScan(root);
   const cap = Math.max(1, Math.min(limit, RECENT_MAX_LIMIT));
   const searched = filterEntries(scan.entries, { query });
@@ -106,12 +105,10 @@ export async function recentDocuments(
   const unsupported = shown.length === 0 && terms.length > 0
     ? scan.unsupported.filter((path) => matchesQuery(path, terms)).slice(0, MAX_UNSUPPORTED_SHOWN)
     : [];
-  const truncatedBy = shown.length > cap ? "limit" : scan.complete ? null : "scan";
   return {
     ...(unsupported.length > 0 ? { unsupported } : {}),
     entries: shown.slice(0, cap),
-    truncated: truncatedBy !== null,
-    ...(truncatedBy ? { truncatedBy } : {}),
+    truncatedBy: [...(shown.length > cap ? ["limit" as const] : []), ...scan.cuts],
     counts: countGroups(matched),
     needsReview: filterEntries(matched, { needsReview: true }).length,
     newCount: filterEntries(matched, { newOnly: true }).length,
@@ -155,7 +152,7 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
   const queue = new Queue();
   queue.push({ path: root, depth: 0, mtimeMs: Number.POSITIVE_INFINITY, deferred: false });
   let visited = 0;
-  let complete = true;
+  const cuts = new Set<ScanCut>();
 
   while (queue.size > 0 && visited < RECENT_MAX_SCANNED_ENTRIES) {
     const { path: directory, depth, deferred } = queue.pop();
@@ -167,8 +164,12 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
     }
     let read = 0;
     for await (const item of entries) {
-      if (++read > MAX_DIRECTORY_ENTRIES || ++visited > RECENT_MAX_SCANNED_ENTRIES) {
-        complete = false;
+      if (++read > RECENT_MAX_FOLDER_ENTRIES) {
+        cuts.add("folder");
+        break;
+      }
+      if (++visited > RECENT_MAX_SCANNED_ENTRIES) {
+        cuts.add("entries");
         break;
       }
       const full = join(directory, item.name);
@@ -176,8 +177,8 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
       if (item.name === ".git") repos.add(relativePath(root, directory));
       if (item.isDirectory()) {
         if (item.name.startsWith(".") || SKIPPED_DIRECTORIES.has(item.name)) continue;
-        if (depth >= MAX_DEPTH) {
-          complete = false;
+        if (depth >= RECENT_MAX_DEPTH) {
+          cuts.add("depth");
           continue;
         }
         try {
@@ -198,14 +199,14 @@ async function scanWorkspace(root: string, stopAfter = Number.POSITIVE_INFINITY)
       try {
         const info = await stat(full);
         found.push({ path: relativePath(root, full), kind, mtimeMs: info.mtimeMs, size: info.size, revision: revisionOf(info), changedMs: Math.max(info.mtimeMs, info.ctimeMs) });
-        if (found.length >= stopAfter) return { entries: found, unsupported, complete: false, dirs, repos };
+        if (found.length >= stopAfter) return { entries: found, unsupported, cuts: ["entries"], dirs, repos };
       } catch {
         continue;
       }
     }
   }
-  if (queue.size > 0) complete = false;
-  return { entries: newestFirst(found), unsupported, complete, dirs, repos };
+  if (queue.size > 0) cuts.add("entries");
+  return { entries: newestFirst(found), unsupported, cuts: RECENT_CUTS.filter((cut): cut is ScanCut => cut !== "limit" && cuts.has(cut)), dirs, repos };
 }
 
 // Null when it cannot be told from a missing birth time, for which Node reports 0 or the change time.
@@ -224,6 +225,6 @@ function relativePath(root: string, full: string): string {
 // The result replaces the cached scan, so the panel reuses it in turn.
 export async function scannedDocuments(root: string): Promise<{ entries: readonly RecentEntry[]; complete: boolean } & ScannedFolders> {
   forgetScan(root);
-  const { entries, complete, dirs, repos } = await sharedScan(root);
-  return { entries, complete, dirs, repos };
+  const { entries, cuts, dirs, repos } = await sharedScan(root);
+  return { entries, complete: cuts.length === 0, dirs, repos };
 }
