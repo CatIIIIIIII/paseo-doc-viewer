@@ -177,12 +177,22 @@ describe("turnDocsRow", () => {
     expect(turnDocsRow({ ...base, files: [], groups: [group("gallery", 3)] })!.data.files).toEqual([]);
   });
 
-  it("shares the 12 rows between folder rows and files", () => {
-    const row = turnDocsRow({ ...base, files: files(15), groups: [group("a", 20), group("b", 13), group("c", 1)] })!;
-    expect(row.data.groups.map((entry) => entry.path)).toEqual(["a", "b", "c"]);
-    expect(row.data.files).toHaveLength(9);
-    expect(row.data.moreCount).toBe(6);
-    expect(turnDocsTitle(row.data)).toBe("49 documents changed while this turn ran");
+  it("fills the 12 rows with files first, then folder rows, and counts the rest", () => {
+    const row = turnDocsRow({ ...base, files: files(10), groups: [group("a", 20), group("b", 13), group("c", 1)] })!;
+    expect(row.data.files).toHaveLength(10);
+    expect(row.data.groups.map((entry) => entry.path)).toEqual(["a", "b"]);
+    expect(row.data.moreCount).toBe(1);
+    expect(turnDocsTitle(row.data)).toBe("44 documents changed while this turn ran");
+  });
+
+  it("lists a report even when 12 new checkouts came with it", () => {
+    const report = { ...files(1)[0]!, path: "REPORT.pdf" };
+    const checkouts = Array.from({ length: 12 }, (_, index) => group(`wt-${index}`, 3));
+    const row = turnDocsRow({ ...base, files: [report], groups: checkouts })!;
+    expect(row.data.files.map((entry) => entry.path)).toEqual(["REPORT.pdf"]);
+    expect(row.data.groups.map((entry) => entry.path)).toEqual(checkouts.slice(0, 11).map((entry) => entry.path));
+    expect(row.data.moreCount).toBe(3);
+    expect(turnDocsTitle(row.data)).toBe("37 documents changed while this turn ran");
   });
 
   it("past 64 KiB drops a folder row's expanded files before listed files", () => {

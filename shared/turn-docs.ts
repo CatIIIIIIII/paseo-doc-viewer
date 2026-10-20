@@ -150,8 +150,9 @@ export function turnDocsRow(
   const { turnId, files, groups = [], ...rest } = input;
   if (files.length === 0 && groups.length === 0) return null;
   const total = files.length + groups.reduce((sum, group) => sum + group.count, 0);
-  const shownGroups = groups.slice(0, maxFiles).map((group) => ({ ...group, files: group.files.slice(0, maxFiles) }));
-  const shownFiles = files.slice(0, Math.max(0, maxFiles - shownGroups.length));
+  // Files take the rows first: a report must not drop to "+N more" behind a pile of new checkouts.
+  const shownFiles = files.slice(0, maxFiles);
+  const shownGroups = groups.slice(0, maxFiles - shownFiles.length).map((group) => ({ ...group, files: group.files.slice(0, maxFiles) }));
   const build = (): TurnDocs => {
     const shown = shownFiles.length + shownGroups.reduce((sum, group) => sum + group.count, 0);
     return { ...rest, files: shownFiles, groups: shownGroups, moreCount: total - shown };

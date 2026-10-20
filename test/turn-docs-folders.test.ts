@@ -69,14 +69,17 @@ describe("turn card folder rows on a real workspace", () => {
     const { root, write } = workspace();
     write("old.pdf");
     await new Promise((resolve) => setTimeout(resolve, 1_200));
-    const row = await turn(root, () => {
+    const twelve = await turn(root, () => {
       for (let index = 0; index < 12; index++) write(`twelve/f-${index}.pdf`);
+    });
+    expect(twelve!.data.files).toHaveLength(12);
+    expect(twelve!.data.groups).toEqual([]);
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const thirteen = await turn(root, () => {
       for (let index = 0; index < 13; index++) write(`thirteen/sub/f-${index}.pdf`);
     });
-    expect(row!.data.files).toHaveLength(11);
-    expect(row!.data.moreCount).toBe(1);
-    expect(row!.data.files.every((file) => file.path.startsWith("twelve/"))).toBe(true);
-    expect(row!.data.groups.map(({ reason, path, count }) => ({ reason, path, count }))).toEqual([{ reason: "folder", path: "thirteen", count: 13 }]);
+    expect(thirteen!.data.files).toEqual([]);
+    expect(thirteen!.data.groups.map(({ reason, path, count }) => ({ reason, path, count }))).toEqual([{ reason: "folder", path: "thirteen", count: 13 }]);
   });
 
   it("lists the reports of a folder deleted and generated again as changed, not as a new folder", async () => {
