@@ -496,10 +496,12 @@ try {
   // The page turn is saved a second later; that save must not mark the document reviewed.
   await rpcAnswered(sinceTurnedPage, "viewer-state.write", { path: "statement.pdf" });
   await nextFrame();
-  await expect(page.getByRole("button", { name: "Mark reviewed", exact: true })).toBeVisible();
+  // One name in both states: whether the file is reviewed is the pressed state.
+  const markReviewed = page.getByRole("button", { name: "Mark reviewed", exact: true });
+  await expect(markReviewed).toHaveAttribute("aria-pressed", "false");
   expect(await rpcCallsFrom(sinceTurnedPage, "viewer-state.review")).toEqual([]);
-  await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
+  await markReviewed.click();
+  await expect(markReviewed).toHaveAttribute("aria-pressed", "true");
   expect(reviews).toHaveLength(1);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   // First-run tips sit at the top of Documents: Next steps through them, Skip hides them for good
@@ -547,14 +549,14 @@ try {
   // A rewrite the open viewer has not picked up yet must not be marked reviewed.
   await touch("statement.pdf", Date.now() / 1000 + 120);
   const sinceRewrite = await rpcCallCount();
-  await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
+  await markReviewed.click();
   await expect.poll(() => rpcCallsFrom(sinceRewrite, "viewer-state.review")).toEqual([true]);
-  await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toHaveCount(0);
+  await expect(markReviewed).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
   // The viewer shows the rewrite once a revision poll answers, one poll interval at most.
   await rpcAnswered(sinceRewrite, "doc.open", { path: "statement.pdf" });
-  await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
+  await markReviewed.click();
+  await expect(markReviewed).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   page.off("request", recordReview);
@@ -1248,5 +1250,5 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await viewButton("List view").click();
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, current page marked, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide under one name with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains, toggle, Expand all and Collapse all, search opens matches, folder siblings for the stepper, kept per layout class, sidebar row, phone fit).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, current page marked, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, one button name in both states, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide under one name with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains, toggle, Expand all and Collapse all, search opens matches, folder siblings for the stepper, kept per layout class, sidebar row, phone fit).");
 } catch (error) { await saveFailure(); throw timedOut ? new Error(overLimit, { cause: error }) : error; } finally { await cleanUp(); }
