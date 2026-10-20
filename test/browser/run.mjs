@@ -44,12 +44,6 @@ await build({ ...base, entryPoints: ["test/browser/app.tsx"], outfile: `${direct
 await build({ ...base, entryPoints: ["test/browser/server.ts"], outfile: `${directory}/server.cjs`, platform: "node", format: "cjs", external: ["@getpaseo/plugin", "zod"] });
 // server.cjs runs from outside the project, so its external packages resolve through NODE_PATH.
 const server = spawn(process.execPath, [`${directory}/server.cjs`], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, NODE_PATH: resolve("node_modules"), VIEWER_BROWSER_DIR: directory, PASEO_DOC_VIEWER_STATE_DIR: stateDirectory } });
-const RUN_LIMIT_MS = 10 * 60_000;
-const watchdog = setTimeout(() => {
-  console.error(`Browser checks did not finish in ${RUN_LIMIT_MS / 60_000} minutes`);
-  server.kill("SIGTERM");
-  process.exit(1);
-}, RUN_LIMIT_MS);
 // Runs in the page: play() and the first advance share one deadline, so a play() that never settles fails.
 const playUntilAdvanced = (element) => new Promise((resolve, reject) => {
   const finish = (settle, value) => { clearTimeout(timer); element.removeEventListener("timeupdate", advanced); element.pause(); settle(value); };
@@ -62,6 +56,33 @@ const playUntilAdvanced = (element) => new Promise((resolve, reject) => {
 });
 let browser;
 let page;
+let failureSaved = false;
+// Bounded, and its own errors are only reported, so they never replace the failure being reported.
+const saveFailure = async () => {
+  if (!page || failureSaved) return;
+  failureSaved = true;
+  try { console.error((await page.locator("body").innerText({ timeout: 5000 })).slice(0, 1800)); } catch (error) { console.error(`Could not read the page: ${error.message}`); }
+  try { await page.screenshot({ path: `${directory}/failure.png`, fullPage: true, timeout: 10_000 }); } catch (error) { console.error(`Could not screenshot the page: ${error.message}`); }
+};
+const cleanUp = async () => {
+  clearTimeout(watchdog);
+  await browser?.close();
+  server.kill("SIGTERM");
+  await rm(stateDirectory, { recursive: true, force: true });
+};
+const RUN_LIMIT_MS = 10 * 60_000;
+const overLimit = `Browser checks did not finish in ${RUN_LIMIT_MS / 60_000} minutes`;
+let timedOut = false;
+// A hang fails like any other check: the page is saved and everything cleaned up before exiting, and
+// closing the browser fails what the checks wait on. If that hangs too, the second timer ends the run.
+const watchdog = setTimeout(async () => {
+  timedOut = true;
+  console.error(overLimit);
+  setTimeout(() => process.exit(1), 60_000).unref();
+  await saveFailure();
+  await cleanUp();
+  process.exit(1);
+}, RUN_LIMIT_MS);
 try {
   const output = await Promise.race([once(server.stdout, "data"), once(server, "exit").then(() => { throw new Error("Harness exited before listening"); })]);
   const { port, root } = JSON.parse(output[0].toString());
@@ -1144,4 +1165,4 @@ try {
   await viewButton("List view").click();
   expect(failures).toEqual([]);
   console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains, toggle, Expand all and Collapse all, search opens matches, folder siblings for the stepper, kept per layout class, sidebar row, phone fit).");
-} catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { clearTimeout(watchdog); await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }
+} catch (error) { await saveFailure(); throw timedOut ? new Error(overLimit, { cause: error }) : error; } finally { await cleanUp(); }
