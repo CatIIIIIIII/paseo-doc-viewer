@@ -397,10 +397,13 @@ try {
   };
   await page.route("**/rpc", slowThumbnails);
   await page.getByRole("button", { name: "report.pdf", exact: true }).click();
+  const sinceReportMap = await rpcCallCount();
   await page.getByRole("button", { name: "Page map", exact: true }).click();
   await expect(page.getByRole("img", { name: "Page 1 thumbnail", exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: "Page 10 thumbnail", exact: true })).toBeVisible();
-  await page.waitForTimeout(1500);
+  // The loader asks for the next thumbnail as soon as one answers, so once all are answered it wants no more.
+  await rpcAnswered(sinceReportMap, "doc.thumbnail", { path: "report.pdf" });
+  await nextFrame();
   expect(thumbnails.maxInFlight).toBeLessThanOrEqual(2);
   expect(new Set(thumbnails.requested).size).toBeLessThan(30);
   expect(thumbnails.requested).not.toContain(59);
