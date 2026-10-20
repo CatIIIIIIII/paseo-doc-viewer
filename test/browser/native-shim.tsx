@@ -42,10 +42,10 @@ export const Text = ({ children, style, accessibilityLabel, onPress, accessibili
 // A focusable div with the role. Like React Native Web 0.21, state reaches the DOM only through aria-* props:
 // accessibilityState is ignored.
 const CHECKED_ROLES = new Set(["radio", "checkbox"]);
-export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, disabled, onPress, "aria-pressed": pressed, "aria-checked": checked, "aria-expanded": expanded }: any) => {
+export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, disabled, onPress, "aria-pressed": pressed, "aria-checked": checked, "aria-expanded": expanded, "aria-current": current }: any) => {
   const checkable = CHECKED_ROLES.has(accessibilityRole);
   return <div role={checkable ? accessibilityRole : "button"} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel}
-    aria-pressed={pressed} aria-checked={checked} aria-expanded={expanded} aria-disabled={disabled || undefined}
+    aria-pressed={pressed} aria-checked={checked} aria-expanded={expanded} aria-current={current} aria-disabled={disabled || undefined}
     onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }}
     style={{ cursor: "pointer", boxSizing: "border-box", display: "flex", flexDirection: "column", flexShrink: 0, minWidth: 0, ...css(typeof style === "function" ? style({ pressed: false, hovered: false }) : style) }}>{children}</div>;
 };

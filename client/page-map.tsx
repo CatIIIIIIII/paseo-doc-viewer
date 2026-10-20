@@ -255,10 +255,12 @@ function ThumbnailCell({ index, state, current, pinned, left, top, width, height
   }
   return (
     <View style={{ position: "absolute", left, top, width }}>
+      {/* A button takes no aria-selected: the web hears the current page as aria-current, native as accessibilityState. */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Open page ${index + 1}${pinned ? ", pinned" : ""}`}
         accessibilityState={{ selected: current }}
+        aria-current={current ? "page" : undefined}
         onPress={onOpen}
         style={{
           width,
