@@ -1,6 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { Dimensions } from "react-native";
-import { COMPACT_WINDOW_MAX, type DocumentOpener, type OpenPreference, openPreference, openTarget } from "./client/open-target";
+import { COMPACT_WINDOW_MAX, type DocumentOpener, type OpenChoice, openPreference, openTarget } from "./client/open-target";
 import { viewerSettingsRpc } from "./shared/settings";
 import { createPanelReader } from "./client/panel-reader";
 import { DocumentScreen } from "./client/document-screen";
@@ -27,8 +27,8 @@ export default function contribute(client: PluginClientContext) {
     }
     const windowWidth = Dimensions.get("window").width;
     const compact = layout?.compact ?? windowWidth < COMPACT_WINDOW_MAX;
-    const route = (preference: OpenPreference | "unset" | undefined) => {
-      const target = openTarget({ compact, panelVisible: reader.visible(workspaceId), preference: preference === "unset" ? undefined : preference, windowWidth });
+    const route = (choice: OpenChoice | undefined) => {
+      const target = openTarget({ compact, panelVisible: reader.visible(workspaceId), choice, windowWidth });
       if (target === "screen") {
         client.openScreen(input);
         return;
@@ -36,14 +36,12 @@ export default function contribute(client: PluginClientContext) {
       reader.select(workspaceId, { path, siblings });
       if (target === "explorer") client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId, location: "explorer" });
     };
-    // The cached choice keeps a press immediate; the reread picks up a change made on another device.
+    // A choice already known keeps the press immediate, and phones need none; the read picks up a change
+    // made on another client.
     const known = openPreference.current();
-    if (known !== undefined || compact) {
-      route(known);
-      void openPreference.read(readSettings);
-    } else {
-      void openPreference.read(readSettings).then(route);
-    }
+    const reading = openPreference.read(readSettings);
+    if (known !== undefined || compact) route(known);
+    else void reading.then(route);
   };
   // Show documents means the list, not the last document read there.
   const showDocuments = (workspaceId: string) => {

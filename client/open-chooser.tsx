@@ -3,7 +3,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { type ReactNode, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { viewerSettingsRpc } from "../shared/settings";
-import { type OpenPreference, openPreference, useOpenPreference } from "./open-target";
+import { type OpenPreference, openPreference, useOpenChoice } from "./open-target";
 import type { Styles } from "./ui";
 
 const SAVED_TEXT: { readonly [P in OpenPreference]: string } = {
@@ -16,30 +16,15 @@ const SAVED_TEXT: { readonly [P in OpenPreference]: string } = {
 export function OpenChooser({ theme, styles }: { theme: PluginTheme; styles: Styles }) {
   const read = useRpc(viewerSettingsRpc.read);
   const write = useRpc(viewerSettingsRpc.write);
-  const preference = useOpenPreference(() => read({}));
+  const choice = useOpenChoice(() => read({}));
   const [saved, setSaved] = useState<OpenPreference | "failed" | null>(null);
   const [saving, setSaving] = useState(false);
-  if (saved === null && preference !== "unset") return null;
+  if (saved === null && choice !== "unset") return null;
   const choose = async (value: OpenPreference) => {
     setSaving(true);
-    try {
-      // A conflict means another client saved in between: reread and apply on top of its values.
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const current = await read({});
-        if (current.status !== "ready") break;
-        const result = await write({ revision: current.revision, values: { ...(current.values as object), openDocuments: value } });
-        if (result.status === "saved") {
-          setSaved(value);
-          openPreference.set(value);
-          return;
-        }
-      }
-      setSaved("failed");
-    } catch {
-      setSaved("failed");
-    } finally {
-      setSaving(false);
-    }
+    const done = await openPreference.save(() => read({}), write, value).catch(() => false);
+    setSaving(false);
+    setSaved(done ? value : "failed");
   };
   const card = { margin: styles.gutter / 2, padding: 12, gap: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1 };
   if (saved !== null) {

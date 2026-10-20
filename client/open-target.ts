@@ -1,29 +1,31 @@
+import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { PluginOpenScreenInput } from "@getpaseo/plugin/client";
 import { useEffect, useState } from "react";
-import { viewerSettings } from "../shared/settings";
-
-// Openers that render (turn cards) pass their layout; commands and /doc have none and guess from the window.
-export type DocumentOpener = (input: PluginOpenScreenInput, layout?: { compact: boolean }) => void;
-export const COMPACT_WINDOW_MAX = 768;
+import { viewerSettings, viewerSettingsRpc } from "../shared/settings";
 
 export type OpenPreference = "auto" | "side" | "full";
+// The Open documents setting as the daemon holds it: "unset" until the first-open chooser is answered.
+export type OpenChoice = OpenPreference | "unset";
 export const OPEN_OPTIONS: readonly { label: string; value: OpenPreference }[] = [
   { label: "Auto", value: "auto" },
   { label: "Side by side", value: "side" },
   { label: "Full view", value: "full" },
 ];
-// in-place: a Documents panel is on screen, so it shows the document without any navigation.
-// explorer: Documents opens in the side column next to the chat. screen: the standalone document screen.
+// in-place: a Documents panel on screen shows the document, with no navigation.
+// explorer: Documents opens in the explorer next to the chat. screen: the document screen.
 export type OpenTarget = "in-place" | "explorer" | "screen";
 
+// Paseo's phone layout is below this window width.
+export const COMPACT_WINDOW_MAX = 768;
 // Below this window width Paseo narrows the explorer under its 320 pt default and leaves the chat
-// under about 460 pt (measured on Paseo 0.12 web with the sidebar open), so auto picks the full view.
+// under about 460 pt (measured on Paseo 0.12 web with the sidebar open), so Auto picks the full view.
 export const SIDE_BY_SIDE_MIN_WINDOW = 1100;
 
 export interface OpenContext {
   compact: boolean;
   panelVisible: boolean;
-  preference: OpenPreference | undefined;
+  // undefined until the setting is read.
+  choice: OpenChoice | undefined;
   windowWidth: number;
 }
 
@@ -33,51 +35,74 @@ const WIDE: { readonly [P in OpenPreference]: (windowWidth: number) => OpenTarge
   full: () => "screen",
 };
 
-// Phones always take the full screen, with its URL and back gesture; inside Documents the panel opens
-// files itself. On a wide layout a visible Documents panel wins over the preference.
-export function openTarget({ compact, panelVisible, preference, windowWidth }: OpenContext): OpenTarget {
+// Phones always take the document screen, with its URL and back gesture. On a wide layout a Documents
+// panel on screen wins over the setting, and a setting not yet answered or read works as Auto.
+export function openTarget({ compact, panelVisible, choice, windowWidth }: OpenContext): OpenTarget {
   if (compact) return "screen";
   if (panelVisible) return "in-place";
-  return WIDE[preference ?? "auto"](windowWidth);
+  return WIDE[choice === undefined || choice === "unset" ? "auto" : choice](windowWidth);
 }
 
-type ReadSettings = () => Promise<{ status: string; values?: unknown }>;
+type ReadSettings = () => Promise<RpcOutput<typeof viewerSettingsRpc.read>>;
+type WriteSettings = (input: RpcInput<typeof viewerSettingsRpc.write>) => Promise<RpcOutput<typeof viewerSettingsRpc.write>>;
 
-// undefined until the first read; "unset" while the chooser has not been answered.
-let preference: OpenPreference | "unset" | undefined;
-const listeners = new Set<(value: OpenPreference | "unset") => void>();
+// Kept per client, like Color file types: screens and openers have no settings hook. The settings screen
+// and the chooser update it on save.
+let choice: OpenChoice | undefined;
+let saves = 0;
+const listeners = new Set<(value: OpenChoice) => void>();
 
-function parse(answer: { status: string; values?: unknown }): OpenPreference | "unset" {
-  const values = answer.status === "ready" ? viewerSettings.schema.safeParse(answer.values) : null;
-  return values?.success ? values.data.openDocuments ?? "unset" : "unset";
+function publish(value: OpenChoice) {
+  choice = value;
+  for (const listener of listeners) listener(value);
 }
 
 export const openPreference = {
-  current: () => preference,
+  current: () => choice,
   set(value: OpenPreference) {
-    preference = value;
-    for (const listener of listeners) listener(value);
+    saves++;
+    publish(value);
   },
-  async read(read: ReadSettings): Promise<OpenPreference | "unset"> {
+  // A failed or invalid read keeps what is known. A read that started before a save answers with the
+  // value from before it, and must not ask again.
+  async read(read: ReadSettings): Promise<OpenChoice | undefined> {
+    const savesBefore = saves;
     try {
-      const value = parse(await read());
-      preference = value;
-      for (const listener of listeners) listener(value);
-      return value;
-    } catch {
-      return preference ?? "unset";
+      const answer = await read();
+      const values = answer.status === "ready" ? viewerSettings.schema.safeParse(answer.values) : null;
+      if (values?.success && saves === savesBefore) publish(values.data.openDocuments ?? "unset");
+    } catch {}
+    return choice;
+  },
+  // Writes on top of the values read, so a conflict means another client saved in between: read again once.
+  async save(read: ReadSettings, write: WriteSettings, value: OpenPreference): Promise<boolean> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const answer = await read();
+      const values = answer.status === "ready" ? viewerSettings.schema.safeParse(answer.values) : null;
+      if (!values?.success) return false;
+      const result = await write({ revision: answer.revision, values: { ...values.data, openDocuments: value } });
+      if (result.status === "saved") {
+        openPreference.set(value);
+        return true;
+      }
+      if (result.status !== "conflict") return false;
     }
+    return false;
   },
 };
 
-export function useOpenPreference(read: ReadSettings): OpenPreference | "unset" | undefined {
-  const [value, setValue] = useState(preference);
+export function useOpenChoice(read: ReadSettings): OpenChoice | undefined {
+  const [value, setValue] = useState(choice);
   useEffect(() => {
     listeners.add(setValue);
-    if (preference === undefined) void openPreference.read(read);
+    setValue(choice);
+    if (choice === undefined) void openPreference.read(read);
     return () => {
       listeners.delete(setValue);
     };
   }, []);
   return value;
 }
+
+// Openers that render (turn cards) pass their layout; commands and /doc have none and go by the window.
+export type DocumentOpener = (input: PluginOpenScreenInput, layout?: { compact: boolean }) => void;
