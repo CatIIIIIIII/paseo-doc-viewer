@@ -18,7 +18,6 @@ export function estimateBytes(value: unknown): number {
 // once a newer revision is asked for. Failed computations are not kept.
 export function createMemo({ maxBytes, maxEntries }: { maxBytes: number; maxEntries: number }) {
   const entries = new Map<string, Entry>();
-  const revisions = new Map<string, string>();
   let totalBytes = 0;
 
   const remove = (key: string, entry: Entry) => {
@@ -35,8 +34,6 @@ export function createMemo({ maxBytes, maxEntries }: { maxBytes: number; maxEntr
   };
 
   const dropOtherRevisions = (path: string, revision: string) => {
-    if (revisions.get(path) === revision) return;
-    revisions.set(path, revision);
     for (const [key, entry] of entries) if (entry.path === path && !key.startsWith(`${path}\0${revision}\0`)) remove(key, entry);
   };
 
