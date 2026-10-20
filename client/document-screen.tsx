@@ -212,12 +212,13 @@ function DocumentBody({ reviewScope: scope, stepper, ...props }: Parameters<type
 }
 
 // Marking reviewed is always an explicit press, for the revision on screen; opening or scrolling never does it.
+// The name stays the same, so screen readers hear whether the file is reviewed once, as the pressed state.
 function MarkReviewed({ marks, status, revision, compact, theme, styles }: {
   marks: ReturnType<typeof useViewerMarks>; status: DocumentReview; revision: string; compact: boolean; theme: PluginScreenProps["theme"]; styles: Styles;
 }) {
   const reviewed = status === "reviewed";
   return <ToolbarButton theme={theme} styles={styles} icon="Check" label={compact ? undefined : "Mark reviewed"}
-    accessibilityLabel={reviewed ? "Reviewed, clear the review mark" : "Mark reviewed"} variant="toggle" selected={reviewed}
+    accessibilityLabel="Mark reviewed" variant="toggle" selected={reviewed}
     disabled={marks.saving} onPress={() => void marks.setReview(reviewed ? null : revision)} />;
 }
 

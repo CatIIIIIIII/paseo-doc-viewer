@@ -30,6 +30,14 @@ export interface BrowseEntry {
   isNew?: boolean;
 }
 
+// Why docs.recent may list fewer documents than the workspace holds: more matches than the limit, more
+// than one reply can carry, or a scan that stopped at its entry budget, read a folder only in part, or
+// skipped folders nested too deep.
+export const SCAN_CUTS = ["entries", "folder", "depth"] as const;
+export const RECENT_CUTS = ["limit", "bytes", ...SCAN_CUTS] as const;
+export type RecentCut = (typeof RECENT_CUTS)[number];
+export type ScanCut = (typeof SCAN_CUTS)[number];
+
 export interface BrowseFilter {
   query?: string;
   group?: DocumentGroup | null;

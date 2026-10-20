@@ -59,14 +59,15 @@ jobs:
         run: npx playwright install-deps chromium
 
       - run: npm run test:browser
+        env:
+          VIEWER_BROWSER_DIR: ${{ runner.temp }}/viewer-browser
 
       - name: Upload screenshots
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: browser-screenshots
-          path: node_modules/.cache/viewer-browser/*.png
-          include-hidden-files: true
+          path: ${{ runner.temp }}/viewer-browser/*.png
           if-no-files-found: ignore
 
   paseo-main:

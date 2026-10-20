@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { cardThumbnail, cardThumbnailRetry, TURN_THUMBNAIL_MAX_BYTES } from "../client/turn-docs";
+import { cardThumbnail, cardThumbnailRetry, TURN_THUMBNAIL_MAX_BYTES, TURN_THUMBNAIL_WIDTH } from "../client/turn-docs";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { CARD_THUMBNAILS_IN_FLIGHT } from "../client/card-thumbnails";
-import { createRequestQueue, createThumbnailCache, createThumbnailLoader, gridLayout, hasThumbnail, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
+import { createPageMapThumbnails, createRequestQueue, createThumbnailCache, createThumbnailLoader, gridLayout, hasThumbnail, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
 import { DOCUMENT_KINDS } from "../shared/kinds";
 import type { TurnDocsFile } from "../shared/turn-docs";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
@@ -130,15 +130,26 @@ describe("thumbnail loader", () => {
     expect(pageMap.state(1)).toBeUndefined();
   });
 
-  it("does not show a card the page 1 a password unlocked in the page map", () => {
-    const cache = createThumbnailCache(100, 1_000_000);
-    cache.set(`${pageThumbnailKey("w", "locked.pdf", 80, 0, true)}\0r`, { type: "image", image: image("unlocked") });
-    const card = createThumbnailLoader({
-      identify: () => ({ key: pageThumbnailKey("w", "locked.pdf", 80, 0), revision: "r" }),
-      cache,
-      fetch: () => new Promise(() => {}),
-    });
-    expect(card.state(0)).toBeUndefined();
+  it("keeps a page the page map drew with a password off a card at the same width, and shares one drawn without", async () => {
+    vi.resetModules();
+    const { createPageMapThumbnails } = await import("../client/thumbnails");
+    const { cardThumbnailIndices, createCardThumbnails } = await import("../client/card-thumbnails");
+    const drawn = async (input: { path: string }) => ({ kind: "pdf" as const, revision: "r", index: 0, pageCount: 1, image: image(input.path) });
+    for (const [path, password] of [["locked.pdf", "secret"], ["open.pdf", undefined]] as const) {
+      const pageMap = createPageMapThumbnails({ workspaceId: "w", path, password, revision: "r", width: TURN_THUMBNAIL_WIDTH }, drawn);
+      pageMap.want([0]);
+      await flush();
+      expect(pageMap.state(0)?.status).toBe("ready");
+    }
+    const asked: string[] = [];
+    const client = { rpc: (_contract: unknown, input: { path: string }) => (asked.push(input.path), new Promise(() => {})) } as never;
+    const files = ["locked.pdf", "open.pdf"].map((path) => ({ path, kind: "pdf" as const, size: 1_000, revision: "r", status: "new" as const }));
+    const card = createCardThumbnails(client, { workspaceId: "w", files });
+    card.want(cardThumbnailIndices(files));
+    await flush();
+    expect(card.state(0)).toEqual({ status: "loading" });
+    expect(card.state(1)).toEqual({ status: "ready", thumbnail: { type: "image", image: image("open.pdf"), count: 1 } });
+    expect(asked).toEqual(["locked.pdf"]);
   });
 
   it("asks a busy daemon again by itself with the card's retry policy, never work that ran out of time, and stops once closed", async () => {
@@ -165,6 +176,107 @@ describe("thumbnail loader", () => {
       closing.close();
       await vi.advanceTimersByTimeAsync(120_000);
       expect(calls).toEqual([2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks a busy daemon again for a page map within a few seconds, a few times, stops once closed, and keeps Retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: number[] = [];
+      const pageMap = (path: string, errors: Record<number, string>) => createPageMapThumbnails({ workspaceId: "w", path, revision: "r", width: 160 }, async ({ index }) => {
+        calls.push(index);
+        throw new Error(errors[index]);
+      });
+      const map = pageMap("retried.pdf", { 0: ERROR_MESSAGES.busy(), 1: ERROR_MESSAGES.tooSlow() });
+      map.want([0, 1]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(calls.filter((index) => index === 0)).toHaveLength(4);
+      expect(calls.filter((index) => index === 1)).toHaveLength(1);
+      expect(map.state(0)).toMatchObject({ status: "failed" });
+      map.retry(0);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(calls.filter((index) => index === 0)).toHaveLength(5);
+      calls.length = 0;
+      const closing = pageMap("closed.pdf", { 2: ERROR_MESSAGES.busy() });
+      closing.want([2]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(1);
+      closing.close();
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(calls).toEqual([2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a thumbnail as loading while it waits to be asked for again, and as failed after the last try or an error not retried", async () => {
+    vi.useFakeTimers();
+    try {
+      const map = createPageMapThumbnails({ workspaceId: "w", path: "pending.pdf", revision: "r", width: 160 }, async ({ index }) => {
+        throw new Error(index === 0 ? ERROR_MESSAGES.busy() : ERROR_MESSAGES.tooSlow());
+      });
+      const seen: string[] = [];
+      map.subscribe(() => seen.push(map.state(0)!.status));
+      map.want([0, 1]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(map.state(0)).toEqual({ status: "loading" });
+      expect(map.state(1)).toMatchObject({ status: "failed" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(seen.filter((status, at) => status !== seen[at - 1])).toEqual(["loading", "failed"]);
+      expect(map.state(0)).toMatchObject({ status: "failed" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a thumbnail as loading as soon as Retry asks for it again, or as ready if another loader drew it meanwhile", async () => {
+    const { loader, calls, cache } = harness();
+    const seen: (string | undefined)[] = [];
+    loader.subscribe(() => seen.push(loader.state(1)?.status));
+    loader.want([1]);
+    calls[0]!.reject(new Error("busy"));
+    await flush();
+    loader.retry(1);
+    expect(seen).toEqual(["failed", "loading"]);
+    calls[1]!.reject(new Error("busy"));
+    await flush();
+    const other = harness("r1", cache);
+    other.loader.want([1]);
+    other.calls[0]!.resolve();
+    await flush();
+    loader.retry(1);
+    expect(seen).toEqual(["failed", "loading", "failed", "ready"]);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("does not ask again, ahead of the pages on screen, for a page scrolled away from while it waited, and asks once it is wanted again", async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: number[] = [];
+      const held: (() => void)[] = [];
+      const map = createPageMapThumbnails({ workspaceId: "w", path: "scrolled.pdf", revision: "r", width: 160 }, async ({ index }) => {
+        calls.push(index);
+        if (index < 2) throw new Error(ERROR_MESSAGES.busy());
+        await new Promise<void>((resolve) => held.push(resolve));
+        return { kind: "pdf" as const, revision: "r", index, pageCount: 106, image: image(`page${index}`) };
+      });
+      const release = async () => {
+        held.splice(0).forEach((resolve) => resolve());
+        await vi.advanceTimersByTimeAsync(0);
+      };
+      map.want([0, 1]);
+      await vi.advanceTimersByTimeAsync(0);
+      map.want([100, 101, 102, 103, 104, 105]);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(map.state(0)).toBeUndefined();
+      await release();
+      expect(calls).toEqual([0, 1, 100, 101, 102, 103]);
+      map.want([0, 1]);
+      await release();
+      expect(calls.slice(6)).toEqual([0, 1]);
     } finally {
       vi.useRealTimers();
     }
@@ -272,24 +384,26 @@ describe("turn card thumbnail requests", () => {
     vi.resetModules();
     const module = await import("../client/card-thumbnails");
     const calls: { path: string; resolve(): void }[] = [];
+    const asked: string[] = [];
     let inFlight = 0;
     let peak = 0;
     const client = {
       rpc: (_contract: unknown, input: { path: string }) => new Promise((resolve) => {
         inFlight++;
         peak = Math.max(peak, inFlight);
+        asked.push(input.path);
         calls.push({ path: input.path, resolve: () => { inFlight--; resolve({ kind: "pdf", revision: `r${input.path.match(/\d+/)![0]}`, index: 0, pageCount: 1, image: image(input.path) }); } });
       }),
     } as unknown as Parameters<typeof module.createCardThumbnails>[0];
-    const mount = (list: TurnDocsFile[]) => {
-      const card = module.createCardThumbnails(client, { workspaceId: "w", files: list });
+    const mount = (list: TurnDocsFile[], priority?: number) => {
+      const card = module.createCardThumbnails(client, { workspaceId: "w", files: list }, priority);
       card.want(module.cardThumbnailIndices(list));
       return card;
     };
-    return { mount, calls, peak: () => peak };
+    return { ...module, mount, client, calls, asked, peak: () => peak };
   }
 
-  it("ask for two thumbnails at a time across every card, the card mounted last first", async () => {
+  it("ask for one thumbnail at a time across every card, the card mounted last first", async () => {
     const { mount, calls, peak } = await cards();
     const older = mount(files("old", 12));
     const newer = mount(files("new", 12));
@@ -305,16 +419,32 @@ describe("turn card thumbnail requests", () => {
     older.close();
   });
 
+  it("keep a card's place when its files change, so it does not move ahead of a card mounted after it", async () => {
+    const { mount, nextCardPriority, calls, asked } = await cards();
+    const priority = nextCardPriority();
+    const older = mount(files("old", 2), priority);
+    mount(files("newer", 2));
+    await flush();
+    older.close();
+    mount(files("changed", 2), priority);
+    while (calls.length > 0) {
+      calls.splice(0).forEach((call) => call.resolve());
+      await flush();
+    }
+    expect(asked).toEqual(["newer0.pdf", "newer1.pdf", "changed0.pdf", "changed1.pdf"]);
+  });
+
   it("drop a closed card's waiting requests, so a card scrolled away stops asking", async () => {
-    const { mount, calls } = await cards();
+    const { mount, calls, asked } = await cards();
     const gone = mount(files("gone", 12));
     const kept = mount(files("kept", 2));
     await flush();
-    expect(calls.map((call) => call.path)).toEqual(["kept0.pdf", "kept1.pdf"]);
     gone.close();
-    calls.splice(0).forEach((call) => call.resolve());
-    await flush();
-    expect(calls).toEqual([]);
+    while (calls.length > 0) {
+      calls.splice(0).forEach((call) => call.resolve());
+      await flush();
+    }
+    expect(asked).toEqual(["kept0.pdf", "kept1.pdf"]);
     expect(kept.state(1)?.status).toBe("ready");
   });
 });

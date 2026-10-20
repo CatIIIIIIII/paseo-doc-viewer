@@ -1,7 +1,9 @@
 import { environmentManager, focusManager, QueryClient, QueryObserver } from "@tanstack/query-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { omittedImagesNote, pageTextNote } from "../client/paging";
-import { animationQueryKey, blocksQueryKey, documentQueryOptions, pageQueryKey, recentQueryOptions, rowsQueryKey, textQueryKey } from "../client/queries";
+import { animationQueryKey, blocksQueryKey, documentQueryOptions, pageQueryKey, RECENT_POLL_MS, recentQueryOptions, rowsQueryKey, textQueryKey } from "../client/queries";
+import { fetchRecent } from "../client/recent";
+import type { DocsRecentInput, DocsRecentList, DocsRecentOutput } from "../shared/rpc";
 
 describe("client query keys and polling", () => {
   it("keys every page, block and row request by the document revision", () => {
@@ -62,7 +64,18 @@ describe("client query keys and polling", () => {
     // Until the last visit is known there is nothing to call new, so the filter waits for it.
     expect(recentQueryOptions("ws", { newOnly: true, newSince: null }).request).toEqual({ workspaceId: "ws" });
     const previous = { entries: [], truncated: false, counts: { pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 }, needsReview: 0, newCount: 0 };
-    expect(options.placeholderData(previous)).toBe(previous);
+    expect(options.placeholderData(previous, { queryKey: recentQueryOptions("ws", {}).queryKey })).toBe(previous);
+  });
+
+  it("does not show a list asked for with another limit while the Tree's loads, only its counts", () => {
+    const entry = { path: "a.pdf", kind: "pdf" as const, mtimeMs: 1, size: 1, revision: "r1" };
+    const counts = { pdf: 60, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 };
+    const listed = { entries: [entry], truncated: true, truncatedBy: ["limit" as const], counts, needsReview: 2, newCount: 1, version: "v1" };
+    const list = recentQueryOptions("ws", {});
+    const tree = recentQueryOptions("ws", { limit: 1000 });
+    expect(tree.placeholderData(listed, { queryKey: list.queryKey })).toEqual({ entries: [], truncated: false, counts, needsReview: 2, newCount: 1, version: "v1" });
+    expect(list.placeholderData(listed, { queryKey: tree.queryKey })).toMatchObject({ entries: [], truncated: false });
+    expect(tree.placeholderData(listed, { queryKey: recentQueryOptions("ws", { query: "a", limit: 1000 }).queryKey })).toBe(listed);
   });
 });
 
@@ -117,6 +130,52 @@ describe("open document polling", () => {
     await vi.advanceTimersByTimeAsync(11_000);
     expect(observer.getCurrentResult().data).toEqual({ revision: "r2" });
     unsubscribe();
+  });
+});
+
+describe("recent list polling", () => {
+  const counts = { pdf: 1, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 };
+  const unversioned: DocsRecentList = { entries: [], truncated: false, counts, needsReview: 0, newCount: 0 };
+  const list: DocsRecentList = { ...unversioned, version: "v1" };
+  const runsOnServer = environmentManager.isServer();
+  afterEach(() => {
+    vi.useRealTimers();
+    environmentManager.setIsServer(() => runsOnServer);
+  });
+
+  it("sends the version it holds and keeps the same list while the daemon says nothing changed", async () => {
+    vi.useFakeTimers();
+    environmentManager.setIsServer(() => false);
+    const client = new QueryClient();
+    client.mount();
+    const changed = { ...list, newCount: 1, version: "v2" };
+    const answers: DocsRecentOutput[] = [list, { unchanged: true, version: "v1" }, changed];
+    const sent: DocsRecentInput[] = [];
+    const call = async (input: DocsRecentInput) => (sent.push(input), answers.shift()!);
+    const { request, ...options } = recentQueryOptions("ws", {});
+    const observer = new QueryObserver<DocsRecentList, Error, DocsRecentList, DocsRecentList, typeof options.queryKey>(client, {
+      ...options,
+      retry: false,
+      queryFn: () => fetchRecent(call, request, client.getQueryData(options.queryKey)),
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(100);
+    const first = observer.getCurrentResult().data;
+    await vi.advanceTimersByTimeAsync(RECENT_POLL_MS);
+    expect(observer.getCurrentResult().data).toBe(first);
+    await vi.advanceTimersByTimeAsync(RECENT_POLL_MS);
+    expect(observer.getCurrentResult().data).toEqual(changed);
+    expect(sent).toEqual([{ workspaceId: "ws" }, { workspaceId: "ws", since: "v1" }, { workspaceId: "ws", since: "v1" }]);
+    unsubscribe();
+    client.unmount();
+  });
+
+  it("asks an older daemon, which sends no version, for the whole list every time", async () => {
+    const sent: DocsRecentInput[] = [];
+    const call = async (input: DocsRecentInput) => (sent.push(input), unversioned);
+    expect(await fetchRecent(call, { workspaceId: "ws" }, unversioned)).toBe(unversioned);
+    expect(sent).toEqual([{ workspaceId: "ws" }]);
+    await expect(fetchRecent(async () => ({ unchanged: true, version: "v1" }), { workspaceId: "ws" })).rejects.toThrow();
   });
 });
 

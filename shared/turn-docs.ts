@@ -4,7 +4,6 @@ import { DOCUMENT_KINDS, type DocumentKind } from "./kinds";
 // The host accepts contribution ids matching /^[a-z][a-z0-9-]*$/ only; a dotted kind silently
 // drops every client contribution of the plugin (packages/app/src/plugins/evaluate.ts).
 export const TURN_DOCS_KIND = "turn-docs";
-export const TURN_DOCS_VERSION = 2;
 export const TURN_DOCS_MAX_FILES = 12;
 // The daemon rejects a timeline row whose serialized data is over 64 KiB.
 export const TIMELINE_DATA_MAX_BYTES = 64 * 1024;
@@ -23,7 +22,8 @@ export const turnDocsGroupSchema = z.object({
   reason: z.enum(["checkout", "folder"]),
   path: z.string(),
   count: z.number(),
-  files: z.array(turnDocsFileSchema),
+  // Only new files fold (groupChanges), so a folder row reads New.
+  files: z.array(turnDocsFileSchema.extend({ status: z.literal("new") })),
 });
 
 export const turnDocsV1Schema = z.object({
@@ -44,7 +44,10 @@ export type TurnDocsGroup = z.infer<typeof turnDocsGroupSchema>;
 export type TurnDocsV1 = z.infer<typeof turnDocsV1Schema>;
 export type TurnDocs = z.infer<typeof turnDocsSchema>;
 
-// Rows stored before folder rows existed stay in the timeline until the daemon restarts.
+// Version 2 adds folder rows. A card without one is written as version 1, which bundles from before
+// folder rows render too.
+export type TurnDocsRow = { type: "plugin"; id: string; kind: string } & ({ version: 1; data: TurnDocsV1 } | { version: 2; data: TurnDocs });
+
 export const upgradeTurnDocs = (data: TurnDocsV1): TurnDocs => ({ ...data, groups: [] });
 
 export interface ScannedFile {
@@ -68,8 +71,25 @@ export interface ScannedFolders {
 export interface Baseline {
   revisions: ReadonlyMap<string, string>;
   dirs: ReadonlySet<string>;
-  repos: ReadonlySet<string>;
   complete: boolean;
+}
+
+export interface ScannedWorkspace extends ScannedFolders {
+  entries: readonly ScannedFile[];
+  complete: boolean;
+}
+
+// The hook reaches the plugin a little after the turn really starts, so the scan can already hold what the
+// agent made in that first moment. Files changed and folders born within the slack before startedAt are
+// left out and judged by the end scan alone: such a file is new, and such a folder (an early git worktree
+// add) is new, which folds its new files. A folder with no trusted birth time stays, as it cannot be placed.
+export function baselineAt({ entries, complete, dirs }: ScannedWorkspace, startedAt: number): Baseline {
+  const from = startedAt - TURN_WINDOW_SLACK_MS;
+  return {
+    revisions: new Map(entries.filter((entry) => entry.changedMs < from).map((entry) => [entry.path, entry.revision])),
+    dirs: new Set([...dirs].filter(([, born]) => born === null || born < from).map(([dir]) => dir)),
+    complete,
+  };
 }
 
 // Files whose content changed during the turn, newest first. A file that was in the baseline
@@ -97,23 +117,27 @@ export function groupChanges(
 ): { files: TurnDocsFile[]; groups: TurnDocsGroup[] } {
   const from = startedAt - TURN_WINDOW_SLACK_MS;
   const memo = new Map<string, "checkout" | "folder" | null>();
+  // A complete baseline lists every folder that existed, so one deleted and made again during the turn
+  // (rm -rf out, then a build) is not new. Only without one does a birth time inside the turn decide.
   const isNew = (dir: string) => {
+    if (baseline?.complete) return !baseline.dirs.has(dir);
     const born = after.dirs.get(dir);
-    return (baseline?.complete === true && !baseline.dirs.has(dir)) || (born != null && born >= from);
+    return born != null && born >= from;
   };
-  const newRepo = (dir: string) =>
-    after.repos.has(dir) && (isNew(dir) || (baseline?.complete === true && baseline.dirs.has(dir) && !baseline.repos.has(dir)));
+  // A folder that existed stays listed file by file even once it holds a .git (git init).
   const newness = (dir: string) => {
     let known = memo.get(dir);
     if (known === undefined) {
-      known = newRepo(dir) ? "checkout" : isNew(dir) ? "folder" : null;
+      known = !isNew(dir) ? null : after.repos.has(dir) ? "checkout" : "folder";
       memo.set(dir, known);
     }
     return known;
   };
 
-  const buckets = new Map<string, { reason: "checkout" | "folder"; files: TurnDocsFile[] }>();
+  const buckets = new Map<string, { reason: "checkout" | "folder"; files: TurnDocsGroup["files"] }>();
   for (const file of files) {
+    // A changed file is news even inside a new folder, so it keeps its own row.
+    if (!isNewFile(file)) continue;
     const dirs = ancestors(file.path);
     const checkout = dirs.find((dir) => newness(dir) === "checkout");
     const folder = checkout ?? dirs.find((dir) => newness(dir) !== null);
@@ -125,9 +149,11 @@ export function groupChanges(
   const groups = [...buckets]
     .filter(([, bucket]) => bucket.reason === "checkout" || bucket.files.length > TURN_DOCS_MAX_FILES)
     .map(([path, bucket]): TurnDocsGroup => ({ reason: bucket.reason, path, count: bucket.files.length, files: bucket.files }));
-  const grouped = new Set(groups.flatMap((group) => group.files));
+  const grouped = new Set<TurnDocsFile>(groups.flatMap((group) => group.files));
   return { files: files.filter((file) => !grouped.has(file)), groups };
 }
+
+const isNewFile = (file: TurnDocsFile): file is TurnDocsGroup["files"][number] => file.status === "new";
 
 function ancestors(path: string): string[] {
   const parts = path.split("/").slice(0, -1);
@@ -139,12 +165,13 @@ function ancestors(path: string): string[] {
 export function turnDocsRow(
   input: Omit<TurnDocs, "files" | "groups" | "moreCount"> & { files: readonly TurnDocsFile[]; groups?: readonly TurnDocsGroup[]; turnId: string | null },
   { maxFiles = TURN_DOCS_MAX_FILES, maxBytes = TIMELINE_DATA_MAX_BYTES } = {},
-): { type: "plugin"; id: string; kind: string; version: number; data: TurnDocs } | null {
+): TurnDocsRow | null {
   const { turnId, files, groups = [], ...rest } = input;
   if (files.length === 0 && groups.length === 0) return null;
   const total = files.length + groups.reduce((sum, group) => sum + group.count, 0);
-  const shownGroups = groups.slice(0, maxFiles).map((group) => ({ ...group, files: group.files.slice(0, maxFiles) }));
-  const shownFiles = files.slice(0, Math.max(0, maxFiles - shownGroups.length));
+  // Files take the rows first: a report must not drop to "+N more" behind a pile of new checkouts.
+  const shownFiles = files.slice(0, maxFiles);
+  const shownGroups = groups.slice(0, maxFiles - shownFiles.length).map((group) => ({ ...group, files: group.files.slice(0, maxFiles) }));
   const build = (): TurnDocs => {
     const shown = shownFiles.length + shownGroups.reduce((sum, group) => sum + group.count, 0);
     return { ...rest, files: shownFiles, groups: shownGroups, moreCount: total - shown };
@@ -158,7 +185,9 @@ export function turnDocsRow(
     else break;
     data = build();
   }
-  return { type: "plugin", id: turnDocsRowId(turnId, input.startedAt), kind: TURN_DOCS_KIND, version: TURN_DOCS_VERSION, data };
+  const { groups: shown, ...card } = data;
+  const id = turnDocsRowId(turnId, input.startedAt);
+  return shown.length > 0 ? { type: "plugin", id, kind: TURN_DOCS_KIND, version: 2, data } : { type: "plugin", id, kind: TURN_DOCS_KIND, version: 1, data: card };
 }
 
 // Stable per turn: a retried append replaces the row instead of adding a second card. The start time

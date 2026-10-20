@@ -1,9 +1,9 @@
 import { type PluginOpenScreenInput, type PluginWorkspacePanelProps, useRpc } from "@getpaseo/plugin/client";
 import { FlatList, Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type LayoutChangeEvent, PixelRatio, Pressable, Text, View } from "react-native";
+import { AppState, type LayoutChangeEvent, PixelRatio, Pressable, Text, View } from "react-native";
 import type { DocumentView } from "../shared/documents-view";
 import { layoutClass } from "../shared/viewer-state";
 import { countGroups, type DocumentGroup, filterEntries, queryTerms } from "../shared/browse";
@@ -16,23 +16,45 @@ import { detailsColumns, previewGrid, treeLayout } from "./panel-layout";
 import { DetailsHeader, DetailsRow } from "./documents-details";
 import { countText, PreviewTile, TileRow, usePreviews } from "./documents-previews";
 import { TreeActions, TreeList, useTreeExpansion } from "./documents-tree";
-import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, isExpanded, toggleFolder, treeRows } from "./folder-tree";
-import { type PreviewRow, previewRowKey, previewRows } from "./previews";
+import { ALL_COLLAPSED, ALL_EXPANDED, folderFiles, folderTree, holdOpenChains, isExpanded, setExpanded, treeRows } from "./folder-tree";
+import { type PreviewRow, previewRowKey, previewRows, visibleTilePaths } from "./previews";
 import { useDocumentView, VIEW_OPTIONS } from "./documents-view";
 import { recentQueryOptions } from "./queries";
-import { type BrowseRow, browseRows, documentScreen, entryLabel, filterChips, listFooter, noMatchDetail, type RecentEntry, treeNotice, unsupportedDetail } from "./recent";
+import { type BrowseRow, browseRows, documentScreen, emptyDetail, entryLabel, fetchRecent, filterChips, noMatchDetail, type RecentEntry, recentCuts, truncationNotice, unsupportedDetail } from "./recent";
 import { siblingWindow } from "./siblings";
 import { TipsCard, TipsLink, useTips } from "./tips-card";
 import { ErrorState, LoadingState, makeStyles, MessageState, StatusPill, statusIcon, type Styles } from "./ui";
 import { useBottomInset } from "./use-bottom-inset";
 import { useKindPalette } from "./use-kind-colors";
 import { documentsVisits } from "./visits";
+import { onWindowFocus } from "./web";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const SWITCH_LABELS_MIN_WIDTH = 600;
 const SWITCH_INLINE_MIN_WIDTH = 360;
 const NO_GROUPS: ReadonlySet<DocumentGroup> = new Set();
 const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
+const CLOCK_TICK_MS = 60_000;
+
+// Times read in minutes, so rows redraw once a minute instead of on every poll. A timer does not run while the
+// window is hidden or the app is in the background, so the time is read again when either is back.
+function useClock(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const timer = setInterval(tick, CLOCK_TICK_MS);
+    const app = AppState.addEventListener("change", (state) => {
+      if (state === "active") tick();
+    });
+    const unfocus = onWindowFocus(tick);
+    return () => {
+      clearInterval(timer);
+      app?.remove();
+      unfocus();
+    };
+  }, []);
+  return now;
+}
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -94,9 +116,10 @@ function DocumentsList({
   const searched = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const newSince = useLastVisit(host?.id, workspaceId);
   const listRecent = useRpc(docsRecentRpc);
+  const queryClient = useQueryClient();
   const tree = view === "tree";
   const { request, ...options } = recentQueryOptions(workspaceId, { query: searched, group, needsReview, newOnly, newSince, limit: tree ? RECENT_MAX_LIMIT : undefined });
-  const recent = useQuery({ ...options, queryFn: () => listRecent(request) });
+  const recent = useQuery({ ...options, queryFn: () => fetchRecent(listRecent, request, queryClient.getQueryData(options.queryKey)) });
   const filtering = queryTerms(query).length > 0 || group !== null || needsReview || newOnly;
   const pending = recent.isPlaceholderData || searched !== query;
   const entries = useMemo(
@@ -117,10 +140,27 @@ function DocumentsList({
     [entries, recent.data, collapsed, group, needsReview, newOnly, previewHeadings],
   );
   const filterKey = filtering ? JSON.stringify([queryTerms(query), group, needsReview, newOnly]) : null;
-  const [expansion, setExpansion] = useTreeExpansion(`${host?.id ?? ""}\0${workspaceId}`, filterKey);
+  const [expansion, updateExpansion] = useTreeExpansion(`${host?.id ?? ""}\0${workspaceId}`, filterKey);
   const folderRows = useMemo(
-    () => (tree ? treeRows(folderTree(entries), (path, depth) => isExpanded(expansion, path, depth)) : []),
+    () => (tree ? treeRows(folderTree(entries), (chain, depth) => isExpanded(expansion, chain, depth)) : []),
     [tree, entries, expansion],
+  );
+  useEffect(() => {
+    updateExpansion((current) => holdOpenChains(current, folderRows));
+  }, [folderRows, updateExpansion]);
+  const shape = useMemo(() => treeLayout(width, layout.compact), [width, layout.compact]);
+  const folderRowsRef = useRef(folderRows);
+  folderRowsRef.current = folderRows;
+  const toggleFolder = useCallback(
+    (path: string, open: boolean) => {
+      const row = folderRowsRef.current.find((each) => each.type === "folder" && each.path === path);
+      updateExpansion((current) => setExpanded(current, row?.type === "folder" ? row.chain : [path], open));
+    },
+    [updateExpansion],
+  );
+  const openFromTree = useCallback(
+    (path: string) => openScreen(documentScreen(workspaceId, path, siblingWindow(folderFiles(folderRowsRef.current, path), path))),
+    [openScreen, workspaceId],
   );
   const columnsCount = grid?.columns ?? 0;
   const items: readonly PreviewRow[] = useMemo(() => (columnsCount > 0 ? previewRows(rows, columnsCount) : rows), [rows, columnsCount]);
@@ -129,26 +169,16 @@ function DocumentsList({
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: { index: number | null }[] }) => {
-    const shown = new Set<number>();
-    for (const { index } of viewableItems) {
-      if (index === null) continue;
-      shown.add(index);
-      const after = itemsRef.current.findIndex((item, at) => at > index && item.type === "tiles");
-      if (after >= 0) shown.add(after);
-    }
-    const paths = new Set([...shown].flatMap((index) => {
-      const item = itemsRef.current[index];
-      return item?.type === "tiles" ? item.entries.map((entry) => entry.path) : [];
-    }));
+    const paths = visibleTilePaths(itemsRef.current, viewableItems.flatMap(({ index }) => (index === null ? [] : [index])));
     setVisible((current) => (current && current.size === paths.size && [...paths].every((path) => current.has(path)) ? current : paths));
   }).current;
   const readThumbnail = useRpc(docThumbnailRpc);
   const preview = usePreviews(workspaceId, tileEntries, grid, visible, readThumbnail);
   const openPath = useCallback((path: string) => openScreen(documentScreen(workspaceId, path)), [openScreen, workspaceId]);
-  const now = recent.dataUpdatedAt || Date.now();
+  const now = useClock();
   const tips = useTips();
   const readSettings = useRpc(viewerSettingsRpc.read);
-  const palette = useKindPalette(theme, () => readSettings({}));
+  const palette = useKindPalette(theme, () => readSettings({}), recent.dataUpdatedAt);
   const tipsCard = tips.step !== null ? <TipsCard theme={theme} styles={styles} step={tips.step} onNext={tips.next} onSkip={tips.skip} /> : null;
   const tipsLink = tips.canReopen ? <TipsLink theme={theme} styles={styles} onPress={tips.reopen} /> : null;
 
@@ -172,7 +202,7 @@ function DocumentsList({
           styles={styles}
           icon="FileText"
           title="No documents yet"
-          detail="PDF, Word, Excel, CSV, JSON Lines, Parquet, PowerPoint, image, video, and audio files in this workspace appear here"
+          detail={emptyDetail(recentCuts(recent.data))}
         >
           {tipsLink}
         </MessageState>
@@ -195,7 +225,6 @@ function DocumentsList({
 
   const controlHeight = layout.compact ? 44 : 36;
   const columns = view === "details" ? detailsColumns(width, layout.compact) : null;
-  const shape = treeLayout(width, layout.compact);
   const switchInline = width === 0 || width >= SWITCH_INLINE_MIN_WIDTH;
   const viewSwitch = (
     <ViewSwitch
@@ -208,11 +237,13 @@ function DocumentsList({
       onChange={setView}
     />
   );
-  const openFromTree = (path: string) => openScreen(documentScreen(workspaceId, path, siblingWindow(folderFiles(folderRows, path), path)));
+  const cuts = recentCuts(recent.data);
+  const notice = truncationNotice(entries.length, cuts, filtering, view);
+  const footerNotice = tree ? null : notice;
   const footer =
-    recent.data.truncated || tipsLink ? (
+    footerNotice || tipsLink ? (
       <View style={{ padding: 8, gap: 8 }}>
-        {recent.data.truncated && !tree ? <Text style={styles.muted}>{listFooter(entries.length, filtering)}</Text> : null}
+        {footerNotice ? <Text style={styles.muted}>{footerNotice}</Text> : null}
         {tipsLink}
       </View>
     ) : null;
@@ -268,15 +299,14 @@ function DocumentsList({
           ))}
         </ScrollView>
       </View>
-      {columns && entries.length > 0 ? <DetailsHeader theme={theme} styles={styles} columns={columns} /> : null}
       {tree && entries.length > 0 ? (
         <TreeActions
           theme={theme}
           styles={styles}
           layout={shape}
-          notice={treeNotice(recent.data.entries.length, recent.data.truncatedBy, filtering)}
-          onExpandAll={() => setExpansion(ALL_EXPANDED)}
-          onCollapseAll={() => setExpansion(ALL_COLLAPSED)}
+          notice={notice}
+          onExpandAll={() => updateExpansion(() => ALL_EXPANDED)}
+          onCollapseAll={() => updateExpansion(() => ALL_COLLAPSED)}
         />
       ) : null}
       {entries.length === 0 ? (
@@ -288,7 +318,7 @@ function DocumentsList({
             styles={styles}
             icon={recent.data.unsupported ? "FileX" : "SearchX"}
             title={recent.data.unsupported ? "Not a supported file type" : "No matching documents"}
-            detail={unsupportedDetail(recent.data.unsupported ?? []) ?? noMatchDetail({ query, group, needsReview, newOnly }, recent.data.truncated)}
+            detail={unsupportedDetail(recent.data.unsupported ?? []) ?? noMatchDetail({ query, group, needsReview, newOnly }, cuts)}
             action={{ label: "Clear filters", onPress: clearFilters }}
           />
         )
@@ -301,7 +331,7 @@ function DocumentsList({
           palette={palette}
           now={now}
           footer={footer}
-          onToggle={(path) => setExpansion(toggleFolder(expansion, path))}
+          onToggle={toggleFolder}
           onOpen={openFromTree}
         />
       ) : (
@@ -309,7 +339,9 @@ function DocumentsList({
           data={items}
           keyExtractor={previewRowKey}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ padding: 8, paddingBottom: 8 + styles.bottomInset }}
+          contentContainerStyle={{ padding: 8, paddingTop: columns ? 0 : 8, paddingBottom: 8 + styles.bottomInset }}
+          ListHeaderComponent={columns ? <DetailsHeader theme={theme} columns={columns} /> : null}
+          stickyHeaderIndices={columns ? [0] : undefined}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={VIEWABILITY}
           renderItem={({ item }: { item: PreviewRow }) =>
@@ -450,6 +482,7 @@ function ViewSwitch({
             accessibilityRole="button"
             accessibilityLabel={option.spoken}
             accessibilityState={{ selected }}
+            aria-pressed={selected}
             hitSlop={styles.hitSlop}
             onPress={() => onChange(option.view)}
             style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
@@ -494,6 +527,7 @@ function Chip({
       accessibilityRole="button"
       accessibilityLabel={`${label}, ${count} ${count === 1 ? "document" : "documents"}`}
       accessibilityState={{ selected }}
+      aria-pressed={selected}
       hitSlop={styles.hitSlop}
       onPress={onPress}
       style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
@@ -550,6 +584,7 @@ function GroupHeader({
         accessibilityRole="button"
         accessibilityLabel={`${label}, ${count}`}
         accessibilityState={{ expanded: !row.collapsed }}
+        aria-expanded={!row.collapsed}
         onPress={onToggle}
         style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8, paddingVertical: look.paddingVertical, minHeight }}
       >

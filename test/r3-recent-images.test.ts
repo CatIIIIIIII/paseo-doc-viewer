@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { listRecent, openDocument, renderPage } from "../server/documents";
 import { gif } from "./fixtures/generators.ts";
-import { decodePng, workspace } from "./helpers";
+import { decodePng, responseBytes, workspace } from "./helpers";
 
 const RED_LEFT_BLUE_RIGHT_16X8_JPEG = Buffer.from(
   "/9j/4AAQSkZJRgABAQAASABIAAD/4QBMRXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAEKADAAQAAAABAAAACAAAAAD/7QA4UGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAAA4QklNBCUAAAAAABDUHYzZjwCyBOmACZjs+EJ+/8AAEQgACAAQAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/bAEMAAQEBAQEBAgEBAgMCAgIDBAMDAwMEBQQEBAQEBQYFBQUFBQUGBgYGBgYGBgcHBwcHBwgICAgICQkJCQkJCQkJCf/bAEMBAQEBAgICBAICBAkGBQYJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCf/dAAQAAf/aAAwDAQACEQMRAD8A/F+vyHr9eK/Iev8AVD/Rl/8Amtv+6f8A+7x/tR/pDP8AzSH/AHPf+6Z//9k=",
@@ -29,7 +29,7 @@ describe("R3: docs.recent finds the newest file in big trees", () => {
     writeFileSync(join(root, "z-reports", "newest.pdf"), "%PDF-1.4");
     const result = await listRecent(root, {});
     expect(result.entries.map((entry) => entry.path)).toContain("z-reports/newest.pdf");
-    expect(result).toMatchObject({ truncated: true, truncatedBy: "scan" });
+    expect(result).toMatchObject({ truncated: true, truncatedBy: ["folder"] });
   }, 30_000);
 
   it("skips dependency folders and Office lock files but lists build output", async () => {
@@ -62,8 +62,43 @@ describe("R3: docs.recent finds the newest file in big trees", () => {
     utimesSync(join(root, "build"), future, future);
     const result = await listRecent(root, {});
     expect(result.entries.map((entry) => entry.path)).toEqual(["src/report.pdf"]);
-    expect(result.truncated).toBe(true);
+    expect(result).toMatchObject({ truncated: true, truncatedBy: ["entries"] });
   }, 60_000);
+
+  it("says a scan that skipped folders nested too deep was cut by depth, not by its entry budget", async () => {
+    const chain = Array.from({ length: 17 }, (_, index) => `d${index + 1}`).join("/");
+    const root = workspace({ "report.pdf": "%PDF-1.4", [`${chain}/deep.pdf`]: "%PDF-1.4" });
+    const result = await listRecent(root, {});
+    expect(result.entries.map((entry) => entry.path)).toEqual(["report.pdf"]);
+    expect(result).toMatchObject({ truncated: true, truncatedBy: ["depth"] });
+    const shallow = workspace({ "report.pdf": "%PDF-1.4", [`${chain.split("/").slice(0, 16).join("/")}/deep.pdf`]: "%PDF-1.4" });
+    expect(await listRecent(shallow, {})).toMatchObject({ truncated: false });
+  });
+
+  it("gives every reason when the limit and the scan both cut the list", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 5_001; i++) files[`big/f${i}.txt`] = "";
+    for (let i = 0; i < 3; i++) files[`out/run-${i}.pdf`] = "%PDF-1.4";
+    files[`${Array.from({ length: 17 }, (_, index) => `d${index}`).join("/")}/deep.pdf`] = "%PDF-1.4";
+    const result = await listRecent(workspace(files), { limit: 2 });
+    expect(result.entries).toHaveLength(2);
+    expect(result).toMatchObject({ truncated: true, truncatedBy: ["limit", "folder", "depth"] });
+  }, 30_000);
+
+  it("stops the list at its reply budget, however long and odd the names, and says so", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 12; i++) files[`${"\u0001\u001f".repeat(100)}-${i}.pdf`] = "%PDF-1.4";
+    const root = workspace(files);
+    const full = await listRecent(root, { limit: 1000 });
+    expect(full).toMatchObject({ truncated: false });
+    const budget = responseBytes(full.entries.slice(0, 6));
+    const cut = await listRecent(root, { limit: 1000 }, undefined, budget);
+    expect(cut.entries).toEqual(full.entries.slice(0, 6));
+    expect(cut).toMatchObject({ truncated: true, truncatedBy: ["bytes"] });
+    expect((await listRecent(root, { limit: 1000 }, undefined, budget - 1)).entries).toHaveLength(5);
+    expect(await listRecent(root, { limit: 4 }, undefined, budget)).toMatchObject({ truncatedBy: ["limit"] });
+    expect(await listRecent(root, { limit: 10 }, undefined, budget)).toMatchObject({ truncatedBy: ["limit", "bytes"] });
+  });
 });
 
 describe("R3: GIF renders", () => {

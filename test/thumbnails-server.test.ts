@@ -80,6 +80,25 @@ describe("background heavy work", () => {
     expect(results.filter((result) => result instanceof Error).map((error) => errorText(error))).toEqual(Array(4).fill(errorText(ERROR_MESSAGES.busy())));
   });
 
+  it("never lets a page map thumbnail join a card's, so it neither waits in the card's lane nor gets its busy answer", async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const fresh = (await import("../server/heavy")).heavy;
+    const { thumbnailCached } = await import("../server/thumbnails");
+    const pageMapWork = deferred();
+    const held = fresh(() => pageMapWork.promise, { lane: "background" });
+    const file = { path: "shared.pdf", revision: "r", passwordKey: "" };
+    const draw = async () => "drawn";
+    const card = thumbnailCached(file, { index: 0, width: 80, keepOpen: false }, draw).catch((error: Error) => error);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const pageMap = thumbnailCached(file, { index: 0, width: 80 }, draw).catch((error: Error) => error);
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(errorText(await card)).toBe(errorText(ERROR_MESSAGES.busy()));
+    pageMapWork.resolve();
+    await held;
+    expect(await pageMap).toBe("drawn");
+  });
+
   it("stops waiting for the background slot while half the budget is left, so slow means slow", async () => {
     vi.useFakeTimers();
     vi.resetModules();
@@ -143,23 +162,57 @@ describe("PDF thumbnails", () => {
     expect(again.image).toEqual(first.image);
     expect(opens()).toBe(before + 1);
     expect(cacheKeys().length).toBe(pages);
+    expect((await pageThumbnail({ root, path: "cached.pdf" }, { index: 0, width: 120, keepOpen: false })).image.width).toBe(120);
   });
 
-  it("does not try a card thumbnail that ran out of time again at that revision, so PDFium restarts once", async () => {
+  it("does not try a card thumbnail PDFium was still drawing at its deadline again for a while, so PDFium restarts once", async () => {
     const root = workspace({ "slow.pdf": nestedFormPdf(9) });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     vi.resetModules();
     const fresh = await import("../server/documents");
+    const { SLOW_THUMBNAIL_MS } = await import("../server/thumbnails");
     const { pdfiumStats: stats } = await import("../server/pdfium");
     const card = () => fresh.renderThumbnail({ root, path: "slow.pdf" }, { index: 0, width: 80, keepOpen: false }).catch((error: Error) => error);
+    const drawing = async (opened: number) => {
+      for (let waited = 0; stats().opens === opened && waited < 20_000; waited += 10) await realDelay(10);
+    };
     const slow = card();
-    await realDelay(300);
+    await drawing(0);
     await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
     expect(errorText(await slow)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
-    vi.useRealTimers();
     const { opens, spawns } = stats();
     expect(errorText(await card())).toBe(errorText(ERROR_MESSAGES.tooSlow()));
     expect(stats()).toMatchObject({ opens, spawns });
+    vi.setSystemTime(Date.now() + SLOW_THUMBNAIL_MS);
+    const again = card();
+    await drawing(opens);
+    expect(stats().opens).toBe(opens + 1);
+    await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
+    expect(errorText(await again)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
+  }, 30_000);
+
+  it("answers busy for a card thumbnail whose time ran out while its PDFium call waited behind other work, and tries it again when asked", async () => {
+    const root = workspace({ "fast.pdf": await textPdf(["fast"]) });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.resetModules();
+    const fresh = await import("../server/documents");
+    const { pdfium, pdfiumStats: stats } = await import("../server/pdfium");
+    await pdfium({ op: "open", key: "viewer", bytes: nestedFormPdf(9) });
+    const viewer = Array.from({ length: 3 }, () => pdfium({ op: "render", key: "viewer", index: 0, width: 800, height: 800 }, { timeoutMs: 10 * RPC_DEADLINE_MS }).catch((error: Error) => error));
+    const card = () => fresh.renderThumbnail({ root, path: "fast.pdf" }, { index: 0, width: 80, keepOpen: false }).catch((error: Error) => error);
+    const { opens, spawns } = stats();
+    const queued = card();
+    for (let waited = 0; stats().queued < viewer.length && waited < 10_000; waited += 10) await realDelay(10);
+    await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
+    expect(errorText(await queued)).toBe(errorText(ERROR_MESSAGES.busy()));
+    expect(stats()).toMatchObject({ opens, spawns });
+    let settled = false;
+    const again = card().finally(() => (settled = true));
+    await realDelay(50);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(10 * RPC_DEADLINE_MS);
+    expect(errorText(await again)).toBe(errorText(ERROR_MESSAGES.busy()));
+    await Promise.all(viewer);
   }, 30_000);
 
   it("answers a card listing an older revision after a stat, without rendering", async () => {
@@ -189,9 +242,11 @@ describe("PDF thumbnails", () => {
     expect(thumbnail.image).toMatchObject({ width: 8, height: 160 });
   });
 
-  it("asks for the password on a card although the page map unlocked the file", async () => {
+  it("asks for the password on a card, or a page map without it, although another page map unlocked the file", async () => {
     const root = workspaceWithFixtures("locked.pdf");
     await renderThumbnail({ root, path: "locked.pdf", password: "secret" }, { index: 0, width: 80 });
+    const pageMap = renderThumbnail({ root, path: "locked.pdf" }, { index: 0, width: 80 });
+    await expect(pageMap).rejects.toThrow(errorText(ERROR_MESSAGES.pdfPasswordRequired()));
     const card = renderThumbnail({ root, path: "locked.pdf" }, { index: 0, width: 80, keepOpen: false });
     await expect(card).rejects.toThrow(errorText(ERROR_MESSAGES.pdfPasswordRequired()));
   });
@@ -221,6 +276,45 @@ describe("image thumbnails", () => {
     expect(photo.image).toMatchObject({ mimeType: "image/jpeg", width: 80, height: 60 });
     expect(overlay.image).toMatchObject({ mimeType: "image/png", width: 80, height: 60 });
     expect(decodePng(overlay.image.data).width).toBe(80);
+  });
+
+  it("skips decoding an image whose time ran out while it was read, and decodes it when asked again", async () => {
+    const root = workspace({ "photo.png": noisePng(400, 300) });
+    const reading = deferred();
+    const read = deferred();
+    let decodes = 0;
+    vi.resetModules();
+    vi.doMock("node:fs/promises", async (importOriginal) => {
+      const fs = await importOriginal<typeof import("node:fs/promises")>();
+      const readFile = (async (...args: Parameters<typeof fs.readFile>) => {
+        if (String(args[0]).endsWith("photo.png")) {
+          reading.resolve();
+          await read.promise;
+        }
+        return fs.readFile(...args);
+      }) as typeof fs.readFile;
+      return { ...fs, readFile, default: { ...fs, readFile } };
+    });
+    vi.doMock("../server/images", async (importOriginal) => {
+      const images = await importOriginal<typeof import("../server/images")>();
+      return { ...images, renderImage: (...args: Parameters<typeof images.renderImage>) => (decodes++, images.renderImage(...args)) };
+    });
+    try {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      const fresh = await import("../server/documents");
+      const card = () => fresh.renderThumbnail({ root, path: "photo.png" }, { index: 0, width: 80, keepOpen: false });
+      const late = card().catch((error: Error) => error);
+      await reading.promise;
+      await vi.advanceTimersByTimeAsync(RPC_DEADLINE_MS + 1);
+      expect(errorText(await late)).toBe(errorText(ERROR_MESSAGES.tooSlow()));
+      read.resolve();
+      expect(await card()).toMatchObject({ kind: "image-raster", image: { width: 80, height: 60 } });
+      expect(decodes).toBe(1);
+    } finally {
+      vi.doUnmock("node:fs/promises");
+      vi.doUnmock("../server/images");
+      vi.resetModules();
+    }
   });
 
   it("bounds the height of a tall image too, and sends a small image as it is", async () => {

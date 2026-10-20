@@ -3,7 +3,7 @@ import { documentRevision, pagePins, pinLabel, reviewMark, viewerPosition } from
 import { defineRpc } from "@getpaseo/plugin";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { z } from "zod";
-import { DOCUMENT_GROUPS } from "./browse";
+import { DOCUMENT_GROUPS, RECENT_CUTS } from "./browse";
 import { documentView, documentViews } from "./documents-view";
 import { DOCUMENT_KINDS } from "./kinds";
 import { OPENED_REVISIONS_MAX_PATHS, THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "./limits";
@@ -296,6 +296,9 @@ export const docsRecentRpc = defineRpc({
     // unless reviewed, or opened in the viewer at their current revision.
     newSince: z.number().nonnegative().optional(),
     newOnly: z.boolean().optional(),
+    // The version of the list the client holds: while it is current the daemon answers { unchanged: true }.
+    // Older daemons ignore it and send the list.
+    since: z.string().max(64).optional(),
   }),
   output: z.object({
     entries: z.array(
@@ -311,14 +314,16 @@ export const docsRecentRpc = defineRpc({
       }),
     ),
     truncated: z.boolean(),
-    // Sent when truncated: cut at the limit, or the list fits but the scan stopped before the end of the workspace.
-    truncatedBy: z.enum(["limit", "scan"]).optional(),
+    // Sent when truncated, every reason that applies (see RECENT_CUTS). Older daemons send none.
+    truncatedBy: z.array(z.enum(RECENT_CUTS)).min(1).optional(),
     counts: z.record(z.enum(DOCUMENT_GROUPS), z.number().int().nonnegative()),
     needsReview: z.number().int().nonnegative(),
     newCount: z.number().int().nonnegative(),
     // Up to 3 files matching the query that the viewer cannot open, sent only when no document matched.
     unsupported: z.array(z.string()).max(3).optional(),
-  }),
+    // Changes whenever anything above does. Older daemons send none.
+    version: z.string().max(64).optional(),
+  }).or(z.object({ unchanged: z.literal(true), version: z.string().max(64) })),
 });
 
 // Records that Documents was opened in a workspace and returns the previous time, or null the first time.
@@ -422,3 +427,4 @@ export type MediaChunkOutput = RpcOutput<typeof mediaChunkRpc>;
 export type DocsRecentInput = RpcInput<typeof docsRecentRpc>;
 export type ViewerStateReadOutput = RpcOutput<typeof viewerStateReadRpc>;
 export type DocsRecentOutput = RpcOutput<typeof docsRecentRpc>;
+export type DocsRecentList = Exclude<DocsRecentOutput, { unchanged: true }>;

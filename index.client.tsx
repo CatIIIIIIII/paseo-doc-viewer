@@ -9,7 +9,7 @@ import { REVIEW_SCREEN_ID, reviewScreen } from "./client/review-note";
 import { ReviewScreen } from "./client/review-screen";
 import { ViewerSettings } from "./client/settings-screen";
 import { createTurnDocsCard, legacyTurnDocsCard } from "./client/turn-docs-card";
-import { TURN_DOCS_KIND, TURN_DOCS_VERSION, turnDocsSchema, turnDocsV1Schema } from "./shared/turn-docs";
+import { TURN_DOCS_KIND, turnDocsSchema, turnDocsV1Schema } from "./shared/turn-docs";
 
 export default function contribute(client: PluginClientContext) {
   setHostClient(client);
@@ -65,11 +65,11 @@ export default function contribute(client: PluginClientContext) {
   };
 }
 
-// Renderers match the exact version, so cards stored by an older plugin keep theirs.
+// Renderers match the exact version. Cards without folder rows are still written as version 1 (TurnDocsRow).
 function turnDocsRenderers(client: PluginClientContext) {
   const Card = createTurnDocsCard(client);
   return [
     client.addTimelineRenderer({ kind: TURN_DOCS_KIND, version: 1, schema: turnDocsV1Schema, Component: legacyTurnDocsCard(Card) }),
-    client.addTimelineRenderer({ kind: TURN_DOCS_KIND, version: TURN_DOCS_VERSION, schema: turnDocsSchema, Component: Card }),
+    client.addTimelineRenderer({ kind: TURN_DOCS_KIND, version: 2, schema: turnDocsSchema, Component: Card }),
   ];
 }

@@ -4,7 +4,7 @@ import { type ReactElement, useEffect, useMemo, useReducer, useState } from "rea
 import { Image, Pressable, Text, View } from "react-native";
 import { viewerSettingsRpc } from "../shared/settings";
 import { type TurnDocs, type TurnDocsFile, type TurnDocsGroup, type TurnDocsV1, upgradeTurnDocs } from "../shared/turn-docs";
-import { cardThumbnailIndices, createCardThumbnails } from "./card-thumbnails";
+import { cardThumbnailIndices, createCardThumbnails, nextCardPriority } from "./card-thumbnails";
 import { listedFiles, TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_GROUP, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir } from "./format";
 import { kindColor, type KindPalette } from "./kind-colors";
@@ -146,9 +146,10 @@ function SettingsLink({ theme, styles, onPress }: { theme: Theme; styles: Styles
 function useCardThumbnails(client: CardClient, workspaceId: string, files: readonly TurnDocsFile[], listed: readonly TurnDocsFile[]): ThumbnailLoader | null {
   const [loader, setLoader] = useState<ThumbnailLoader | null>(null);
   const [, refresh] = useReducer((tick: number) => tick + 1, 0);
+  const [priority] = useState(nextCardPriority);
   const identity = files.map((file) => `${file.path}\0${file.revision}`).join("\0");
   useEffect(() => {
-    const next = createCardThumbnails(client, { workspaceId, files });
+    const next = createCardThumbnails(client, { workspaceId, files }, priority);
     const stop = next.subscribe(refresh);
     setLoader(next);
     return () => {
@@ -188,11 +189,13 @@ function FileThumbnail({ file, state, size, palette, theme }: { file: TurnDocsFi
   );
 }
 
+// A folder row holds only new files (turnDocsGroupSchema), so it always reads New.
 function GroupRow({ group, open, size, styles, theme, onToggle }: {
   group: TurnDocsGroup; open: boolean; size: number; styles: Styles; theme: Theme; onToggle(): void;
 }) {
   const folder = parentDir(group.path);
   const { detail, spoken } = TURN_GROUP[group.reason];
+  // The name stays put when the row opens: aria-expanded says which it is, and the name holds the visible Show or Hide.
   const action = open ? "Hide" : "Show";
   return (
     <View
@@ -219,7 +222,8 @@ function GroupRow({ group, open, size, styles, theme, onToggle }: {
         styles={styles}
         icon={open ? "ChevronUp" : "ChevronDown"}
         label={action}
-        accessibilityLabel={`${action} ${group.path}, ${spoken}, ${group.count} ${group.count === 1 ? "document" : "documents"}`}
+        accessibilityLabel={`Show or hide ${group.path}, ${spoken}, ${group.count} ${group.count === 1 ? "document" : "documents"}`}
+        expanded={open}
         onPress={onToggle}
       />
     </View>

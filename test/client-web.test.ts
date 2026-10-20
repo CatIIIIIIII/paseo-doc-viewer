@@ -30,3 +30,25 @@ describe("video playback gate", () => {
     expect(element?.props).toMatchObject({ src: "blob:x", controls: true });
   });
 });
+
+describe("window focus", () => {
+  it("calls the listener when the web window gets focus until it is removed, and never on native", async () => {
+    const listeners = new Set<() => void>();
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, listener: () => void) => type === "focus" && listeners.add(listener),
+      removeEventListener: (type: string, listener: () => void) => type === "focus" && listeners.delete(listener),
+    });
+    try {
+      const listener = vi.fn();
+      const stop = (await webModule("web")).onWindowFocus(listener);
+      for (const each of listeners) each();
+      expect(listener).toHaveBeenCalledTimes(1);
+      stop();
+      expect(listeners.size).toBe(0);
+      (await webModule("ios")).onWindowFocus(listener)();
+      expect(listeners.size).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

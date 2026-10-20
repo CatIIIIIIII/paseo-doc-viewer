@@ -14,6 +14,12 @@ export const PixelRatio = { get: () => 1 };
 export const Dimensions = { get: () => ({ width: 900, height: 700 }) };
 export const TurboModuleRegistry = { get: () => null };
 export const Keyboard = { addListener: () => ({ remove() {} }) };
+// As in React Native Web: "change" follows the page's visibility.
+export const AppState = { addEventListener: (_type: "change", handler: (state: "active" | "background") => void) => {
+  const changed = () => handler(document.visibilityState === "hidden" ? "background" : "active");
+  document.addEventListener("visibilitychange", changed);
+  return { remove: () => document.removeEventListener("visibilitychange", changed) };
+} };
 export const useWindowDimensions = () => ({ width: 900, height: 700 });
 // Views do not shrink by default in React Native, unlike CSS flex items.
 export const View = forwardRef<any, any>(function View({ children, style, onLayout, accessibilityLabel, accessibilityRole, pointerEvents, "aria-hidden": ariaHidden, ...props }, ref) {
@@ -39,13 +45,17 @@ export const Text = ({ children, style, accessibilityLabel, onPress, accessibili
   // React Native keeps line breaks in text.
   return <span ref={node} style={{ whiteSpace: "pre-wrap", ...css(style) }} aria-label={accessibilityLabel} onClick={onPress} role={accessibilityRole}>{children}</span>;
 };
-// React Native Web renders Pressable as a focusable div with role=button, not a <button>.
+// A focusable div with the role. Like React Native Web 0.21, state reaches the DOM only through aria-* props
+// (accessibilityState is ignored), `role` wins over accessibilityRole, and Enter presses but Space presses only a
+// button: any other role takes Space through its own onKeyDown.
 const CHECKED_ROLES = new Set(["radio", "checkbox"]);
-export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, accessibilityState, disabled, onPress, "aria-expanded": ariaExpanded }: any) => {
+export const Pressable = ({ children, style, accessibilityLabel, accessibilityRole, role, disabled, onPress, onKeyDown, "aria-pressed": pressed, "aria-checked": checked, "aria-expanded": expanded, "aria-current": current, "aria-level": level }: any) => {
   const checkable = CHECKED_ROLES.has(accessibilityRole);
-  return <div role={checkable ? accessibilityRole : "button"} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel}
-    aria-pressed={checkable ? undefined : accessibilityState?.selected} aria-expanded={ariaExpanded ?? accessibilityState?.expanded} aria-checked={accessibilityRole === "radio" ? Boolean(accessibilityState?.selected) : accessibilityRole === "checkbox" ? Boolean(accessibilityState?.checked) : undefined} aria-disabled={disabled || undefined}
-    onClick={disabled ? undefined : onPress} onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onPress?.(); } }}
+  const domRole = role ?? (checkable ? accessibilityRole : "button");
+  return <div role={domRole} tabIndex={disabled ? -1 : 0} aria-label={accessibilityLabel}
+    aria-pressed={pressed} aria-checked={checked} aria-expanded={expanded} aria-current={current} aria-level={level} aria-disabled={disabled || undefined}
+    onClick={disabled ? undefined : onPress}
+    onKeyDown={(event) => { if (!disabled && (event.key === "Enter" || (event.key === " " && domRole === "button"))) { event.preventDefault(); onPress?.(); } onKeyDown?.(event); }}
     style={{ cursor: "pointer", boxSizing: "border-box", display: "flex", flexDirection: "column", flexShrink: 0, minWidth: 0, ...css(typeof style === "function" ? style({ pressed: false, hovered: false }) : style) }}>{children}</div>;
 };
 export const ScrollView = forwardRef<any, any>(function ScrollView({ children, style, contentContainerStyle, onLayout, onScroll, horizontal }: any, ref) {
@@ -59,7 +69,10 @@ export const TextInput = ({ value, onChangeText, onSubmitEditing, accessibilityL
   : <input autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onSubmitEditing?.(); }} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />;
 export const Image = ({ source, style, accessibilityLabel, resizeMode }: any) => <img src={source.uri} style={{ objectFit: resizeMode === "contain" ? "contain" : undefined, ...css(style) }} alt={accessibilityLabel} />;
 export const ActivityIndicator = ({ accessibilityLabel = "Loading" }: any) => <span aria-label={accessibilityLabel}>…</span>;
-export const FlatList = ({ data, renderItem, keyExtractor, ListFooterComponent, contentContainerStyle }: any) => <div style={{ overflow: "auto", ...css(contentContainerStyle) }}>{data.map((item: any, index: number) => <div key={keyExtractor?.(item, index) ?? index}>{renderItem({ item, index })}</div>)}{ListFooterComponent}</div>;
+// A sticky header is position: sticky, as in React Native Web.
+export const FlatList = ({ data, renderItem, keyExtractor, ListHeaderComponent, ListFooterComponent, contentContainerStyle, stickyHeaderIndices, role, accessibilityLabel }: any) => <div role={role} aria-label={accessibilityLabel} style={{ overflow: "auto", ...css(contentContainerStyle) }}>
+  {ListHeaderComponent ? <div style={stickyHeaderIndices?.includes(0) ? { position: "sticky", top: 0, zIndex: 10 } : undefined}>{ListHeaderComponent}</div> : null}
+  {data.map((item: any, index: number) => <div key={keyExtractor?.(item, index) ?? index}>{renderItem({ item, index })}</div>)}{ListFooterComponent}</div>;
 // Same box as the host icon at size 14, so toolbar widths match the app.
 export const Icon = ({ name, size = 14, color }: any) => <span aria-hidden="true" data-icon={name} style={{ display: "inline-block", width: size, textAlign: "center", color }}>{({ Search: "⌕", Download: "↓", ChevronRight: "›", ChevronLeft: "‹", ChevronUp: "↑", ChevronDown: "↓", X: "×", RotateCcw: "↶" } as any)[name] ?? "•"}</span>;
 export const copyText = (value: string) => navigator.clipboard.writeText(value);

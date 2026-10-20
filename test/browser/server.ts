@@ -5,29 +5,31 @@ import { dirname, join } from "node:path";
 import { revisionOf } from "../../server/revision";
 import contribute from "../../index.server";
 import { scanIssues, searchDocument } from "../../server/documents";
+import { scannedDocuments } from "../../server/recent";
 import { searchGenerations } from "../../server/search";
 import { readFileSync } from "node:fs";
 import { DOCUMENT_RPCS } from "../../shared/rpc";
 import { viewerSettingsRpc } from "../../shared/settings";
+const generated = process.env.VIEWER_BROWSER_DIR!;
 const root = mkdtempSync(join(tmpdir(), "viewer-browser-files-"));
 for (const file of ["statement.pdf", "invoices.xlsx", "contract.docx", "deck.pptx", "clip.mp4", "audible.webm", "animated.webp"]) copyFileSync(join(process.cwd(), "test/fixtures", file), join(root, file));
-copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/searchable.pdf"), join(root, "statement.pdf"));
-copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/long.pdf"), join(root, "long.pdf"));
-copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/report.pdf"), join(root, "report.pdf"));
-copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/forecast.xlsx"), join(root, "forecast.xlsx"));
-for (const [from, to] of [["node_modules/.cache/viewer-browser/report.pdf", "reports/quarterly-report-with-a-long-file-name.pdf"], ["node_modules/.cache/viewer-browser/forecast.xlsx", "finance/forecast.xlsx"], ["test/fixtures/photo.png", "screenshots/photo.png"]]) {
+copyFileSync(join(generated, "searchable.pdf"), join(root, "statement.pdf"));
+copyFileSync(join(generated, "long.pdf"), join(root, "long.pdf"));
+copyFileSync(join(generated, "report.pdf"), join(root, "report.pdf"));
+copyFileSync(join(generated, "forecast.xlsx"), join(root, "forecast.xlsx"));
+for (const [from, to] of [[join(generated, "report.pdf"), "reports/quarterly-report-with-a-long-file-name.pdf"], [join(generated, "forecast.xlsx"), "finance/forecast.xlsx"], [join(process.cwd(), "test/fixtures/photo.png"), "screenshots/photo.png"]]) {
   mkdirSync(dirname(join(root, to)), { recursive: true });
-  copyFileSync(join(process.cwd(), from), join(root, to));
+  copyFileSync(from, join(root, to));
 }
 const turnFiles = [["reports/quarterly-report-with-a-long-file-name.pdf", "pdf", "new"], ["finance/forecast.xlsx", "xlsx", "changed"], ["screenshots/photo.png", "image-raster", "new"], ["animated.webp", "image-decoded", "changed"]] as const;
 const checkoutFiles = Array.from({ length: 12 }, (_, index) => index === 0 ? ["paseo-doc-viewer-gallery/docs/guide.pdf", "pdf"] : [`paseo-doc-viewer-gallery/assets/shot-${index}.png`, "image-raster"]);
 const exportFiles = Array.from({ length: 12 }, (_, index) => [`exports/run-${index + 1}.csv`, "csv"]);
 for (const [path] of checkoutFiles) {
   mkdirSync(dirname(join(root, path)), { recursive: true });
-  copyFileSync(join(process.cwd(), path.endsWith(".pdf") ? "node_modules/.cache/viewer-browser/report.pdf" : "test/fixtures/photo.png"), join(root, path));
+  copyFileSync(path.endsWith(".pdf") ? join(generated, "report.pdf") : join(process.cwd(), "test/fixtures/photo.png"), join(root, path));
 }
 mkdirSync(join(root, "archive/2025/q4"), { recursive: true });
-copyFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/report.pdf"), join(root, "archive/2025/q4/ledger.pdf"));
+copyFileSync(join(generated, "report.pdf"), join(root, "archive/2025/q4/ledger.pdf"));
 utimesSync(join(root, "archive/2025/q4/ledger.pdf"), new Date("2025-12-01"), new Date("2025-12-01"));
 mkdirSync(join(root, "exports"), { recursive: true });
 for (const [path] of exportFiles) writeFileSync(join(root, path), "a,b\n1,2\n");
@@ -64,7 +66,7 @@ const paseo = { workspaces: { list: async () => ({ entries: [{ id: "workspace", 
 const turnFile = (files: readonly (readonly string[])[]) =>
   files.map(([path, kind, status]) => { const info = statSync(join(root, path!)); return { path, kind, status, size: info.size, revision: revisionOf(info) }; });
 const server = createServer(async (request, response) => {
-  if (request.url === "/bundle.js") { response.setHeader("Content-Type", "application/javascript"); response.end(readFileSync(join(process.cwd(), "node_modules/.cache/viewer-browser/app.js"))); return; }
+  if (request.url === "/bundle.js") { response.setHeader("Content-Type", "application/javascript"); response.end(readFileSync(join(generated, "app.js"))); return; }
   // Simulates an agent rewriting a file: a new modified time gives it a new revision.
   if (request.url === "/touch/statement.pdf") { const later = new Date(Date.now() + 60_000); utimesSync(join(root, "statement.pdf"), later, later); response.end("ok"); return; }
   if (request.url?.startsWith("/settings?")) { settingsValues = { ...settingsValues, kindColors: !request.url.endsWith("kindColors=0") }; response.end("ok"); return; }
@@ -83,6 +85,9 @@ const server = createServer(async (request, response) => {
       ] }));
     return;
   }
+  // Simulates an agent's turn ending after it wrote files: the plugin then rescans the workspace, so the
+  // next list reads the files as they are now instead of a scan cached from before the write.
+  if (request.url === "/turn-ended") { await scannedDocuments(root); response.end("ok"); return; }
   if (request.url !== "/rpc") { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><html><head><meta charset="utf-8"><title>Viewer test harness</title></head><body style="background:#111827;color:#e5e7eb;font-family:system-ui"><div id="root"></div><script src="/bundle.js"></script></body></html>'); return; }
   try {
     let body = ""; for await (const part of request) body += part;

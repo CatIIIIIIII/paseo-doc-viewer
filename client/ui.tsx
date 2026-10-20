@@ -145,6 +145,8 @@ export function ErrorState({ theme, styles, error, onRetry, children }: ChromePr
 
 export type ButtonVariant = { variant?: "default" | "primary" } | { variant: "toggle"; selected: boolean };
 
+// Toggles set accessibilityState for native and aria-pressed for the web, like the host's own toggles:
+// React Native Web 0.21 drops accessibilityState, and native React Native has no aria-pressed.
 export function ToolbarButton({
   theme,
   styles,
@@ -153,6 +155,7 @@ export function ToolbarButton({
   onPress,
   disabled,
   accessibilityLabel,
+  expanded,
   ...kind
 }: ChromeProps & ButtonVariant & {
   label?: string;
@@ -160,6 +163,8 @@ export function ToolbarButton({
   onPress(): void;
   disabled?: boolean;
   accessibilityLabel?: string;
+  // For Show and Hide. Sent as aria-expanded: react-native-web drops accessibilityState, React Native reads either.
+  expanded?: boolean;
 }) {
   const primary = kind.variant === "primary";
   const toggle = kind.variant === "toggle" ? { on: kind.selected } : null;
@@ -169,6 +174,8 @@ export function ToolbarButton({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: Boolean(disabled), ...(toggle ? { selected: toggle.on } : {}) }}
+      aria-expanded={expanded}
+      aria-pressed={toggle?.on}
       hitSlop={styles.hitSlop}
       disabled={disabled}
       onPress={onPress}
@@ -198,6 +205,7 @@ export function Checkbox({ theme, styles, label, checked, disabled, onChange }: 
       accessibilityRole="checkbox"
       accessibilityLabel={label}
       accessibilityState={{ checked, disabled: Boolean(disabled) }}
+      aria-checked={checked}
       hitSlop={styles.hitSlop}
       disabled={disabled}
       onPress={() => onChange(!checked)}

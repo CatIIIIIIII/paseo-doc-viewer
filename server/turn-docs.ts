@@ -1,20 +1,20 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { PluginLifecycleEvents } from "@getpaseo/plugin/server";
-import { changedDuringTurn, groupChanges, TURN_WINDOW_SLACK_MS, turnDocsRow, type Baseline, type ScannedFile, type ScannedFolders } from "../shared/turn-docs";
+import { baselineAt, changedDuringTurn, groupChanges, TURN_WINDOW_SLACK_MS, turnDocsRow, type Baseline, type ScannedFile, type ScannedWorkspace, type TurnDocsRow } from "../shared/turn-docs";
 
 type TurnStarted = PluginLifecycleEvents["agent.turn_started"];
 type TurnEnded = PluginLifecycleEvents["agent.turn_ended"];
-type Row = NonNullable<ReturnType<typeof turnDocsRow>>;
 
 // The daemon side of a hook call; the hook context carries the Paseo API.
 export interface TurnDocsHost {
   resolveRoot(workspaceId: string): Promise<string>;
-  append(agentId: string, row: Row): Promise<unknown>;
+  append(agentId: string, row: TurnDocsRow): Promise<unknown>;
 }
 
 export interface TurnDocsDeps {
-  scan(root: string, options: { fresh: boolean }): Promise<{ entries: readonly ScannedFile[]; complete: boolean } & ScannedFolders>;
+  // `notBefore` lets a scan that began after it be reused; without it the scan is always new.
+  scan(root: string, notBefore?: number): Promise<ScannedWorkspace>;
   enabled(): Promise<boolean>;
   now?: () => number;
   log?: (message: string) => void;
@@ -40,30 +40,25 @@ export function createTurnDocs(deps: TurnDocsDeps) {
       if (!agent.workspaceId) return;
       const workspaceId = agent.workspaceId;
       const root = host.resolveRoot(workspaceId);
-      // The baseline tells new from changed. The hook reaches the plugin a little after the turn really
-      // starts, so files touched within the slack before startedAt are left out and judged by the end
-      // scan alone; so is a file the agent wrote before the baseline scan reached it.
+      // The baseline tells new from changed. It leaves out what changed from the slack before startedAt on,
+      // so a file the agent wrote before the scan reached it is judged by the end scan alone. No scan when
+      // the setting is off. A scan begun within the slack before startedAt is reused, so turns starting
+      // together share a walk, and it still holds every folder made before that.
       const baseline = root
-        .then((dir) => deps.scan(dir, { fresh: false }))
-        .then(({ entries, complete, dirs, repos }): Baseline => ({
-          revisions: new Map(entries.filter((entry) => entry.changedMs < startedAt - TURN_WINDOW_SLACK_MS).map((entry) => [entry.path, entry.revision])),
-          dirs: new Set(dirs.keys()),
-          repos,
-          complete,
-        }))
+        .then(async (dir): Promise<Baseline | null> => ((await deps.enabled()) ? baselineAt(await deps.scan(dir, startedAt - TURN_WINDOW_SLACK_MS), startedAt) : null))
         .catch(() => null);
       root.catch(() => undefined);
       turns.set(agent.id, { startedAt, workspaceId, root, baseline });
     },
 
-    async turnEnded({ agent, turnId, outcome }: TurnEnded, host: TurnDocsHost): Promise<Row | null> {
+    async turnEnded({ agent, turnId, outcome }: TurnEnded, host: TurnDocsHost): Promise<TurnDocsRow | null> {
       const turn = turns.get(agent.id);
       turns.delete(agent.id);
       // Without a recorded start (the plugin loaded mid-turn) there is no window to judge.
       if (!turn || !(await deps.enabled())) return null;
       const began = now();
       const root = await turn.root;
-      const [baseline, after] = await Promise.all([turn.baseline, deps.scan(root, { fresh: true })]);
+      const [baseline, after] = await Promise.all([turn.baseline, deps.scan(root)]);
       const candidates = after.entries.filter((entry) => entry.changedMs >= turn.startedAt - TURN_WINDOW_SLACK_MS);
       const changed = changedDuringTurn(baseline?.complete ? candidates : await withBirthtimes(root, candidates), baseline, turn.startedAt);
       const { files, groups } = groupChanges(changed, after, baseline, turn.startedAt);

@@ -9,8 +9,7 @@ export type Lane = "foreground" | "background" | "idle";
 const MAX_CONCURRENT = 2;
 const MAX_BACKGROUND = 1;
 const MAX_LANE_WAITING = 8;
-// Background work stops waiting while half its budget is left, so work that starts has time to
-// finish, and running out of time means the work itself was slow.
+// Background work stops waiting with half its budget left, so work that starts has time to finish.
 const BACKGROUND_WAIT_MS = RPC_DEADLINE_MS / 2;
 // Work that ignores its abort signal keeps its slot this much longer, then stops counting, so a
 // call that never settles cannot hold a slot forever.
@@ -41,16 +40,13 @@ function enqueue(queue: Slot[], waitMs: number): Promise<void> {
   });
 }
 
-const backgroundFree = (lane: Exclude<Lane, "foreground">) =>
-  active < MAX_CONCURRENT && background < MAX_BACKGROUND && waiting.foreground.length === 0 && (lane === "background" || waiting.background.length === 0);
-
 function acquire(lane: Lane): Promise<void> {
   if (lane === "foreground") {
     if (active >= MAX_CONCURRENT) return enqueue(waiting.foreground, RPC_DEADLINE_MS);
     active++;
     return Promise.resolve();
   }
-  if (backgroundFree(lane)) {
+  if (active < MAX_CONCURRENT && background < MAX_BACKGROUND && waiting.foreground.length === 0) {
     active++;
     background++;
     return Promise.resolve();

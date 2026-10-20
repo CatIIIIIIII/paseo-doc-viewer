@@ -2,13 +2,14 @@ import { errorCode, errorText, type ErrorCode } from "../shared/errors";
 import type { DocumentGroup } from "../shared/browse";
 import type { DocumentKind } from "../shared/kinds";
 
+// The daemon sends "/" on every OS; a backslash is part of a POSIX file name.
 export function baseName(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
+  const parts = path.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? path;
 }
 
 export function parentDir(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
+  const parts = path.split("/").filter(Boolean);
   return parts.slice(0, -1).join("/");
 }
 
@@ -61,7 +62,8 @@ export function absoluteTime(mtimeMs: number, nowMs: number, form: "long" | "sho
   const day = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
   const days = Math.round((day(now) - day(date)) / DAY);
   const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  if (days <= 0) return clock;
+  // A clock alone means today: a time on a later day (a clock set ahead, a copied file) shows its date.
+  if (days === 0) return clock;
   if (days === 1) return form === "long" ? `Yesterday ${clock}` : "Yesterday";
   if (date.getFullYear() === now.getFullYear()) return `${date.getDate()} ${MONTHS[date.getMonth()]}`;
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;

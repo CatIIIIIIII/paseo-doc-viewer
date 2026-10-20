@@ -244,7 +244,7 @@ function RecipientPicker({ theme, styles, recipients, loading, error, selected, 
         const chosen = agent.id === selected;
         return (
           <Pressable key={agent.id} accessibilityRole="radio" accessibilityLabel={`${agentName(agent)}, ${recipientStatusLabel(agent)}`}
-            accessibilityState={{ selected: chosen, disabled: disabled || !agent.ready }} disabled={disabled || !agent.ready} onPress={() => onSelect(agent.id)}
+            accessibilityState={{ selected: chosen, disabled: disabled || !agent.ready }} aria-checked={chosen} disabled={disabled || !agent.ready} onPress={() => onSelect(agent.id)}
             style={[styles.card, { padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }, chosen ? { borderColor: theme.colors.accent } : null,
               !agent.ready ? styles.disabled : null]}>
             <Text style={[styles.text, { flex: 1 }]} numberOfLines={1}>{agentName(agent)}</Text>

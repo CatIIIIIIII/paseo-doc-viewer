@@ -102,7 +102,7 @@ function FindResultRow({ match, location, selected, theme, styles, onPress }: {
   const snippet = trimSnippet(match);
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`${location}: ${snippet.before}${snippet.match}${snippet.after}`}
-      accessibilityState={{ selected }} onPress={onPress}
+      accessibilityState={{ selected }} aria-pressed={selected} onPress={onPress}
       style={({ hovered }: { pressed: boolean; hovered?: boolean }) => ({
         gap: 2, paddingHorizontal: 8, paddingVertical: styles.compact ? 8 : 6, borderRadius: 6,
         backgroundColor: selected ? theme.colors.surface2 : hovered ? theme.colors.surface1 : "transparent",

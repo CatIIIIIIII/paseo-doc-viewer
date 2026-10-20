@@ -2,11 +2,11 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { link, mkdir, open, readdir, readFile, realpath, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { ERROR_MESSAGES } from "../shared/errors";
 import { PINS_MAX_PER_FILE } from "../shared/limits";
 import { documentRevision, mergeZooms, pagePins, reviewMark, viewerPosition, type PagePin, type ViewerPosition } from "../shared/viewer-state";
+import { withFileLock } from "./file-lock";
 import { resolveInside } from "./paths";
 import { revisionOf } from "./revision";
 
@@ -28,9 +28,6 @@ const MAX_BYTES = 1024 * 1024;
 const MAX_READ_BYTES = 16 * MAX_BYTES;
 const SECRET_BYTES = 32;
 const STALE_TEMPORARY_MS = 60_000;
-// Writes hold positions.lock for milliseconds; an older lock was left by a process that died.
-const STALE_LOCK_MS = 10_000;
-const LOCK_WAIT_MS = 5_000;
 
 // Daemons with their own Paseo home (PASEO_HOME other than ~/.paseo) get their own folder, so an
 // isolated daemon never shares saved state with the user's daemon.
@@ -84,8 +81,8 @@ export class ViewerStateStore {
   }
 
   // The reviewed and last opened revision of every document that has either, for the Documents list
-  // and turn cards. Kept until positions.json changes: every write, here or by another daemon, renames
-  // a new file into place.
+  // and turn cards. Kept until a write here, or until positions.json changes: another daemon's write
+  // renames a new file into place.
   marks(): Promise<ReadonlyMap<string, DocumentMarks>> {
     return this.queue(async () => {
       const file = await stat(join(this.directory, "positions.json")).then(
@@ -130,6 +127,7 @@ export class ViewerStateStore {
         const file = await open(temporary, "wx", 0o600);
         try { await file.writeFile(serialized); } finally { await file.close(); }
         await rename(temporary, join(this.directory, "positions.json"));
+        this.cachedMarks = null;
       } finally {
         await rm(temporary, { force: true });
       }
@@ -141,25 +139,7 @@ export class ViewerStateStore {
 
   private async locked<T>(run: () => Promise<T>): Promise<T> {
     await this.ensureDirectory();
-    const lock = join(this.directory, "positions.lock");
-    const started = Date.now();
-    for (;;) {
-      try {
-        await (await open(lock, "wx", 0o600)).close();
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      }
-      const age = await stat(lock).then((info) => Date.now() - info.mtimeMs, () => 0);
-      if (age > STALE_LOCK_MS) await rm(lock, { force: true });
-      else if (Date.now() - started > LOCK_WAIT_MS) throw new Error(ERROR_MESSAGES.busy());
-      else await delay(5 + Math.random() * 20);
-    }
-    try {
-      return await run();
-    } finally {
-      await rm(lock, { force: true });
-    }
+    return withFileLock(join(this.directory, "positions.lock"), run);
   }
 
   private queue<T>(run: () => Promise<T>): Promise<T> {

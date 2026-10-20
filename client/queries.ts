@@ -1,5 +1,5 @@
 import { type BrowseFilter, queryTerms } from "../shared/browse";
-import type { DocsRecentInput, DocsRecentOutput } from "../shared/rpc";
+import type { DocsRecentInput, DocsRecentList } from "../shared/rpc";
 
 export const REVISION_POLL_MS = 5_000;
 export const RECENT_POLL_MS = 5_000;
@@ -33,12 +33,19 @@ export function recentQueryOptions(workspaceId: string, filter: BrowseFilter & {
     ...(newSince !== null ? { newSince } : {}),
     ...(newOnly ? { newOnly } : {}),
   };
+  const queryKey = ["docs.recent", workspaceId, query, group, needsReview, newSince, newOnly, limit] as const;
   return {
-    queryKey: ["docs.recent", workspaceId, query, group, needsReview, newSince, newOnly, limit] as const,
+    queryKey,
     request,
     refetchInterval: RECENT_POLL_MS,
     refetchOnWindowFocus: true,
-    placeholderData: (previous: DocsRecentOutput | undefined) => previous,
+    // A list asked for with another limit holds other documents and another notice: only its counts
+    // carry over while this one loads.
+    placeholderData: (previous: DocsRecentList | undefined, previousQuery?: { queryKey: readonly unknown[] }): DocsRecentList | undefined => {
+      if (!previous || !previousQuery || previousQuery.queryKey[queryKey.length - 1] === limit) return previous;
+      const { truncatedBy, unsupported, ...counted } = previous;
+      return { ...counted, entries: [], truncated: false };
+    },
   };
 }
 

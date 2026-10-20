@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browseRows, filterChips, listFooter, noMatchDetail, unsupportedDetail } from "../client/recent";
+import { browseRows, emptyDetail, filterChips, noMatchDetail, recentCuts, truncationNotice, unsupportedDetail } from "../client/recent";
 import { countGroups, DOCUMENT_GROUPS, filterEntries, groupEntries, matchesQuery, queryTerms } from "../shared/browse";
 import { DOCUMENT_KINDS, type DocumentKind } from "../shared/kinds";
 
@@ -137,14 +137,14 @@ describe("documents panel filter chips", () => {
 
 describe("documents panel empty and footer text", () => {
   it("says what found nothing", () => {
-    expect(noMatchDetail({ query: " Q4 ", group: null }, false)).toBe('No files match "Q4"');
-    expect(noMatchDetail({ query: "q4", group: "excel" }, false)).toBe('No spreadsheets and data files match "q4"');
-    expect(noMatchDetail({ query: "", group: "image" }, false)).toBe("No images in this workspace");
-    expect(noMatchDetail({ query: "", group: "video" }, false)).toBe("No Video files in this workspace");
-    expect(noMatchDetail({ query: "", group: "pdf", needsReview: true }, false)).toBe("No PDF files changed since review");
-    expect(noMatchDetail({ query: "q4", needsReview: true }, false)).toBe('No files changed since review match "q4"');
-    expect(noMatchDetail({ newOnly: true }, false)).toBe("No new files");
-    expect(noMatchDetail({ group: "pdf", newOnly: true, query: "q4" }, false)).toBe('No new PDF files match "q4"');
+    expect(noMatchDetail({ query: " Q4 ", group: null }, [])).toBe('No files match "Q4"');
+    expect(noMatchDetail({ query: "q4", group: "excel" }, [])).toBe('No spreadsheets and data files match "q4"');
+    expect(noMatchDetail({ query: "", group: "image" }, [])).toBe("No images in this workspace");
+    expect(noMatchDetail({ query: "", group: "video" }, [])).toBe("No Video files in this workspace");
+    expect(noMatchDetail({ query: "", group: "pdf", needsReview: true }, [])).toBe("No PDF files changed since review");
+    expect(noMatchDetail({ query: "q4", needsReview: true }, [])).toBe('No files changed since review match "q4"');
+    expect(noMatchDetail({ newOnly: true }, [])).toBe("No new files");
+    expect(noMatchDetail({ group: "pdf", newOnly: true, query: "q4" }, [])).toBe('No new PDF files match "q4"');
   });
 
   it("says a matching file exists but is not a supported type", () => {
@@ -154,12 +154,47 @@ describe("documents panel empty and footer text", () => {
     expect(unsupportedDetail(["a.ipynb", "b.parquet", "Makefile"])).toMatch(/^Found a\.ipynb, b\.parquet, Makefile, but \.ipynb, \.parquet, a file without an extension are not supported types\./);
   });
 
-  it("warns when the workspace was too large to search completely", () => {
-    expect(noMatchDetail({ query: "q4", group: null }, true)).toBe('No files match "q4". Only the first 50,000 entries of this workspace were searched');
+  it("says which part of the workspace a search could not reach, by reason", () => {
+    expect(noMatchDetail({ query: "q4", group: null }, ["entries"])).toBe('No files match "q4". Only the first 50,000 entries of this workspace were scanned');
+    expect(noMatchDetail({ query: "q4", group: null }, ["depth"])).toBe('No files match "q4". Folders more than 16 levels deep were not scanned');
+    expect(noMatchDetail({ query: "q4", group: null }, ["folder", "depth"])).toBe(
+      'No files match "q4". Folders with more than 5,000 entries were only partly scanned. Folders more than 16 levels deep were not scanned');
   });
 
-  it("describes a capped list as recent documents or recent matches", () => {
-    expect(listFooter(50, false)).toBe("Showing the 50 most recently changed");
-    expect(listFooter(50, true)).toBe("Showing the 50 most recent matches");
+  it("says which part of the workspace an empty Documents could not reach, as a search does", () => {
+    const types = "PDF, Word, Excel, CSV, JSON Lines, Parquet, PowerPoint, image, video, and audio files in this workspace appear here";
+    expect(emptyDetail([])).toBe(types);
+    expect(emptyDetail(["limit", "bytes"])).toBe(types);
+    expect(emptyDetail(["entries", "folder", "depth"])).toBe(
+      `${types}. Only the first 50,000 entries of this workspace were scanned. Folders with more than 5,000 entries were only partly scanned. Folders more than 16 levels deep were not scanned`);
+  });
+
+  it("describes a capped list as recent documents or recent matches, with every reason it was cut", () => {
+    expect(truncationNotice(12, [], false, "list")).toBeNull();
+    expect(truncationNotice(50, ["limit"], false, "list")).toBe("Showing the 50 most recently changed documents");
+    expect(truncationNotice(1000, ["limit"], true, "list")).toBe("Showing the 1,000 most recently changed matches");
+    expect(truncationNotice(1, ["depth"], false, "list")).toBe("Folders more than 16 levels deep were not scanned");
+    expect(truncationNotice(12, ["folder"], false, "list")).toBe("Folders with more than 5,000 entries were only partly scanned");
+    expect(truncationNotice(12, ["entries"], false, "list")).toBe("Only the first 50,000 entries of this workspace were scanned");
+    expect(truncationNotice(1000, ["limit", "entries", "depth"], false, "list")).toBe(
+      "Showing the 1,000 most recently changed documents. Only the first 50,000 entries of this workspace were scanned. Folders more than 16 levels deep were not scanned");
+    expect(truncationNotice(312, ["bytes"], false, "list")).toBe("Showing the 312 most recently changed documents, as many names as fit in 8 MB");
+    expect(truncationNotice(312, ["limit", "bytes", "folder"], true, "list")).toBe(
+      "Showing the 312 most recently changed matches, as many names as fit in 8 MB. Folders with more than 5,000 entries were only partly scanned");
+  });
+
+  it("says in Tree that folder counts cover only the listed documents when the list was cut", () => {
+    expect(truncationNotice(1000, ["limit", "depth"], false, "tree")).toBe(
+      "Showing the 1,000 most recently changed documents. Folder counts include only these. Folders more than 16 levels deep were not scanned");
+    expect(truncationNotice(312, ["bytes"], true, "tree")).toBe("Showing the 312 most recently changed matches, as many names as fit in 8 MB. Folder counts include only these");
+    expect(truncationNotice(12, ["folder"], false, "tree")).toBe("Folders with more than 5,000 entries were only partly scanned");
+    expect(truncationNotice(12, [], false, "tree")).toBeNull();
+  });
+
+  it("reads a cut list from a daemon that gives no reason as cut at the limit", () => {
+    expect(recentCuts({ truncated: true })).toEqual(["limit"]);
+    expect(recentCuts({ truncated: false })).toEqual([]);
+    expect(recentCuts({ truncated: true, truncatedBy: ["depth"] })).toEqual(["depth"]);
+    expect(truncationNotice(50, recentCuts({ truncated: true }), false, "list")).toBe("Showing the 50 most recently changed documents");
   });
 });

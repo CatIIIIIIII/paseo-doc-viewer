@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { markOpened, openedRevisions, stateDirectory, ViewerStateStore } from "../server/viewer-state";
 import { revisionOf } from "../server/revision";
 import { zoomFor } from "../shared/viewer-state";
@@ -142,5 +142,30 @@ describe("opened and review marks", () => {
     await markOpened(store, root, "a.pdf", revision("a.pdf"));
     expect(await store.marks()).not.toBe(second);
     expect(await openedRevisions(store, root, ["a.pdf"])).toEqual({ "a.pdf": revision("a.pdf") });
+  });
+
+  it("reads marks again after its own write, even where positions.json keeps the same inode, size and times", async () => {
+    vi.resetModules();
+    vi.doMock("node:fs/promises", async (importOriginal) => {
+      const fs = await importOriginal<typeof import("node:fs/promises")>();
+      const stat = (async (...args: Parameters<typeof fs.stat>) => {
+        const info = await fs.stat(...args);
+        return String(args[0]).endsWith("positions.json") ? Object.assign(info, { ino: 1, size: 1, mtimeMs: 1, ctimeMs: 1 }) : info;
+      }) as typeof fs.stat;
+      return { ...fs, stat, default: { ...fs, stat } };
+    });
+    try {
+      const fresh = await import("../server/viewer-state");
+      const root = workspace({ "a.pdf": "a", "b.pdf": "b" });
+      const revision = (path: string) => revisionOf(statSync(join(root, path)));
+      const store = new fresh.ViewerStateStore(workspace());
+      await fresh.markOpened(store, root, "a.pdf", revision("a.pdf"));
+      expect(await fresh.openedRevisions(store, root, ["a.pdf", "b.pdf"])).toEqual({ "a.pdf": revision("a.pdf") });
+      await fresh.markOpened(store, root, "b.pdf", revision("b.pdf"));
+      expect(await fresh.openedRevisions(store, root, ["a.pdf", "b.pdf"])).toEqual({ "a.pdf": revision("a.pdf"), "b.pdf": revision("b.pdf") });
+    } finally {
+      vi.doUnmock("node:fs/promises");
+      vi.resetModules();
+    }
   });
 });

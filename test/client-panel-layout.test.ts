@@ -24,4 +24,10 @@ describe("absolute times", () => {
     expect(absoluteTime(new Date(2025, 8, 2, 12, 0).getTime(), now)).toBe("2025-09-02");
     expect(absoluteTime(now + 60_000, now)).toBe("15:01");
   });
+
+  it("shows the date for a time on a later day", () => {
+    expect(absoluteTime(new Date(2026, 9, 20, 15, 1).getTime(), now)).toBe("20 Oct");
+    expect(absoluteTime(new Date(2026, 9, 20, 15, 1).getTime(), now, "short")).toBe("20 Oct");
+    expect(absoluteTime(new Date(2027, 0, 2, 8, 0).getTime(), now)).toBe("2027-01-02");
+  });
 });

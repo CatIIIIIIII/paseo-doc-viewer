@@ -2,19 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
   ALL_COLLAPSED,
   ALL_EXPANDED,
+  byName,
   folderFiles,
+  folderLabel,
   folderTree,
+  holdOpenChains,
   isExpanded,
+  setExpanded,
   TOP_EXPANDED,
-  toggleFolder,
+  treeExpansions,
+  type TreeExpansion,
   type TreeRow,
   treeRows,
 } from "../client/folder-tree";
+import { baseName, documentTitle, parentDir } from "../client/format";
 import { TREE_MAX_INDENT_LEVELS, treeIndent, treeLayout } from "../client/panel-layout";
-import { treeNotice } from "../client/recent";
 import { DOCUMENT_SIBLINGS_MAX, siblingWindow } from "../client/siblings";
 import { filterEntries } from "../shared/browse";
-import { RECENT_MAX_LIMIT } from "../shared/limits";
 
 const files = [
   "notes.docx",
@@ -57,7 +61,7 @@ describe("folder tree", () => {
   });
 
   it("opens the top level by default, and a closed folder hides everything under it", () => {
-    const rows = treeRows(folderTree(files), (path, depth) => isExpanded(TOP_EXPANDED, path, depth));
+    const rows = treeRows(folderTree(files), (chain, depth) => isExpanded(TOP_EXPANDED, chain, depth));
     expect(shown(rows)).toEqual([
       "v assets (2)",
       "  A.png",
@@ -73,19 +77,103 @@ describe("folder tree", () => {
     ]);
   });
 
-  it("toggles one folder from any starting point, and Expand all or Collapse all start over", () => {
-    const opened = toggleFolder(TOP_EXPANDED, "reports/2026/q3");
-    expect(isExpanded(opened, "reports/2026/q3", 1)).toBe(true);
-    expect(isExpanded(toggleFolder(opened, "reports/2026/q3"), "reports/2026/q3", 1)).toBe(false);
-    expect(isExpanded(toggleFolder(TOP_EXPANDED, "assets"), "assets", 0)).toBe(false);
-    expect(isExpanded(ALL_EXPANDED, "reports/2026/q3/weekly", 2)).toBe(true);
-    expect(isExpanded(ALL_COLLAPSED, "assets", 0)).toBe(false);
-    expect(isExpanded(toggleFolder(ALL_COLLAPSED, "assets"), "assets", 0)).toBe(true);
+  it("opens or closes one folder from any starting point, and Expand all or Collapse all start over", () => {
+    const opened = setExpanded(TOP_EXPANDED, ["reports/2026/q3"], true);
+    expect(isExpanded(opened, ["reports/2026/q3"], 1)).toBe(true);
+    expect(isExpanded(setExpanded(opened, ["reports/2026/q3"], false), ["reports/2026/q3"], 1)).toBe(false);
+    expect(isExpanded(setExpanded(TOP_EXPANDED, ["assets"], false), ["assets"], 0)).toBe(false);
+    expect(isExpanded(ALL_EXPANDED, ["reports/2026/q3/weekly"], 2)).toBe(true);
+    expect(isExpanded(ALL_COLLAPSED, ["assets"], 0)).toBe(false);
+    expect(isExpanded(setExpanded(ALL_COLLAPSED, ["assets"], true), ["assets"], 0)).toBe(true);
+  });
+
+  it("keeps a chained row open or closed when a new file splits the chain, and when it forms again", () => {
+    const chained = [{ path: "p/other.pdf" }, { path: "p/q/r/deep.pdf" }];
+    const split = [...chained, { path: "p/q/new.pdf" }];
+    const rowsOf = (paths: { path: string }[], expansion: TreeExpansion) =>
+      shown(treeRows(folderTree(paths), (chain, depth) => isExpanded(expansion, chain, depth)));
+    const row = treeRows(folderTree(chained), () => true).find((each) => each.type === "folder" && each.name === "q/r");
+    expect(row).toMatchObject({ path: "p/q/r", parent: "p", chain: ["p/q", "p/q/r"] });
+    const opened = setExpanded(TOP_EXPANDED, ["p/q", "p/q/r"], true);
+    expect(rowsOf(chained, opened)).toEqual(["v p (2)", "  v q/r (1)", "    deep.pdf", "  other.pdf"]);
+    expect(rowsOf(split, opened)).toEqual(["v p (3)", "  v q (2)", "    v r (1)", "      deep.pdf", "    new.pdf", "  other.pdf"]);
+    const closed = setExpanded(opened, ["p/q", "p/q/r"], false);
+    expect(rowsOf(split, setExpanded(closed, ["p/q"], true))).toEqual(["v p (3)", "  v q (2)", "    > r (1)", "    new.pdf", "  other.pdf"]);
+    expect(rowsOf(chained, setExpanded(closed, ["p/q"], true))).toEqual(["v p (2)", "  > q/r (1)", "  other.pdf"]);
+    const top = setExpanded(TOP_EXPANDED, ["out", "out/reports"], false);
+    expect(rowsOf([{ path: "out/reports/a.pdf" }, { path: "out/b.pdf" }], setExpanded(top, ["out"], true))).toEqual(["v out (2)", "  > reports (1)", "  b.pdf"]);
+  });
+
+  it("keeps a chain that opened by default open, both folders, when a new file splits it", () => {
+    const chained = [{ path: "out/reports/weekly.pdf" }, { path: "docs/a.pdf" }];
+    const split = [...chained, { path: "out/new.pdf" }];
+    const rowsOf = (paths: { path: string }[], expansion: TreeExpansion) =>
+      treeRows(folderTree(paths), (chain, depth) => isExpanded(expansion, chain, depth));
+    const held = holdOpenChains(TOP_EXPANDED, rowsOf(chained, TOP_EXPANDED));
+    expect(shown(rowsOf(chained, held))).toEqual(["v docs (1)", "  a.pdf", "v out/reports (1)", "  weekly.pdf"]);
+    expect(shown(rowsOf(split, held))).toEqual(["v docs (1)", "  a.pdf", "v out (2)", "  v reports (1)", "    weekly.pdf", "  new.pdf"]);
+    // Only the top level opens by default, so without it the folder below the split closes.
+    expect(shown(rowsOf(split, TOP_EXPANDED))).toEqual(["v docs (1)", "  a.pdf", "v out (2)", "  > reports (1)", "  new.pdf"]);
+    // A chain closed by hand stays closed, and nothing is held when no chain is open or Expand all is on.
+    const closed = setExpanded(TOP_EXPANDED, ["out", "out/reports"], false);
+    expect(holdOpenChains(closed, rowsOf(chained, closed))).toBe(closed);
+    expect(holdOpenChains(ALL_EXPANDED, rowsOf(chained, ALL_EXPANDED))).toBe(ALL_EXPANDED);
+    expect(holdOpenChains(ALL_COLLAPSED, rowsOf(chained, ALL_COLLAPSED))).toBe(ALL_COLLAPSED);
+    expect(holdOpenChains(held, rowsOf(chained, held))).toBe(held);
+    // A folder that is no chain keeps the default, which follows where it sits.
+    expect(holdOpenChains(TOP_EXPANDED, rowsOf([{ path: "docs/a.pdf" }], TOP_EXPANDED))).toBe(TOP_EXPANDED);
+  });
+
+  it("keeps open folders per host and workspace up to a cap, and a filter's apart in each", () => {
+    const memory = treeExpansions(2);
+    const opened = setExpanded(TOP_EXPANDED, ["docs"], true);
+    memory.save("host\0a", opened);
+    expect(memory.start("host\0a", null)).toBe(opened);
+    expect(memory.start("host\0b", null)).toBe(TOP_EXPANDED);
+    expect(memory.start("host\0a", '["q"]')).toBe(ALL_EXPANDED);
+    expect(memory.key("host\0a", '["q"]')).not.toBe(memory.key("host\0b", '["q"]'));
+    expect(memory.key("host\0a", '["q"]')).not.toBe(memory.key("other\0a", '["q"]'));
+    memory.save("host\0b", ALL_COLLAPSED);
+    memory.save("host\0a", opened);
+    memory.save("host\0c", ALL_EXPANDED);
+    expect(memory.start("host\0b", null)).toBe(TOP_EXPANDED);
+    expect(memory.start("host\0a", null)).toBe(opened);
+    expect(memory.start("host\0c", null)).toBe(ALL_EXPANDED);
   });
 
   it("keeps a search's matches and the folders above them", () => {
     const rows = treeRows(folderTree(filterEntries(files, { query: "summary" })), () => true);
     expect(shown(rows)).toEqual(["v reports/2026 (2)", "  v q2 (1)", "    summary.pdf", "  v q3/weekly (1)", "    summary.pdf"]);
+  });
+
+  it("orders numbers in names by value", () => {
+    const names = ["run-10.csv", "run-2.csv", "Run-3.csv", "run-1.csv", "run-01.csv", "run.csv", "v1.10", "v1.9", "build-12345678901234567890", "build-9", "10x", "9x"];
+    expect([...names].sort(byName)).toEqual([
+      "9x", "10x", "build-9", "build-12345678901234567890", "run-01.csv", "run-1.csv", "run-2.csv", "Run-3.csv", "run-10.csv", "run.csv", "v1.9", "v1.10",
+    ]);
+    const runs = Array.from({ length: 12 }, (_, index) => ({ path: `exports/run-${index + 1}.csv`, kind: "csv" as const, mtimeMs: index }));
+    const rows = treeRows(folderTree([...runs].reverse()), () => true);
+    expect(folderFiles(rows, "exports/run-2.csv")).toEqual(runs.map((run) => run.path));
+    expect(shown(treeRows(folderTree(["q10/a.pdf", "q9/a.pdf"].map((path) => ({ path }))), () => false))).toEqual(["> q9 (1)", "> q10 (1)"]);
+  });
+
+  it("keeps a backslash in a file name instead of reading a folder from it", () => {
+    const odd = [{ path: "dir/we\\ird.pdf", kind: "pdf" as const, mtimeMs: 1 }, { path: "dir/plain.pdf", kind: "pdf" as const, mtimeMs: 1 }];
+    const rows = treeRows(folderTree(odd), () => true);
+    expect(shown(rows)).toEqual(["v dir (2)", "  plain.pdf", "  we\\ird.pdf"]);
+    expect(baseName("dir/we\\ird.pdf")).toBe("we\\ird.pdf");
+    expect(parentDir("dir/we\\ird.pdf")).toBe("dir");
+    expect(folderFiles(rows, "dir/we\\ird.pdf")).toEqual(["dir/plain.pdf", "dir/we\\ird.pdf"]);
+    expect(documentTitle({ path: "dir/we\\ird.pdf" })).toBe("we\\ird.pdf · dir");
+  });
+
+  it("names a folder row with the folder it sits in, and its level where no tree role says it", () => {
+    const row = treeRows(folderTree(files), () => true).find((each) => each.type === "folder" && each.name === "q2");
+    expect(row).toMatchObject({ parent: "reports/2026", depth: 1, count: 1 });
+    if (row?.type !== "folder") throw new Error("no q2 row");
+    expect(folderLabel(row)).toBe("q2, folder in reports/2026, 1 document");
+    expect(folderLabel(row, row.depth + 1)).toBe("q2, folder in reports/2026, level 2, 1 document");
+    expect(folderLabel({ name: "out/reports", parent: "", count: 2 }, 1)).toBe("out/reports, folder, level 1, 2 documents");
   });
 
   it("gives a file the files of its own folder as they are shown", () => {
@@ -119,13 +207,5 @@ describe("tree layout", () => {
     expect(treeLayout(390, true)).toMatchObject({ rowHeight: 44, size: true, status: "short", actionLabels: true });
     expect(treeLayout(900, false)).toMatchObject({ rowHeight: 28, size: true, status: "full" });
     expect(treeLayout(300, false)).toMatchObject({ size: false, status: "none", actionLabels: false });
-  });
-
-  it("says when the daemon listed only part of the workspace", () => {
-    expect(treeNotice(12, undefined, false)).toBeNull();
-    expect(treeNotice(RECENT_MAX_LIMIT, "limit", false)).toBe("Showing the 1,000 most recently changed documents");
-    expect(treeNotice(RECENT_MAX_LIMIT, "limit", true)).toBe("Showing the 1,000 most recently changed matches");
-    expect(treeNotice(50, "limit", false)).toBe("Showing the 50 most recently changed documents");
-    expect(treeNotice(RECENT_MAX_LIMIT, "scan", false)).toBe("Showing the documents in the first 50,000 entries of this workspace");
   });
 });

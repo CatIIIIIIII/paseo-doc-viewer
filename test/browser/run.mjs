@@ -1,14 +1,22 @@
 import { build } from "esbuild";
 import { chromium, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
+import { rmSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { once } from "node:events";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { inspectionWorkbook } from "../fixtures/generators.ts";
-const directory = resolve("node_modules/.cache/viewer-browser");
+// One directory per run: a shared one under node_modules let concurrent runs overwrite each other's bundle and fixtures.
+const chosenDirectory = process.env.VIEWER_BROWSER_DIR;
+const directory = chosenDirectory ? resolve(chosenDirectory) : await mkdtemp(join(tmpdir(), "viewer-browser-"));
 await mkdir(directory, { recursive: true });
+process.on("exit", (code) => {
+  if (code !== 0) console.error(`Bundle, fixtures and screenshots kept in ${directory}`);
+  else if (chosenDirectory) console.log(`Screenshots: ${directory}`);
+  else rmSync(directory, { recursive: true, force: true });
+});
 const pdf = await PDFDocument.create();
 const font = await pdf.embedFont(StandardFonts.Helvetica);
 for (let index = 0; index < 3; index++) pdf.addPage().drawText(`Searchable statement page ${index + 1}`, { font, x: 40, y: 700 });
@@ -34,13 +42,8 @@ await build({ ...base, entryPoints: ["test/browser/app.tsx"], outfile: `${direct
   "@getpaseo/plugin/client": resolve("test/browser/plugin-shim.ts"),
 } });
 await build({ ...base, entryPoints: ["test/browser/server.ts"], outfile: `${directory}/server.cjs`, platform: "node", format: "cjs", external: ["@getpaseo/plugin", "zod"] });
-const server = spawn(process.execPath, [`${directory}/server.cjs`], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, PASEO_DOC_VIEWER_STATE_DIR: stateDirectory } });
-const RUN_LIMIT_MS = 10 * 60_000;
-const watchdog = setTimeout(() => {
-  console.error(`Browser checks did not finish in ${RUN_LIMIT_MS / 60_000} minutes`);
-  server.kill("SIGTERM");
-  process.exit(1);
-}, RUN_LIMIT_MS);
+// server.cjs runs from outside the project, so its external packages resolve through NODE_PATH.
+const server = spawn(process.execPath, [`${directory}/server.cjs`], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, NODE_PATH: resolve("node_modules"), VIEWER_BROWSER_DIR: directory, PASEO_DOC_VIEWER_STATE_DIR: stateDirectory } });
 // Runs in the page: play() and the first advance share one deadline, so a play() that never settles fails.
 const playUntilAdvanced = (element) => new Promise((resolve, reject) => {
   const finish = (settle, value) => { clearTimeout(timer); element.removeEventListener("timeupdate", advanced); element.pause(); settle(value); };
@@ -53,20 +56,55 @@ const playUntilAdvanced = (element) => new Promise((resolve, reject) => {
 });
 let browser;
 let page;
+let failureSaved = false;
+// Bounded, and its own errors are only reported, so they never replace the failure being reported.
+const saveFailure = async () => {
+  if (!page || failureSaved) return;
+  failureSaved = true;
+  try { console.error((await page.locator("body").innerText({ timeout: 5000 })).slice(0, 1800)); } catch (error) { console.error(`Could not read the page: ${error.message}`); }
+  try { await page.screenshot({ path: `${directory}/failure.png`, fullPage: true, timeout: 10_000 }); } catch (error) { console.error(`Could not screenshot the page: ${error.message}`); }
+};
+const cleanUp = async () => {
+  clearTimeout(watchdog);
+  await browser?.close();
+  server.kill("SIGTERM");
+  await rm(stateDirectory, { recursive: true, force: true });
+};
+const RUN_LIMIT_MS = 10 * 60_000;
+const overLimit = `Browser checks did not finish in ${RUN_LIMIT_MS / 60_000} minutes`;
+let timedOut = false;
+// A hang fails like any other check: the page is saved and everything cleaned up before exiting, and
+// closing the browser fails what the checks wait on. If that hangs too, the second timer ends the run.
+const watchdog = setTimeout(async () => {
+  timedOut = true;
+  console.error(overLimit);
+  setTimeout(() => process.exit(1), 60_000).unref();
+  await saveFailure();
+  await cleanUp();
+  process.exit(1);
+}, RUN_LIMIT_MS);
 try {
   const output = await Promise.race([once(server.stdout, "data"), once(server, "exit").then(() => { throw new Error("Harness exited before listening"); })]);
   const { port, root } = JSON.parse(output[0].toString());
-  browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_EXECUTABLE_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage", "--no-zygote", "--single-process", "--disable-gpu", "--disable-software-rasterizer"] });
+  const launch = { headless: true, executablePath: process.env.CHROMIUM_EXECUTABLE_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage", "--no-zygote", "--single-process", "--disable-gpu", "--disable-software-rasterizer"] };
+  browser = await chromium.launch(launch);
   page = await browser.newPage({ viewport: { width: 1100, height: 1000 }, acceptDownloads: true });
   const failures = [];
   page.on("pageerror", (error) => { failures.push(error.message); console.error("Browser error:", error.message); });
-  // RPC calls the page made from index `from` on that match, all of them answered.
+  // For each RPC call the page made from index `from` on that matches, whether it has been answered.
   const rpcCallsFrom = (from, method, input = {}) => page.evaluate(({ from, method, input }) => {
     const matches = (value, expected) => Object.entries(expected).every(([key, want]) => (want !== null && typeof want === "object" ? matches(value?.[key], want) : value?.[key] === want));
-    const found = window.__rpcCalls.slice(from).filter((call) => call.method === method && matches(call.input, input));
-    return found.length > 0 && found.every((call) => call.settled) ? found.length : 0;
+    return window.__rpcCalls.slice(from).filter((call) => call.method === method && matches(call.input, input)).map((call) => call.settled);
   }, { from, method, input });
   const rpcCallCount = () => page.evaluate(() => window.__rpcCalls.length);
+  // Waits until such calls were made and all are answered. A poll sent after a change has seen it, so the
+  // screen then shows the change within a render; the long limit only bounds a call that never comes.
+  const rpcAnswered = (from, method, input) => expect.poll(async () => {
+    const calls = await rpcCallsFrom(from, method, input);
+    return calls.length > 0 && calls.every(Boolean);
+  }, { message: `${method} answered`, timeout: 30_000 }).toBe(true);
+  // Lets a render the last answer caused reach the screen, before a check that it changed nothing there.
+  const nextFrame = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))));
   // The viewer saves its position a second after the last change, and at once when it closes, so a
   // reopen after every save is answered reads the latest.
   const reopenViewer = async () => {
@@ -193,8 +231,11 @@ try {
   await page.getByRole("button", { name: "many.csv", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("needle");
+  const sinceManySearch = await rpcCallCount();
   await page.getByRole("button", { name: "Search", exact: true }).click();
-  await expect(page.getByText("120 matches", { exact: true })).toBeVisible({ timeout: 15000 });
+  // The client asks for the next part as soon as one answers, so all answered means the search is done.
+  await rpcAnswered(sinceManySearch, "doc.search", { path: "many.csv", query: "needle" });
+  await expect(page.getByText("120 matches", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Search more", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "contract.docx", exact: true }).click();
   await expect.poll(() => page.getByText("Unit", { exact: true }).evaluate((cell) => {
@@ -234,79 +275,117 @@ try {
   const video = await page.locator("video").evaluate(playUntilAdvanced);
   expect(video.currentTime).toBeGreaterThan(0); expect(video.muted).toBe(false); expect(video.tracks).toBe(1);
   // A slow media transfer shows feedback immediately and can be cancelled before its response arrives.
-  const slowMedia = async (route) => {
-    if (route.request().postDataJSON().method === "media.chunk") await new Promise((resolve) => setTimeout(resolve, 500));
-    await route.continue().catch(() => {});
+  // Its chunk is held until after the cancel or navigation; once the late answer is handled, the
+  // transfer must have asked for nothing more and shown nothing.
+  let holdingMedia = true;
+  const heldMedia = [];
+  const holdMedia = async (route) => {
+    if (holdingMedia && route.request().postDataJSON().method === "media.chunk") heldMedia.push(route);
+    else await route.continue().catch(() => {});
   };
-  await page.route("**/rpc", slowMedia);
+  const releaseMedia = async (since) => {
+    holdingMedia = false;
+    for (const route of heldMedia.splice(0)) await route.continue().catch(() => {});
+    await rpcAnswered(since, "media.chunk");
+    expect(await rpcCallsFrom(since, "media.chunk")).toEqual([true]);
+    await nextFrame();
+    holdingMedia = true;
+  };
+  await page.route("**/rpc", holdMedia);
+  let sinceMedia = await rpcCallCount();
   await page.getByRole("button", { name: "animated.webp", exact: true }).click();
   await expect(page.getByRole("progressbar", { name: "Loading animation", exact: true })).toBeVisible();
+  await expect.poll(() => heldMedia.length).toBe(1);
   await page.getByRole("button", { name: "Cancel loading", exact: true }).click();
   await expect(page.getByRole("button", { name: "Load animation", exact: true })).toBeVisible();
-  await page.waitForTimeout(650);
+  await releaseMedia(sinceMedia);
   await expect(page.getByRole("button", { name: "Load animation", exact: true })).toBeVisible();
   await expect(page.getByRole("img").first()).toBeVisible();
+  sinceMedia = await rpcCallCount();
   await page.getByRole("button", { name: "clip.mp4", exact: true }).click();
   await expect(page.getByRole("progressbar", { name: "Loading video", exact: true })).toBeVisible();
+  await expect.poll(() => heldMedia.length).toBe(1);
   await page.getByRole("button", { name: "Cancel loading", exact: true }).click();
   await expect(page.getByRole("button", { name: /^Load video/ })).toBeVisible();
-  await page.waitForTimeout(650);
+  await releaseMedia(sinceMedia);
   await expect(page.locator("video")).toHaveCount(0);
+  sinceMedia = await rpcCallCount();
   await page.getByRole("button", { name: /^Load video/ }).click();
   await expect(page.getByRole("progressbar", { name: "Loading video", exact: true })).toBeVisible();
+  await expect.poll(() => heldMedia.length).toBe(1);
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
   await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeVisible();
-  await page.waitForTimeout(650);
+  await releaseMedia(sinceMedia);
   await expect(page.locator("video")).toHaveCount(0);
-  await page.unroute("**/rpc", slowMedia);
+  await page.unroute("**/rpc", holdMedia);
   // Adversarial lifecycle checks: a late request must not populate a new query
-  // or create a Save link after the user cancelled preparation.
+  // or create a Save link after the user cancelled preparation. Each first request is held until
+  // after the change or cancel, and the checks run once its late answer is handled.
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
-  const delaySearch = async (route) => {
-    if (route.request().postDataJSON().method === "doc.search") await new Promise((resolve) => setTimeout(resolve, 250));
-    await route.continue().catch(() => {});
+  const heldSearch = [];
+  const holdSearch = async (route) => {
+    if (heldSearch.length === 0 && route.request().postDataJSON().method === "doc.search") heldSearch.push(route);
+    else await route.continue().catch(() => {});
   };
-  await page.route("**/rpc", delaySearch);
+  await page.route("**/rpc", holdSearch);
+  const sinceStaleSearch = await rpcCallCount();
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("statement");
   await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect.poll(() => heldSearch.length).toBe(1);
   await page.getByRole("textbox", { name: "Find in document", exact: true }).fill("no such phrase");
-  // The stale burst spans several delayed RPCs; wait for all of them to land.
-  await page.waitForTimeout(2000);
+  await heldSearch[0].continue();
+  // The stale search stops at its late answer: it asks for no further part.
+  await rpcAnswered(sinceStaleSearch, "doc.search", { query: "statement" });
+  expect(await rpcCallsFrom(sinceStaleSearch, "doc.search", { query: "statement" })).toEqual([true]);
+  await nextFrame();
   await expect(page.getByRole("button", { name: /^Page \d+:/ })).toHaveCount(0);
   await expect(page.getByText("3 matches", { exact: true })).toHaveCount(0);
-  await page.unroute("**/rpc", delaySearch);
+  await page.unroute("**/rpc", holdSearch);
   await page.getByRole("button", { name: "broken.pdf", exact: true }).click();
-  const delayChunk = async (route) => {
-    if (route.request().postDataJSON().method === "file.chunk") await new Promise((resolve) => setTimeout(resolve, 250));
-    await route.continue().catch(() => {});
+  const heldChunk = [];
+  const holdChunk = async (route) => {
+    if (heldChunk.length === 0 && route.request().postDataJSON().method === "file.chunk") heldChunk.push(route);
+    else await route.continue().catch(() => {});
   };
-  await page.route("**/rpc", delayChunk);
+  await page.route("**/rpc", holdChunk);
+  const sinceDownload = await rpcCallCount();
   await page.getByRole("button", { name: "Download original", exact: true }).click();
   await expect(page.getByLabel("Preparing original file", { exact: true })).toBeVisible();
+  await expect.poll(() => heldChunk.length).toBe(1);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.waitForTimeout(400);
+  await heldChunk[0].continue();
+  await rpcAnswered(sinceDownload, "file.chunk");
+  expect(await rpcCallsFrom(sinceDownload, "file.chunk")).toEqual([true]);
+  await nextFrame();
   await expect(page.getByRole("link", { name: "Save original file", exact: true })).toHaveCount(0);
-  await page.unroute("**/rpc", delayChunk);
-  const delayPosition = async (route) => {
-    if (route.request().postDataJSON().method === "viewer-state.read") await new Promise((resolve) => setTimeout(resolve, 1900));
-    await route.continue().catch(() => {});
+  await page.unroute("**/rpc", holdChunk);
+  // A slow position read does not hold up reading: the viewer opens when its own wait for the read
+  // ends. The reads are held until the reader has turned the page.
+  let holdingReads = true;
+  const heldReads = [];
+  const holdReads = async (route) => {
+    if (holdingReads && route.request().postDataJSON().method === "viewer-state.read") heldReads.push(route);
+    else await route.continue().catch(() => {});
   };
-  await page.route("**/rpc", delayPosition);
-  const writes = [];
-  const recordWrite = (request) => { if (request.url().endsWith("/rpc") && request.postDataJSON()?.method === "viewer-state.write") writes.push(request); };
-  page.on("request", recordWrite);
+  await page.route("**/rpc", holdReads);
+  const sinceSlowRead = await rpcCallCount();
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeVisible({ timeout: 3000 });
   await page.getByRole("button", { name: "Next page", exact: true }).click();
-  await page.waitForTimeout(700);
   await expect(page.getByText("2 / 3", { exact: true })).toBeVisible();
-  // After the read timed out, a late answer must not enable writes over unread history.
+  holdingReads = false;
+  for (const route of heldReads.splice(0)) await route.continue().catch(() => {});
+  await rpcAnswered(sinceSlowRead, "viewer-state.read", { path: "statement.pdf" });
+  await nextFrame();
+  await expect(page.getByText("2 / 3", { exact: true })).toBeVisible();
+  // After the read timed out, a late answer must not enable writes over unread history. Closing
+  // saves a pending position at once, so a save the late answer had enabled would be sent there.
   await page.getByRole("button", { name: "Next page", exact: true }).click();
-  await page.waitForTimeout(1300);
-  expect(writes).toHaveLength(0);
-  page.off("request", recordWrite);
-  await page.unroute("**/rpc", delayPosition);
+  await expect(page.getByText("3 / 3", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close viewer", exact: true }).click();
+  expect(await rpcCallsFrom(sinceSlowRead, "viewer-state.write")).toEqual([]);
+  await page.getByRole("button", { name: "Reopen viewer", exact: true }).click();
+  await page.unroute("**/rpc", holdReads);
   const thumbnails = { requested: [], inFlight: 0, maxInFlight: 0 };
   const isThumbnail = (request) => request.url().endsWith("/rpc") && request.postDataJSON()?.method === "doc.thumbnail";
   page.on("request", (request) => { if (!isThumbnail(request)) return; thumbnails.requested.push(request.postDataJSON().input.index); thumbnails.maxInFlight = Math.max(thumbnails.maxInFlight, ++thumbnails.inFlight); });
@@ -319,10 +398,15 @@ try {
   };
   await page.route("**/rpc", slowThumbnails);
   await page.getByRole("button", { name: "report.pdf", exact: true }).click();
+  const sinceReportMap = await rpcCallCount();
   await page.getByRole("button", { name: "Page map", exact: true }).click();
   await expect(page.getByRole("img", { name: "Page 1 thumbnail", exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: "Page 10 thumbnail", exact: true })).toBeVisible();
-  await page.waitForTimeout(1500);
+  // One thumbnail is the current page, for screen readers too.
+  await expect(page.locator('[aria-current="page"]')).toHaveAttribute("aria-label", "Open page 1");
+  // The loader asks for the next thumbnail as soon as one answers, so once all are answered it wants no more.
+  await rpcAnswered(sinceReportMap, "doc.thumbnail", { path: "report.pdf" });
+  await nextFrame();
   expect(thumbnails.maxInFlight).toBeLessThanOrEqual(2);
   expect(new Set(thumbnails.requested).size).toBeLessThan(30);
   expect(thumbnails.requested).not.toContain(59);
@@ -339,6 +423,7 @@ try {
   expect(nextBox.x - (lastChip.x + lastChip.width)).toBeLessThanOrEqual(8);
   await expect(page.getByRole("button", { name: "Page 42", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Page map", exact: true }).click();
+  await expect(page.locator('[aria-current="page"]')).toHaveAttribute("aria-label", "Open page 42");
   await page.getByRole("button", { name: "Pin page 42", exact: true }).click();
   await page.getByRole("textbox", { name: "Pin label", exact: true }).fill("Chart");
   await page.getByRole("button", { name: "Save pin", exact: true }).click();
@@ -357,9 +442,11 @@ try {
   const rewritten = await PDFDocument.load(await readFile(`${directory}/report.pdf`));
   rewritten.removePage(0);
   await writeFile(`${root}/report.pdf`, await rewritten.save());
+  const sinceReportRewrite = await rpcCallCount();
   await page.getByRole("button", { name: "Page map", exact: true }).click();
+  await rpcAnswered(sinceReportRewrite, "doc.open", { path: "report.pdf" });
   const changedPin = page.getByRole("button", { name: /^Open pin: Page 42, Chart, May need checking/ });
-  await expect(changedPin).toBeVisible({ timeout: 12000 });
+  await expect(changedPin).toBeVisible();
   await page.getByRole("button", { name: "Confirm pin on page 42", exact: true }).click();
   await expect(page.getByRole("button", { name: "Open pin: Page 42, Chart", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Remove pin on page 42", exact: true }).click();
@@ -397,13 +484,24 @@ try {
   const recordReview = (request) => { if (request.url().endsWith("/rpc") && request.postDataJSON()?.method === "viewer-state.review") reviews.push(request.postDataJSON().input); };
   page.on("request", recordReview);
   const touch = async (name, seconds) => { await writeFile(`${root}/${name}`, await readFile(`${root}/${name}`)); await utimes(`${root}/${name}`, seconds, seconds); };
+  // An agent writes, then its turn ends, which rescans the workspace. Returns the call count to wait from.
+  const agentWrote = async (write) => {
+    await write();
+    await page.request.get(`http://127.0.0.1:${port}/turn-ended`);
+    return rpcCallCount();
+  };
   await page.getByRole("button", { name: "statement.pdf", exact: true }).click();
+  const sinceTurnedPage = await rpcCallCount();
   await page.getByRole("button", { name: "Next page", exact: true }).click();
-  await page.waitForTimeout(1300);
-  await expect(page.getByRole("button", { name: "Mark reviewed", exact: true })).toBeVisible();
-  expect(reviews).toHaveLength(0);
-  await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
+  // The page turn is saved a second later; that save must not mark the document reviewed.
+  await rpcAnswered(sinceTurnedPage, "viewer-state.write", { path: "statement.pdf" });
+  await nextFrame();
+  // One name in both states: whether the file is reviewed is the pressed state.
+  const markReviewed = page.getByRole("button", { name: "Mark reviewed", exact: true });
+  await expect(markReviewed).toHaveAttribute("aria-pressed", "false");
+  expect(await rpcCallsFrom(sinceTurnedPage, "viewer-state.review")).toEqual([]);
+  await markReviewed.click();
+  await expect(markReviewed).toHaveAttribute("aria-pressed", "true");
   expect(reviews).toHaveLength(1);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   // First-run tips sit at the top of Documents: Next steps through them, Skip hides them for good
@@ -432,13 +530,17 @@ try {
   await expect(page.getByRole("button", { name: /^long\.pdf, PDF, [^,]*$/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Needs review/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^New, / })).toHaveCount(0);
-  await touch("statement.pdf", Date.now() / 1000 + 60);
-  await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible({ timeout: 15000 });
+  const sinceListRewrite = await agentWrote(() => touch("statement.pdf", Date.now() / 1000 + 60));
+  await rpcAnswered(sinceListRewrite, "docs.recent");
+  await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, changed since review$/ })).toBeVisible();
   // Needs review leads the filter row, so it is not scrolled off on a phone.
   await expect(page.getByRole("button", { name: /^(Needs review|All), / }).first()).toHaveAttribute("aria-label", "Needs review, 1 document");
   const chipIcon = (target, name, icon) => target.getByRole("button", { name, exact: typeof name === "string" }).locator(`[aria-hidden="true"] [data-icon="${icon}"]`);
   await expect(chipIcon(page, "Needs review, 1 document", "TriangleAlert")).toHaveCSS("color", "rgb(251, 191, 36)");
+  await expect(page.getByRole("button", { name: /^All, / })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Needs review, 1 document", exact: true })).toHaveAttribute("aria-pressed", "false");
   await page.getByRole("button", { name: "Needs review, 1 document", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Needs review, 1 document", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(1);
   await page.screenshot({ path: `${directory}/needs-review.png`, fullPage: true });
   await page.getByRole("button", { name: /^statement\.pdf, PDF, / }).click();
@@ -447,17 +549,28 @@ try {
   // A rewrite the open viewer has not picked up yet must not be marked reviewed.
   await touch("statement.pdf", Date.now() / 1000 + 120);
   const sinceRewrite = await rpcCallCount();
-  await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
-  await expect.poll(() => rpcCallsFrom(sinceRewrite, "viewer-state.review")).toBe(1);
-  await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toHaveCount(0);
+  await markReviewed.click();
+  await expect.poll(() => rpcCallsFrom(sinceRewrite, "viewer-state.review")).toEqual([true]);
+  await expect(markReviewed).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByText("Changed since review", { exact: true })).toBeVisible();
   // The viewer shows the rewrite once a revision poll answers, one poll interval at most.
-  await expect.poll(() => rpcCallsFrom(sinceRewrite, "doc.open", { path: "statement.pdf" }), { timeout: 15_000 }).toBeGreaterThan(0);
-  await page.getByRole("button", { name: "Mark reviewed", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Reviewed, clear the review mark", exact: true })).toBeVisible();
+  await rpcAnswered(sinceRewrite, "doc.open", { path: "statement.pdf" });
+  await markReviewed.click();
+  await expect(markReviewed).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(page.getByRole("button", { name: /^statement\.pdf, PDF, .*, reviewed$/ })).toBeVisible();
   page.off("request", recordReview);
+  // A timer does not run while a window is away, so the times are read again when it gets focus or shows again.
+  const reviewedRow = page.getByRole("button", { name: /^statement\.pdf, PDF, changed .*, reviewed$/ });
+  await expect(reviewedRow).toHaveAttribute("aria-label", /, changed just now, /);
+  const shiftClock = (hours) => page.evaluate((hours) => { window.__realNow ??= Date.now; Date.now = () => window.__realNow() + hours * 3_600_000; }, hours);
+  await shiftClock(2.5);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(reviewedRow).toHaveAttribute("aria-label", /, changed 2 h ago, /);
+  await shiftClock(4.5);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect(reviewedRow).toHaveAttribute("aria-label", /, changed 4 h ago, /);
+  await shiftClock(0);
   // A search that only matches a file the viewer cannot open says so.
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("analysis");
   await expect(page.getByText("Not a supported file type", { exact: true })).toBeVisible();
@@ -520,11 +633,15 @@ try {
   await expect(page.getByRole("button", { name: "Send review to Docs agent", exact: true })).toBeVisible();
   // When the preselected agent turns busy it stays selected, and the screen says why Send is off.
   await page.evaluate(() => window.__setAgentStatus("docs", "running"));
-  await expect(page.getByRole("radio", { name: "Docs agent, Busy", exact: true })).toBeVisible({ timeout: 12000 });
+  const sinceBusy = await rpcCallCount();
+  await rpcAnswered(sinceBusy, "agents.list");
+  await expect(page.getByRole("radio", { name: "Docs agent, Busy", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send review to Docs agent", exact: true })).toHaveAttribute("aria-disabled", "true");
   await expect(page.getByText("Docs agent is busy. Wait until it is idle, or copy the review.", { exact: true })).toBeVisible();
   await page.evaluate(() => window.__setAgentStatus("docs", "idle"));
-  await expect(page.getByRole("radio", { name: "Docs agent, Idle", exact: true })).toBeVisible({ timeout: 12000 });
+  const sinceIdle = await rpcCallCount();
+  await rpcAnswered(sinceIdle, "agents.list");
+  await expect(page.getByRole("radio", { name: "Docs agent, Idle", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send review to Docs agent", exact: true })).not.toHaveAttribute("aria-disabled", "true");
   await expect(page.getByText(/ is busy\. Wait until it is idle/)).toHaveCount(0);
   await page.getByRole("radio", { name: "Racing agent, Idle", exact: true }).click();
@@ -536,7 +653,9 @@ try {
   await expect(page.getByText("2 notes", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.__sentReviews.length)).toBe(0);
   await page.request.get(`http://127.0.0.1:${port}/touch/statement.pdf`);
-  await expect(page.getByText("Older revision: the file changed since this note", { exact: true })).toHaveCount(2, { timeout: 12000 });
+  const sinceNoteRewrite = await rpcCallCount();
+  await rpcAnswered(sinceNoteRewrite, "doc.open", { path: "statement.pdf" });
+  await expect(page.getByText("Older revision: the file changed since this note", { exact: true })).toHaveCount(2);
   await expect(preview).toContainText("\"statement.pdf\", older version (modified ");
   await expect(page.getByRole("button", { name: "Attach page 1 image", exact: true })).toHaveAttribute("aria-disabled", "true");
   await page.screenshot({ path: `${directory}/review-screen.png`, fullPage: true });
@@ -562,12 +681,12 @@ try {
   const beforeWideZoom = await rpcCallCount();
   await page.getByRole("button", { name: "Zoom in", exact: true }).click();
   await expect(page.getByText("1.5x", { exact: true })).toBeVisible();
-  await expect.poll(() => rpcCallsFrom(beforeWideZoom, "viewer-state.write", { path: "statement.pdf", position: { zoom: 1.5 } })).toBeGreaterThan(0);
+  await rpcAnswered(beforeWideZoom, "viewer-state.write", { path: "statement.pdf", position: { zoom: 1.5 } });
   const phone = page;
   await phone.setViewportSize({ width: 390, height: 844 });
   // A file the agent wrote since Documents was last opened is new until reviewed. Reloading
   // starts a new app session, so this visit compares against the first one above.
-  await writeFile(`${root}/fresh.csv`, "a,b\n1,2\n");
+  await agentWrote(() => writeFile(`${root}/fresh.csv`, "a,b\n1,2\n"));
   await phone.goto(`http://127.0.0.1:${port}/?compact`);
   await phone.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ })).toBeVisible();
@@ -587,8 +706,9 @@ try {
   await phone.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, changed [^,]*$/ })).toBeVisible();
   await expect(phone.getByRole("button", { name: /^New, / })).toHaveCount(0);
-  await writeFile(`${root}/fresh.csv`, "a,b\n1,2\n3,4\n");
-  await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ })).toBeVisible({ timeout: 15_000 });
+  const sinceFreshRewrite = await agentWrote(() => writeFile(`${root}/fresh.csv`, "a,b\n1,2\n3,4\n"));
+  await rpcAnswered(sinceFreshRewrite, "docs.recent");
+  await expect(phone.getByRole("button", { name: /^fresh\.csv, CSV table, .*, new$/ })).toBeVisible();
   await expect(phone.getByRole("button", { name: "New, 1 document", exact: true })).toBeVisible();
   // Tips fit a phone: reopened from under the list, one card above the search box, 44 pt targets, no overflow.
   await phone.getByRole("button", { name: "Show tips", exact: true }).click();
@@ -645,7 +765,7 @@ try {
   await phone.getByRole("button", { name: "Zoom in", exact: true }).click();
   await phone.getByRole("button", { name: "Zoom in", exact: true }).click();
   await expect(phone.getByText("2x", { exact: true })).toBeVisible();
-  await expect.poll(() => rpcCallsFrom(beforePhoneZoom, "viewer-state.write", { path: "statement.pdf", position: { zoom: 2 } })).toBeGreaterThan(0);
+  await rpcAnswered(beforePhoneZoom, "viewer-state.write", { path: "statement.pdf", position: { zoom: 2 } });
   await phone.setViewportSize({ width: 1100, height: 1000 });
   await phone.goto(`http://127.0.0.1:${port}/`);
   await expect(phone.getByText("1.5x", { exact: true })).toBeVisible();
@@ -722,11 +842,14 @@ try {
   await mkdir(shots, { recursive: true });
   await page.setViewportSize({ width: 1100, height: 1000 });
   await page.goto(`http://127.0.0.1:${port}/`);
+  const sinceCard = await rpcCallCount();
   await page.getByRole("button", { name: "Turn card", exact: true }).click();
   const cardFrame = page.getByLabel("Turn card frame", { exact: true });
+  // The card asks for the next thumbnail as soon as one answers, so once all are answered it wants no more.
+  await rpcAnswered(sinceCard, "doc.thumbnail");
   await expect(cardFrame.locator("img")).toHaveCount(3);
   for (const image of await cardFrame.locator("img").all()) {
-    await expect.poll(() => image.evaluate((element) => element.naturalWidth)).toBeGreaterThan(0);
+    await image.evaluate((element) => element.decode());
     expect(await image.boundingBox()).toMatchObject({ width: 40, height: 40 });
   }
   const pdfRow = /^Open reports\/quarterly-report-with-a-long-file-name\.pdf, PDF, /;
@@ -745,21 +868,20 @@ try {
   await expect(page.getByRole("button", { name: /^Open finance\/forecast\.xlsx, .*, changed during this turn$/ })).toBeVisible();
   await cardFrame.screenshot({ path: `${shots}/harness-desktop-card-opened.png` });
   // A document is marked opened once it has loaded, so the stepper waits for each mark before moving on.
-  const openedOnScreen = () => page.evaluate(() => window.__rpcCalls.some((call) => call.method === "viewer-state.opened" && call.settled && call.input.path === window.__openedScreen.params.path));
+  const step = async (button, position) => {
+    const since = await rpcCallCount();
+    await page.getByRole("button", { name: button, exact: true }).click();
+    await expect(page.getByText(`Document ${position} of 4`, { exact: true })).toBeVisible();
+    await rpcAnswered(since, "viewer-state.opened", { path: await page.evaluate(() => window.__openedScreen.params.path) });
+  };
   await page.getByRole("button", { name: pdfRow }).click();
   await page.getByRole("button", { name: "Find in document", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Find in document", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("Document 2 of 4", { exact: true })).toBeVisible();
-  await expect.poll(openedOnScreen).toBe(true);
+  await step("Next document", 2);
   await expect(page.getByRole("textbox", { name: "Find in document", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Page map", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("Document 3 of 4", { exact: true })).toBeVisible();
-  await expect.poll(openedOnScreen).toBe(true);
-  await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("Document 4 of 4", { exact: true })).toBeVisible();
-  await expect.poll(openedOnScreen).toBe(true);
+  await step("Next document", 3);
+  await step("Next document", 4);
   await expect(page.getByRole("button", { name: "Next document", exact: true })).toHaveAttribute("aria-disabled", "true");
   await page.getByRole("button", { name: "Previous document", exact: true }).click();
   await expect(page.getByText("Document 3 of 4", { exact: true })).toBeVisible();
@@ -771,9 +893,14 @@ try {
   await expect(page.getByRole("button", { name: "Next document", exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://127.0.0.1:${port}/?compact`);
+  const sincePhoneCard = await rpcCallCount();
   await page.getByRole("button", { name: "Turn card", exact: true }).click();
+  await rpcAnswered(sincePhoneCard, "doc.thumbnail");
   await expect(cardFrame.locator("img")).toHaveCount(3);
-  for (const image of await cardFrame.locator("img").all()) expect(await image.boundingBox()).toMatchObject({ width: 36, height: 36 });
+  for (const image of await cardFrame.locator("img").all()) {
+    await image.evaluate((element) => element.decode());
+    expect(await image.boundingBox()).toMatchObject({ width: 36, height: 36 });
+  }
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await cardFrame.screenshot({ path: `${shots}/harness-phone-card-opened.png` });
   await page.getByRole("button", { name: pdfRow }).click();
@@ -795,28 +922,40 @@ try {
   const collapseShots = process.env.TURN_CARD_COLLAPSE_SHOTS ?? directory;
   await mkdir(collapseShots, { recursive: true });
   const checkoutName = "paseo-doc-viewer-gallery, new Git checkout, 65 documents";
+  const exportsName = "exports, new folder, 13 documents";
+  // The name stays the same whether the row is open; aria-expanded and the visible Show or Hide carry that.
+  const folderToggle = (name) => page.getByRole("button", { name: `Show or hide ${name}`, exact: true });
   const cardThumbnailPaths = [];
   const recordCardThumbnail = (request) => { if (isThumbnail(request)) cardThumbnailPaths.push(request.postDataJSON().input.path); };
   page.on("request", recordCardThumbnail);
   await page.setViewportSize({ width: 1100, height: 1000 });
   await page.goto(`http://127.0.0.1:${port}/`);
+  const sinceCheckoutCard = await rpcCallCount();
   await page.getByRole("button", { name: "Checkout card", exact: true }).click();
   await expect(page.getByText("80 documents changed while this turn ran", { exact: true })).toBeVisible();
   await expect(page.getByText("New checkout · 65 documents", { exact: true })).toBeVisible();
   await expect(page.getByText("New folder · 13 documents", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(2);
+  // The card asks for the next thumbnail as soon as one answers, so once all are answered it wants no more.
+  await rpcAnswered(sinceCheckoutCard, "doc.thumbnail");
+  await nextFrame();
   await expect(cardFrame.locator("img")).toHaveCount(1);
-  await page.waitForTimeout(500);
   expect(cardThumbnailPaths.filter((path) => path.startsWith("paseo-doc-viewer-gallery/"))).toEqual([]);
   await cardFrame.screenshot({ path: `${collapseShots}/harness-desktop-collapsed.png` });
   await page.getByRole("button", { name: /^Open finance\/forecast\.xlsx, / }).click();
   await expect(page.getByText("Document 2 of 2", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Checkout card", exact: true }).click();
-  await page.getByRole("button", { name: `Show ${checkoutName}`, exact: true }).click();
-  await expect(page.getByRole("button", { name: `Hide ${checkoutName}`, exact: true })).toBeVisible();
+  await expect(folderToggle(checkoutName)).toHaveAttribute("aria-expanded", "false");
+  await expect(folderToggle(checkoutName).getByText("Show", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Open finance\/forecast\.xlsx, / })).not.toHaveAttribute("aria-expanded");
+  const sinceShow = await rpcCallCount();
+  await folderToggle(checkoutName).click();
+  await expect(folderToggle(checkoutName)).toHaveAttribute("aria-expanded", "true");
+  await expect(folderToggle(checkoutName).getByText("Hide", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(14);
+  await rpcAnswered(sinceShow, "doc.thumbnail");
   await expect(cardFrame.locator("img")).toHaveCount(13);
-  for (const image of await cardFrame.locator("img").all()) await expect.poll(() => image.evaluate((element) => element.naturalWidth)).toBeGreaterThan(0);
+  for (const image of await cardFrame.locator("img").all()) await image.evaluate((element) => element.decode());
   await expect(page.getByRole("button", { name: "+53 more in Documents", exact: true })).toBeVisible();
   await cardFrame.screenshot({ path: `${collapseShots}/harness-desktop-expanded.png` });
   await page.getByRole("button", { name: /^Open paseo-doc-viewer-gallery\/assets\/shot-2\.png, / }).click();
@@ -825,8 +964,9 @@ try {
   await expect(page.getByText("Document 4 of 14", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.__openedScreen.params)).toMatchObject({ path: "paseo-doc-viewer-gallery/assets/shot-1.png" });
   await page.getByRole("button", { name: "Checkout card", exact: true }).click();
-  await page.getByRole("button", { name: `Show ${checkoutName}`, exact: true }).click();
-  await page.getByRole("button", { name: `Hide ${checkoutName}`, exact: true }).click();
+  await folderToggle(checkoutName).click();
+  await folderToggle(checkoutName).click();
+  await expect(folderToggle(checkoutName)).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(2);
   page.off("request", recordCardThumbnail);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -836,8 +976,8 @@ try {
   for (const button of await cardFrame.getByRole("button").all()) expect((await button.boundingBox()).x + (await button.boundingBox()).width).toBeLessThanOrEqual(390);
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await cardFrame.screenshot({ path: `${collapseShots}/harness-phone-collapsed.png` });
-  await page.getByRole("button", { name: `Show ${checkoutName}`, exact: true }).click();
-  await page.getByRole("button", { name: "Show exports, new folder, 13 documents", exact: true }).click();
+  await folderToggle(checkoutName).click();
+  await folderToggle(exportsName).click();
   await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(26);
   await expect(page.getByRole("button", { name: "+1 more in Documents", exact: true })).toBeVisible();
   for (const button of await cardFrame.getByRole("button").all()) expect((await button.boundingBox()).x + (await button.boundingBox()).width).toBeLessThanOrEqual(390);
@@ -858,7 +998,7 @@ try {
   await page.getByRole("button", { name: "Turn card", exact: true }).click();
   await expect(cardFrame.locator('[data-icon="FileSpreadsheet"]')).toHaveCSS("color", "rgb(143, 249, 156)");
   await page.getByRole("button", { name: "Checkout card", exact: true }).click();
-  await page.getByRole("button", { name: "Show exports, new folder, 13 documents", exact: true }).click();
+  await folderToggle(exportsName).click();
   await expect(cardFrame.locator('[data-icon="FileSpreadsheet"]')).toHaveCount(13);
   for (const icon of await cardFrame.locator('[data-icon="FileSpreadsheet"]').all()) await expect(icon).toHaveCSS("color", "rgb(143, 249, 156)");
   await expect(cardFrame.locator('[data-icon="Folder"]').first()).toHaveCSS("color", "rgb(156, 163, 175)");
@@ -873,9 +1013,15 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   const viewButton = (name) => page.getByRole("button", { name, exact: true });
   await expect(viewButton("List view")).toHaveAttribute("aria-pressed", "true");
+  await expect(viewButton("Details view")).toHaveAttribute("aria-pressed", "false");
+  const pdfHeader = page.getByRole("button", { name: /^PDF, \d+( of \d+)?$/ });
+  await expect(pdfHeader).toHaveAttribute("aria-expanded", "true");
+  await pdfHeader.click();
+  await expect(pdfHeader).toHaveAttribute("aria-expanded", "false");
+  await pdfHeader.click();
   await expect(viewButton("Details view")).toContainText("Details");
   const searchBox = await page.getByRole("textbox", { name: "Search documents", exact: true }).boundingBox();
-  const switchBox = await viewButton("Preview view").boundingBox();
+  const switchBox = await viewButton("Previews view").boundingBox();
   expect(Math.abs(switchBox.y + switchBox.height / 2 - (searchBox.y + searchBox.height / 2))).toBeLessThanOrEqual(1);
   expect(switchBox.x).toBeGreaterThan(searchBox.x + searchBox.width);
   await viewButton("Details view").click();
@@ -885,6 +1031,35 @@ try {
   expect((await detailsRow.boundingBox()).height).toBeLessThanOrEqual(30);
   await expect(detailsRow.getByText("reports", { exact: true })).toBeVisible();
   await expect(detailsRow.getByText(/^\d\d:\d\d$/)).toBeVisible();
+  // Column titles line up with the cells, and screen readers skip them.
+  const edges = async (locator) => { const box = await locator.boundingBox(); return [box.x, box.x + box.width]; };
+  const lined = async (title, cell, edge) => expect(Math.abs((await edges(page.getByText(title, { exact: true })))[edge] - (await edges(detailsRow.getByText(cell, { exact: true })))[edge])).toBeLessThanOrEqual(1);
+  await lined("NAME", "quarterly-report-with-a-long-file-name.pdf", 0);
+  await lined("FOLDER", "reports", 0);
+  await lined("SIZE", /^[\d.]+ KB$/, 1);
+  await expect(page.locator('[aria-hidden="true"]').filter({ hasText: "FOLDER" })).toHaveCount(1);
+  // Where scrollbars take room from the list (Windows, Linux, or macOS set to always show them; 8 px here), the
+  // titles sit in the list, so they still line up and stay put while it scrolls.
+  const scrollbars = await chromium.launch({ ...launch, ignoreDefaultArgs: ["--hide-scrollbars"] });
+  try {
+    const scrolled = await scrollbars.newPage({ viewport: { width: 1100, height: 1000 } });
+    await scrolled.goto(`http://127.0.0.1:${port}`);
+    await scrolled.addStyleTag({ content: "::-webkit-scrollbar { width: 8px } ::-webkit-scrollbar-thumb { background: #888 }" });
+    await scrolled.getByRole("button", { name: "Documents", exact: true }).click();
+    const sizeTitle = scrolled.getByText("SIZE", { exact: true });
+    await expect(sizeTitle).toBeVisible();
+    expect(await scrolled.evaluate(() => [...document.querySelectorAll("main div")].some((node) => node.scrollHeight > node.clientHeight && node.offsetWidth - node.clientWidth === 8))).toBe(true);
+    const sizeCell = scrolled.getByRole("button", { name: /^quarterly-report-with-a-long-file-name\.pdf, / }).getByText(/^[\d.]+ KB$/);
+    expect(Math.abs((await edges(sizeTitle))[1] - (await edges(sizeCell))[1])).toBeLessThanOrEqual(1);
+    const titleTop = (await sizeTitle.boundingBox()).y;
+    await scrolled.mouse.move(500, 600);
+    await scrolled.mouse.wheel(0, 400);
+    await expect.poll(() => scrolled.evaluate(() => Math.max(...[...document.querySelectorAll("main div")].map((node) => node.scrollTop)))).toBeGreaterThan(0);
+    expect(Math.abs((await sizeTitle.boundingBox()).y - titleTop)).toBeLessThanOrEqual(1);
+    await scrolled.screenshot({ path: `${shots}/harness-details-scrolled.png` });
+  } finally {
+    await scrollbars.close();
+  }
   await page.screenshot({ path: `${shots}/harness-details.png` });
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("invoices");
   await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(1);
@@ -905,7 +1080,7 @@ try {
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await page.screenshot({ path: `${shots}/harness-phone-details.png` });
   await viewButton("List view").click();
-  for (const option of ["List view", "Details view", "Preview view"]) {
+  for (const option of ["List view", "Details view", "Previews view"]) {
     await expect(viewButton(option)).not.toContainText(/List|Details|Previews/);
     expect((await viewButton(option).boundingBox()).height).toBeGreaterThanOrEqual(40);
   }
@@ -923,14 +1098,17 @@ try {
   await page.route("**/rpc", holdListWrite);
   await viewButton("List view").click();
   await expect.poll(() => Boolean(heldWrite)).toBe(true);
-  await viewButton("Preview view").click();
-  await expect(viewButton("Preview view")).toHaveAttribute("aria-pressed", "true");
+  const previewsFrom = await rpcCallCount();
+  await viewButton("Previews view").click();
+  await expect(viewButton("Previews view")).toHaveAttribute("aria-pressed", "true");
   await heldWrite.continue();
   await expect.poll(() => page.evaluate(() => window.__rpcCalls.filter((call) => call.method === "documents-view.write").slice(-2).map((call) => `${call.input.view} ${call.settled}`)))
     .toEqual(["list true", "previews true"]);
   await page.unroute("**/rpc", holdListWrite);
-  await expect(viewButton("Preview view")).toHaveAttribute("aria-pressed", "true");
+  await expect(viewButton("Previews view")).toHaveAttribute("aria-pressed", "true");
   const reportTile = page.getByRole("button", { name: /^report\.pdf, PDF, .*, \d+ pages?$/ });
+  // A tile's picture is drawn once its thumbnail call is answered, and a busy answer is asked again later.
+  await rpcAnswered(previewsFrom, "doc.thumbnail", { path: "report.pdf" });
   await expect(reportTile.locator("img")).toBeVisible();
   await expect(reportTile.getByText(/ · \d+ pages?$/)).toBeVisible();
   await expect(reportTile.locator('[data-icon="FileText"]')).toHaveCSS("color", "rgb(234, 152, 147)");
@@ -939,20 +1117,33 @@ try {
   expect(tileBox.width).toBeGreaterThanOrEqual(120);
   const longTile = await page.getByRole("button", { name: /^long\.pdf, PDF, / }).boundingBox();
   expect(Math.abs(longTile.y - tileBox.y) < 1 || Math.abs(longTile.x - tileBox.x) < 1).toBe(true);
+  await rpcAnswered(previewsFrom, "doc.thumbnail", { path: "screenshots/photo.png" });
   await expect(page.getByRole("button", { name: /^photo\.png, Image, / }).locator("img")).toBeVisible();
   const deckTile = page.getByRole("button", { name: /^deck\.pptx, Presentation, .*, 11 slides$/ });
+  await rpcAnswered(previewsFrom, "doc.thumbnail", { path: "deck.pptx" });
   await expect(deckTile.getByText("Slide 1", { exact: true })).toBeVisible();
   await expect(deckTile.getByText(/ · 11 slides$/)).toBeVisible();
   const wordRow = page.getByRole("button", { name: /^contract\.docx, / });
   expect((await wordRow.boundingBox()).width).toBeGreaterThan(600);
   await expect(wordRow.locator("img")).toHaveCount(0);
   await page.screenshot({ path: `${shots}/harness-previews.png`, fullPage: true });
+  // Typing narrows and widens the tiles; each file and revision is still asked for once, a failed one too.
+  const thumbnailsSettled = () => page.evaluate(() => window.__rpcCalls.every((call) => call.method !== "doc.thumbnail" || call.settled));
+  await expect.poll(thumbnailsSettled).toBe(true);
+  for (const query of ["p", "pd", "pdf", "pd", "p", ""]) {
+    await page.getByRole("textbox", { name: "Search documents", exact: true }).fill(query);
+    await nextFrame();
+  }
+  await expect.poll(thumbnailsSettled).toBe(true);
+  const previewCalls = await page.evaluate((from) => window.__rpcCalls.slice(from).filter((call) => call.method === "doc.thumbnail").map((call) => `${call.input.path} ${call.input.revision} ${call.input.width}`), previewsFrom);
+  expect(previewCalls.length).toBeGreaterThan(3);
+  expect(previewCalls.length).toBe(new Set(previewCalls).size);
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("report");
   await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(2);
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("");
   await page.goto(`http://127.0.0.1:${port}/?width=230`);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
-  await expect(viewButton("Preview view")).toHaveAttribute("aria-pressed", "true");
+  await expect(viewButton("Previews view")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: /^report\.pdf, PDF, / })).toBeVisible();
   await expect(page.getByRole("button", { name: /^report\.pdf, PDF, / }).locator("img")).toHaveCount(0);
   await expect(chipIcon(page, /^PDF, \d+ documents$/, "FileText")).toBeVisible();
@@ -961,7 +1152,9 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://127.0.0.1:${port}/?compact`);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
-  await viewButton("Preview view").click();
+  const sincePhonePreviews = await rpcCallCount();
+  await viewButton("Previews view").click();
+  await rpcAnswered(sincePhonePreviews, "doc.thumbnail", { path: "report.pdf" });
   await expect(page.getByRole("button", { name: /^report\.pdf, PDF, / }).locator("img")).toBeVisible();
   const phoneTiles = await Promise.all(["report", "long"].map((name) => page.getByRole("button", { name: new RegExp(`^${name}\\.pdf, PDF, `) }).boundingBox()));
   expect(phoneTiles[0].width).toBeGreaterThan(150);
@@ -975,13 +1168,27 @@ try {
   await viewButton("List view").click();
   await viewButton("Tree view").click();
   await expect(viewButton("Tree view")).toHaveAttribute("aria-pressed", "true");
-  const folderRow = (name) => page.getByRole("button", { name: new RegExp(`^${name}, folder, \\d+ documents?$`) });
-  const fileRow = (name) => page.getByRole("button", { name: new RegExp(`^${name.replace(".", "\\.")}, `) });
+  const folderRow = (name) => page.getByRole("treeitem", { name: new RegExp(`^${name}, folder(?: in [^,]+)?, \\d+ documents?$`) });
+  const fileRow = (name) => page.getByRole("treeitem", { name: new RegExp(`^${name.replace(".", "\\.")}, `) });
+  // On the web the rows are the items of a tree, each with its level.
+  await expect(page.getByRole("tree", { name: "Documents by folder", exact: true })).toBeVisible();
   await expect(folderRow("archive/2025/q4")).toHaveAttribute("aria-label", "archive/2025/q4, folder, 1 document");
   await expect(folderRow("archive/2025/q4")).toHaveAttribute("aria-expanded", "true");
+  await expect(folderRow("archive/2025/q4")).toHaveAttribute("aria-level", "1");
   await expect(fileRow("ledger.pdf")).toBeVisible();
+  await expect(fileRow("ledger.pdf")).toHaveAttribute("aria-level", "2");
   await expect(folderRow("exports")).toHaveAttribute("aria-label", "exports, folder, 12 documents");
   await expect(folderRow("paseo-doc-viewer-gallery")).toHaveAttribute("aria-label", "paseo-doc-viewer-gallery, folder, 12 documents");
+  await expect(folderRow("docs")).toHaveAttribute("aria-expanded", "false");
+  await expect(folderRow("docs")).toHaveAttribute("aria-label", "docs, folder in paseo-doc-viewer-gallery, 1 document");
+  await expect(fileRow("guide.pdf")).toHaveCount(0);
+  // Space presses a row like Enter does. The host presses on Space only for role="button", so the rows handle it.
+  await folderRow("docs").focus();
+  await page.keyboard.press("Space");
+  await expect(folderRow("docs")).toHaveAttribute("aria-expanded", "true");
+  await expect(fileRow("guide.pdf")).toBeVisible();
+  await expect(fileRow("guide.pdf")).toHaveAttribute("aria-level", "3");
+  await page.keyboard.press("Space");
   await expect(folderRow("docs")).toHaveAttribute("aria-expanded", "false");
   await expect(fileRow("guide.pdf")).toHaveCount(0);
   expect((await folderRow("screenshots").boundingBox()).y).toBeLessThan((await fileRow("animated.webp").boundingBox()).y);
@@ -1007,18 +1214,22 @@ try {
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("guide");
   await expect(folderRow("paseo-doc-viewer-gallery/docs")).toHaveAttribute("aria-label", "paseo-doc-viewer-gallery/docs, folder, 1 document");
   await expect(fileRow("guide.pdf")).toBeVisible();
-  await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(1);
+  await expect(page.getByRole("treeitem", { name: /, changed / })).toHaveCount(1);
   await page.screenshot({ path: `${shots}/harness-tree-search.png` });
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("");
   await expect(fileRow("guide.pdf")).toHaveCount(0);
   await expect(folderRow("exports")).toHaveAttribute("aria-expanded", "false");
   await folderRow("exports").click();
   await fileRow("run-2.csv").click();
-  const runs = ["run-1", "run-10", "run-11", "run-12", ...Array.from({ length: 8 }, (_, index) => `run-${index + 2}`)].map((name) => `exports/${name}.csv`);
+  const runs = Array.from({ length: 12 }, (_, index) => `exports/run-${index + 1}.csv`);
   expect(JSON.parse(await page.evaluate(() => window.__openedScreen.params.siblings))).toEqual(runs);
-  await expect(page.getByText("Document 5 of 12", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 2 of 12", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("Document 6 of 12", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 3 of 12", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await fileRow("run-2.csv").focus();
+  await page.keyboard.press("Space");
+  await expect(page.getByText("Document 2 of 12", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(fileRow("run-2.csv")).toBeVisible();
   await expect(fileRow("ledger.pdf")).toHaveCount(0);
@@ -1043,7 +1254,7 @@ try {
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await viewButton("Tree view").click();
   const phoneSearch = await page.getByRole("textbox", { name: "Search documents", exact: true }).boundingBox();
-  for (const option of ["List view", "Details view", "Preview view", "Tree view"]) {
+  for (const option of ["List view", "Details view", "Previews view", "Tree view"]) {
     const box = await viewButton(option).boundingBox();
     expect(box.x + box.width, option).toBeLessThanOrEqual(390);
     expect(Math.abs(box.y + box.height / 2 - (phoneSearch.y + phoneSearch.height / 2)), option).toBeLessThanOrEqual(1);
@@ -1061,12 +1272,28 @@ try {
   expect((await fileRow("guide.pdf").locator('[data-icon="FileText"]').boundingBox()).x - phoneChevron.x).toBe(12);
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await page.screenshot({ path: `${shots}/harness-phone-tree.png` });
+  // A new file splits the chain archive/2025/q4, which opened by default: both folders of its lower part stay open.
+  const sinceSplit = await agentWrote(async () => writeFile(`${root}/archive/memo.pdf`, await readFile(`${root}/archive/2025/q4/ledger.pdf`)));
+  await rpcAnswered(sinceSplit, "docs.recent");
+  await expect(folderRow("archive")).toHaveAttribute("aria-expanded", "true");
+  await expect(folderRow("2025/q4")).toHaveAttribute("aria-expanded", "true");
+  await expect(fileRow("ledger.pdf")).toBeVisible();
+  await expect(fileRow("memo.pdf")).toBeVisible();
   await viewButton("List view").click();
   await page.setViewportSize({ width: 1100, height: 1000 });
   await page.goto(`http://127.0.0.1:${port}`);
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await viewButton("List view").click();
+  // A workspace without documents says what the scan did not reach, as a search that finds nothing does.
+  const emptyScan = (route) => route.request().postDataJSON().method === "docs.recent"
+    ? route.fulfill({ json: { entries: [], truncated: true, truncatedBy: ["entries", "depth"], counts: { pdf: 0, word: 0, excel: 0, powerpoint: 0, image: 0, video: 0, audio: 0 }, needsReview: 0, newCount: 0, version: "empty" } })
+    : route.continue().catch(() => {});
+  await page.route("**/rpc", emptyScan);
+  await page.goto(`http://127.0.0.1:${port}`);
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(page.getByText("No documents yet", { exact: true })).toBeVisible();
+  await expect(page.getByText(/ appear here\. Only the first 50,000 entries of this workspace were scanned\. Folders more than 16 levels deep were not scanned$/)).toBeVisible();
+  await page.unroute("**/rpc", emptyScan);
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains, toggle, Expand all and Collapse all, search opens matches, folder siblings for the stepper, kept per layout class, sidebar row, phone fit).");
-  console.log(`Screenshots: ${directory}`);
-} catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { clearTimeout(watchdog); await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, current page marked, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, one button name in both states, Documents status, Needs review and New filters, rewrite race), Documents times read again on focus, New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide under one name with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains that stay open when a file splits them, tree items with levels, toggle, Space on rows, Expand all and Collapse all, search opens matches, folder siblings for the stepper, kept per layout class, sidebar row, phone fit), empty Documents saying what the scan did not reach.");
+} catch (error) { await saveFailure(); throw timedOut ? new Error(overLimit, { cause: error }) : error; } finally { await cleanUp(); }

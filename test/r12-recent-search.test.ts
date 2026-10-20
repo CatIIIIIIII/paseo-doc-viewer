@@ -34,7 +34,7 @@ describe("R12: docs.recent searches and filters the whole scan, not just the new
     const root = crowdedWorkspace();
     const path = join(root, "old/notes.docx");
     const before = (await listRecent(root, { query: "notes" })).entries[0]!;
-    expect(docsRecentRpc.output.shape.entries.element.parse(before).revision).toBe(revisionOf(statSync(path)));
+    expect(docsRecentRpc.output.options[0].shape.entries.element.parse(before).revision).toBe(revisionOf(statSync(path)));
     utimesSync(path, 3000, 3000);
     forgetScan(root);
     const after = (await listRecent(root, { query: "notes" })).entries[0]!;

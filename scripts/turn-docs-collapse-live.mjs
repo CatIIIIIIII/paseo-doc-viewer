@@ -1,10 +1,15 @@
 // Live check for turn card folder rows on an isolated dev daemon with the devkit's fake agent. Not part of npm test.
 //
 // Setup (see turn-docs-live.mjs for the isolation notes):
-//   /tmp/<ws>/proj: a Git repo with 65 tracked documents; /tmp/<ws>/other: a Git repo with one.
+//   /tmp/<ws>/proj: a Git repo with 65 tracked documents; /tmp/<ws>/other: a Git repo with one; /tmp/<ws>/out:
+//   13 PDFs; /tmp/<ws>/notes/plan.pdf, in a folder that is not a repo.
 //   ppd daemon up --port 7851 --name collapse --fake-agent --workspace /tmp/<ws>; ppd install . --name collapse
-//   turn 1, a `bash` step with run: true: git -C proj worktree add ../proj-gallery -b gallery, then copy a PDF to
-//   out/report.pdf and a workbook to out/metrics.xlsx. Turn 2 copies a PDF to other/findings.pdf.
+//   Four turns, each a `bash` step with run: true:
+//   1. git -C proj worktree add ../proj-gallery -b gallery, then copy a PDF to out/report.pdf and a workbook to
+//      out/metrics.xlsx.
+//   2. Copy a PDF to other/findings.pdf.
+//   3. rm -rf out, then write its 13 PDFs, the report and the workbook again.
+//   4. git init notes, then copy another PDF over notes/plan.pdf.
 //
 // Usage: node scripts/turn-docs-collapse-live.mjs <base-url> <serverId> <agentId> desktop|phone <out-dir>
 import { chromium } from "playwright";
@@ -29,10 +34,11 @@ const checkoutTitle = page.getByText("67 documents changed while this turn ran",
 await checkoutTitle.waitFor({ timeout: 60_000 });
 await page.waitForTimeout(1_500);
 
-const show = page.getByRole("button", { name: "Show proj-gallery, new Git checkout, 65 documents", exact: true });
+const toggle = page.getByRole("button", { name: "Show or hide proj-gallery, new Git checkout, 65 documents", exact: true });
+check("Show is collapsed", await toggle.getAttribute("aria-expanded") === "false" && await toggle.getByText("Show", { exact: true }).isVisible());
 check("checkout row", await page.getByText("New checkout · 65 documents", { exact: true }).isVisible());
-check("report and metrics listed", await page.getByRole("button", { name: /^Open out\/report\.pdf, / }).isVisible()
-  && await page.getByRole("button", { name: /^Open out\/metrics\.xlsx, / }).isVisible());
+check("report and metrics listed", await page.getByRole("button", { name: "Open out/report.pdf, PDF, new", exact: true }).isVisible()
+  && await page.getByRole("button", { name: "Open out/metrics.xlsx, Spreadsheet, new", exact: true }).isVisible());
 check("no checkout file listed while collapsed", await page.getByRole("button", { name: /^Open proj-gallery\// }).count() === 0);
 await checkoutTitle.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${out}/${mode}-checkout-collapsed.png` });
@@ -42,10 +48,25 @@ check("new PDF in an existing repo listed", await existing.isVisible());
 await existing.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${out}/${mode}-existing-repo.png` });
 
-await show.click();
+const regenerated = page.getByText("15 documents changed while this turn ran", { exact: true });
+check("regenerated folder listed file by file as changed", await regenerated.isVisible()
+  && await page.getByRole("button", { name: "Open out/report.pdf, PDF, changed during this turn", exact: true }).isVisible()
+  && await page.getByRole("button", { name: "+3 more in Documents", exact: true }).isVisible());
+check("no new folder row", await page.getByText(/^New folder · /).count() === 0);
+await regenerated.scrollIntoViewIfNeeded();
+await page.screenshot({ path: `${out}/${mode}-regenerated-folder.png` });
+
+const initialized = page.getByRole("button", { name: "Open notes/plan.pdf, PDF, changed during this turn", exact: true });
+check("file edited in a folder git init made a repo listed", await initialized.isVisible());
+check("only the worktree is a checkout row", await page.getByText(/^New checkout · /).count() === 1);
+await initialized.scrollIntoViewIfNeeded();
+await page.screenshot({ path: `${out}/${mode}-git-init.png` });
+
+await toggle.click();
 await page.waitForTimeout(2_000);
 check("expanded lists 12 checkout files", await page.getByRole("button", { name: /^Open proj-gallery\// }).count() === 12);
 check("rest of the checkout in Documents", await page.getByRole("button", { name: "+53 more in Documents", exact: true }).isVisible());
+check("Hide is expanded", await toggle.getAttribute("aria-expanded") === "true" && await toggle.getByText("Hide", { exact: true }).isVisible());
 await checkoutTitle.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${out}/${mode}-checkout-expanded.png` });
 

@@ -17,13 +17,15 @@ const ROW_PADDING = 8;
 const ICON_GAP = 8;
 const FOLDER_FLEX = 0.8;
 
-export function DetailsHeader({ theme, styles, columns }: DetailsProps) {
+// The list's sticky header, so it shares the rows' scrollbar gutter where scrollbars take room (Windows, Linux,
+// or macOS set to always show them).
+// Screen readers skip it: each row's label already names every column.
+export function DetailsHeader({ theme, columns }: Omit<DetailsProps, "styles">) {
   const title = { color: theme.colors.foregroundMuted, fontSize: 11, fontWeight: "600" as const, letterSpacing: 0.5 };
   return (
     <View
-      accessible={false}
-      importantForAccessibility="no-hide-descendants"
-      style={{ flexDirection: "row", alignItems: "center", gap: ICON_GAP, paddingHorizontal: 8 + ROW_PADDING, paddingTop: 8, paddingBottom: 2 }}
+      aria-hidden
+      style={{ flexDirection: "row", alignItems: "center", gap: ICON_GAP, paddingHorizontal: ROW_PADDING, paddingTop: 8, paddingBottom: 4, backgroundColor: theme.colors.surface0 }}
     >
       <View style={{ width: columns.iconSize }} />
       <Text style={[title, { flex: 1 }]}>NAME</Text>

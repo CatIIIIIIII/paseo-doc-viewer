@@ -63,9 +63,10 @@ export default function contribute(server: PluginServerContext) {
   server.handle(mediaChunkRpc, async ({ workspaceId, path, ...request }, { paseo }) =>
     readMediaChunk({ root: await workspaceRoot(paseo, workspaceId), path }, request),
   );
-  server.handle(docsRecentRpc, async ({ workspaceId, ...request }, { paseo }) =>
-    listRecent(await workspaceRoot(paseo, workspaceId), request),
-  );
+  server.handle(docsRecentRpc, async ({ workspaceId, since, ...request }, { paseo }) => {
+    const list = await listRecent(await workspaceRoot(paseo, workspaceId), request);
+    return list.version === since ? { unchanged: true as const, version: list.version } : list;
+  });
   server.handle(docsVisitRpc, async ({ workspaceId }, { paseo }) => ({ since: await visitStore.visit(await workspaceRoot(paseo, workspaceId)) }));
   server.handle(docsAnyRpc, async ({ workspaceId }, { paseo }) => ({ found: await hasDocuments(await workspaceRoot(paseo, workspaceId)) }));
   server.handle(fileInfoRpc, async ({ workspaceId, path }, { paseo }) =>

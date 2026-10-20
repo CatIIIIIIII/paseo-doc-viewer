@@ -1,6 +1,6 @@
 import { ERROR_MESSAGES, isError } from "../shared/errors";
 import { KIND_REGISTRY, type DocumentKind } from "../shared/kinds";
-import type { DocThumbnailOutput } from "../shared/rpc";
+import type { DocThumbnailInput, DocThumbnailOutput } from "../shared/rpc";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
 
 type EncodedImage = Extract<DocThumbnailOutput, { kind: "pdf" }>["image"];
@@ -115,70 +115,95 @@ export function createThumbnailCache(maxEntries: number, maxBytes: number): Thum
 }
 
 export const thumbnailCache = createThumbnailCache(400, 12 * 1024 * 1024);
+export const thumbnailCacheKey = (key: string, revision: string) => `${key}\0${revision}`;
 
-export interface ThumbnailLoader {
-  state(index: number): ThumbnailState | undefined;
-  want(indices: readonly number[]): void;
-  retry(index: number): void;
+// Failures and stale marks a loader keeps; past this, the oldest of those not wanted go first.
+const MAX_SETTLED = 1_000;
+
+// Thumbnails are named by an index in a grid or card, or by any other id (a path and revision in Previews).
+export interface ThumbnailLoader<Id = number> {
+  state(id: Id): ThumbnailState | undefined;
+  want(ids: readonly Id[]): void;
+  // A failed thumbnail is asked for again now if it is wanted, otherwise once it is wanted again.
+  retry(id: Id): void;
   subscribe(listener: () => void): () => void;
   close(): void;
 }
 
 // One loader per open grid or card. Closing it stops new requests; answers already on the way only fill the cache.
-export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
-  identify(index: number): { key: string; revision: string };
+export function createThumbnailLoader<Id = number>({ identify, cache, fetch, retryAfter }: {
+  identify(id: Id): { key: string; revision: string };
   cache: ThumbnailCache;
-  fetch(index: number): Promise<ThumbnailAnswer>;
+  fetch(id: Id): Promise<ThumbnailAnswer>;
   retryAfter?(error: unknown, failures: number): number | null;
-}): ThumbnailLoader {
-  const states = new Map<number, ThumbnailState>();
-  const failures = new Map<number, number>();
+}): ThumbnailLoader<Id> {
+  const states = new Map<Id, ThumbnailState>();
+  const failures = new Map<Id, number>();
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const listeners = new Set<() => void>();
-  let wanted: number[] = [];
+  let wanted: Id[] = [];
   let inFlight = 0;
   let closed = false;
-  const cacheKey = (index: number) => {
-    const { key, revision } = identify(index);
-    return `${key}\0${revision}`;
+  const cacheKey = (id: Id) => {
+    const { key, revision } = identify(id);
+    return thumbnailCacheKey(key, revision);
   };
 
-  const state = (index: number): ThumbnailState | undefined => {
-    const known = states.get(index);
+  const state = (id: Id): ThumbnailState | undefined => {
+    const known = states.get(id);
     if (known) return known;
-    const thumbnail = cache.get(cacheKey(index));
+    const thumbnail = cache.get(cacheKey(id));
     return thumbnail ? { status: "ready", thumbnail } : undefined;
   };
 
   // A ready thumbnail lives in the shared cache; it is kept here only if the cache refused it.
-  const settle = (index: number, settled: ThumbnailState | undefined) => {
+  const settle = (id: Id, settled: ThumbnailState | undefined) => {
     inFlight--;
-    if (settled) states.set(index, settled);
-    else states.delete(index);
+    if (settled) states.set(id, settled);
+    else states.delete(id);
+    for (const [old, known] of states) {
+      if (states.size <= MAX_SETTLED) break;
+      if (known.status === "loading" || wanted.includes(old)) continue;
+      states.delete(old);
+      failures.delete(old);
+    }
     if (closed) return;
     for (const listener of listeners) listener();
     pump();
   };
 
-  const start = (index: number) => {
+  const again = (id: Id) => {
+    states.delete(id);
+    pump();
+    for (const listener of listeners) listener();
+  };
+
+  const start = (id: Id) => {
     inFlight++;
-    states.set(index, { status: "loading" });
-    fetch(index).then(
+    states.set(id, { status: "loading" });
+    fetch(id).then(
       (answer) => {
-        if (answer.revision !== identify(index).revision) return settle(index, { status: "stale" });
-        cache.set(cacheKey(index), answer.thumbnail);
-        settle(index, cache.get(cacheKey(index)) ? undefined : { status: "ready", thumbnail: answer.thumbnail });
+        if (answer.revision !== identify(id).revision) return settle(id, { status: "stale" });
+        failures.delete(id);
+        cache.set(cacheKey(id), answer.thumbnail);
+        settle(id, cache.get(cacheKey(id)) ? undefined : { status: "ready", thumbnail: answer.thumbnail });
       },
       (error: unknown) => {
-        if (isError(error, ERROR_MESSAGES.fileChanged())) return settle(index, { status: "stale" });
-        const failed = (failures.get(index) ?? 0) + 1;
-        failures.set(index, failed);
-        settle(index, { status: "failed", error });
+        if (isError(error, ERROR_MESSAGES.fileChanged())) return settle(id, { status: "stale" });
+        const failed = (failures.get(id) ?? 0) + 1;
+        failures.set(id, failed);
         const delay = closed ? null : retryAfter?.(error, failed) ?? null;
+        // A thumbnail asked for again by itself stays loading until then; only the last answer shows as failed.
+        settle(id, delay === null ? { status: "failed", error } : { status: "loading" });
         if (delay === null) return;
         const timer = setTimeout(() => {
           timers.delete(timer);
-          loader.retry(index);
+          // Scrolled away from meanwhile: it is asked for once wanted again, not ahead of what is on screen.
+          if (wanted.includes(id)) again(id);
+          else {
+            states.delete(id);
+            failures.delete(id);
+          }
         }, delay);
         timers.add(timer);
       },
@@ -186,23 +211,20 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
   };
 
   const pump = () => {
-    for (const index of wanted) {
+    for (const id of wanted) {
       if (closed || inFlight >= MAX_IN_FLIGHT) return;
-      if (state(index) === undefined) start(index);
+      if (state(id) === undefined) start(id);
     }
   };
 
-  const loader: ThumbnailLoader = {
+  const loader: ThumbnailLoader<Id> = {
     state,
-    want(indices) {
-      wanted = [...indices];
+    want(ids) {
+      wanted = [...ids];
       pump();
     },
-    retry(index) {
-      if (states.get(index)?.status !== "failed") return;
-      states.delete(index);
-      if (!wanted.includes(index)) wanted.unshift(index);
-      pump();
+    retry(id) {
+      if (states.get(id)?.status === "failed") again(id);
     },
     subscribe(listener) {
       listeners.add(listener);
@@ -217,6 +239,27 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
     },
   };
   return loader;
+}
+
+// Only a busy daemon is asked again, later each time and at a random point, so loaders do not come
+// back together. Work that ran out of time is not: it would again, and on a PDF it restarts PDFium.
+export const retryBusy = (retries: number, stepMs: number) => (error: unknown, failures: number, random = Math.random): number | null =>
+  !isError(error, ERROR_MESSAGES.busy()) || failures > retries ? null : Math.round(stepMs * failures * (0.5 + random()));
+
+// A page map is on screen, so it asks again sooner than a card.
+export const pageMapThumbnailRetry = retryBusy(3, 500);
+
+// One per open page map. Pages drawn with a password are kept apart, so a card never shows them.
+export function createPageMapThumbnails(
+  { workspaceId, path, password, revision, width }: Pick<DocThumbnailInput, "workspaceId" | "path" | "password" | "width"> & { revision: string },
+  fetch: (input: DocThumbnailInput) => Promise<DocThumbnailOutput>,
+): ThumbnailLoader {
+  return createThumbnailLoader({
+    identify: (index) => ({ key: pageThumbnailKey(workspaceId, path, width, index, password !== undefined), revision }),
+    cache: thumbnailCache,
+    fetch: (index) => fetch({ workspaceId, path, password, index, width }).then(thumbnailAnswer),
+    retryAfter: pageMapThumbnailRetry,
+  });
 }
 
 export interface RequestQueue {
