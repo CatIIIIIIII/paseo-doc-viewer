@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ALL_COLLAPSED,
   ALL_EXPANDED,
+  byName,
   folderFiles,
   folderTree,
   isExpanded,
@@ -87,6 +88,17 @@ describe("folder tree", () => {
   it("keeps a search's matches and the folders above them", () => {
     const rows = treeRows(folderTree(filterEntries(files, { query: "summary" })), () => true);
     expect(shown(rows)).toEqual(["v reports/2026 (2)", "  v q2 (1)", "    summary.pdf", "  v q3/weekly (1)", "    summary.pdf"]);
+  });
+
+  it("orders numbers in names by value", () => {
+    const names = ["run-10.csv", "run-2.csv", "Run-3.csv", "run-1.csv", "run-01.csv", "run.csv", "v1.10", "v1.9", "build-12345678901234567890", "build-9", "10x", "9x"];
+    expect([...names].sort(byName)).toEqual([
+      "9x", "10x", "build-9", "build-12345678901234567890", "run-01.csv", "run-1.csv", "run-2.csv", "Run-3.csv", "run-10.csv", "run.csv", "v1.9", "v1.10",
+    ]);
+    const runs = Array.from({ length: 12 }, (_, index) => ({ path: `exports/run-${index + 1}.csv`, kind: "csv" as const, mtimeMs: index }));
+    const rows = treeRows(folderTree([...runs].reverse()), () => true);
+    expect(folderFiles(rows, "exports/run-2.csv")).toEqual(runs.map((run) => run.path));
+    expect(shown(treeRows(folderTree(["q10/a.pdf", "q9/a.pdf"].map((path) => ({ path }))), () => false))).toEqual(["> q9 (1)", "> q10 (1)"]);
   });
 
   it("keeps a backslash in a file name instead of reading a folder from it", () => {

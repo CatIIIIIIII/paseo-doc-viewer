@@ -1186,11 +1186,11 @@ try {
   await expect(folderRow("exports")).toHaveAttribute("aria-expanded", "false");
   await folderRow("exports").click();
   await fileRow("run-2.csv").click();
-  const runs = ["run-1", "run-10", "run-11", "run-12", ...Array.from({ length: 8 }, (_, index) => `run-${index + 2}`)].map((name) => `exports/${name}.csv`);
+  const runs = Array.from({ length: 12 }, (_, index) => `exports/run-${index + 1}.csv`);
   expect(JSON.parse(await page.evaluate(() => window.__openedScreen.params.siblings))).toEqual(runs);
-  await expect(page.getByText("Document 5 of 12", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 2 of 12", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Next document", exact: true }).click();
-  await expect(page.getByText("Document 6 of 12", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 3 of 12", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await expect(fileRow("run-2.csv")).toBeVisible();
   await expect(fileRow("ledger.pdf")).toHaveCount(0);

@@ -32,10 +32,23 @@ export function toggleFolder(expansion: TreeExpansion, path: string): TreeExpans
   return { base: expansion.base, flipped };
 }
 
-// By name, ignoring case; without Intl, which Hermes may lack.
-function byName(a: string, b: string): number {
-  const [x, y] = [a.toLowerCase(), b.toLowerCase()];
-  return x < y ? -1 : x > y ? 1 : a < b ? -1 : a > b ? 1 : 0;
+const DIGITS = /(\d+)/;
+const byText = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+
+// Digit runs of any length compare by value, so run-2 sorts before run-10 without Number's precision limit.
+function byNumber(x: string, y: string): number {
+  const [p, q] = [x.replace(/^0+/, ""), y.replace(/^0+/, "")];
+  return p.length - q.length || byText(p, q);
+}
+
+// By name, ignoring case, with numbers in order; without Intl, which Hermes may lack.
+export function byName(a: string, b: string): number {
+  const [x, y] = [a.toLowerCase().split(DIGITS), b.toLowerCase().split(DIGITS)];
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const order = i % 2 === 1 ? byNumber(x[i]!, y[i]!) : byText(x[i]!, y[i]!);
+    if (order !== 0) return order;
+  }
+  return x.length - y.length || byText(a, b);
 }
 
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
