@@ -2,13 +2,14 @@ import type { PluginClientContext, PluginTimelineItemProps } from "@getpaseo/plu
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
-import { docThumbnailRpc, viewerStateOpenedRevisionsRpc } from "../shared/rpc";
+import { viewerStateOpenedRevisionsRpc } from "../shared/rpc";
 import type { TurnDocs, TurnDocsFile } from "../shared/turn-docs";
-import { cardThumbnail, cardThumbnailRetry, TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_THUMBNAIL_SIZE, TURN_THUMBNAIL_WIDTH, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
+import { createCardThumbnails } from "./card-thumbnails";
+import { TURN_CARDS_SETTING_HINT, TURN_FILE_PILL, TURN_THUMBNAIL_SIZE, turnDocsNote, turnDocsTitle, turnFilePill, type TurnFilePill } from "./turn-docs";
 import { baseName, humanSize, KIND_ICON, KIND_LABEL, parentDir } from "./format";
 import { openedMarks } from "./opened-marks";
 import { DOCUMENTS_PANEL_ID, documentScreen, SETTINGS_SCREEN_ID } from "./recent";
-import { createThumbnailLoader, pageThumbnailKey, thumbnailCache, type ThumbnailLoader, type ThumbnailState } from "./thumbnails";
+import type { ThumbnailLoader, ThumbnailState } from "./thumbnails";
 import { makeStyles, StatusPill, ToolbarButton, type Styles } from "./ui";
 
 type CardClient = Pick<PluginClientContext, "openScreen" | "openPanel" | "openSettings" | "rpc">;
@@ -102,20 +103,12 @@ function SettingsLink({ theme, styles, onPress }: { theme: Theme; styles: Styles
 }
 
 function useCardThumbnails(client: CardClient, data: TurnDocs): ThumbnailLoader | null {
-  const width = TURN_THUMBNAIL_WIDTH;
   const [loader, setLoader] = useState<ThumbnailLoader | null>(null);
   const [, refresh] = useReducer((tick: number) => tick + 1, 0);
-  const files = data.files;
-  const identity = files.map((file) => `${file.path}\0${file.revision}`).join("\0");
+  const identity = data.files.map((file) => `${file.path}\0${file.revision}`).join("\0");
   useEffect(() => {
-    const next = createThumbnailLoader({
-      identify: (index) => ({ key: pageThumbnailKey(data.workspaceId, files[index]!.path, width, 0), revision: files[index]!.revision }),
-      cache: thumbnailCache,
-      fetch: (index) => client.rpc(docThumbnailRpc, { workspaceId: data.workspaceId, path: files[index]!.path, index: 0, width, keepOpen: false }),
-      retryAfter: cardThumbnailRetry,
-    });
+    const next = createCardThumbnails(client, data);
     const stop = next.subscribe(refresh);
-    next.want(files.flatMap((file, index) => (cardThumbnail(file) ? [index] : [])));
     setLoader(next);
     return () => {
       stop();

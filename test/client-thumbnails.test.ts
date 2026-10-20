@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { cardThumbnail, cardThumbnailRetry, hasThumbnail, TURN_THUMBNAIL_MAX_BYTES } from "../client/turn-docs";
 import { ERROR_MESSAGES } from "../shared/errors";
-import { createThumbnailCache, createThumbnailLoader, gridLayout, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
+import { CARD_THUMBNAILS_IN_FLIGHT } from "../client/card-thumbnails";
+import { createRequestQueue, createThumbnailCache, createThumbnailLoader, gridLayout, pageThumbnailKey, thumbnailWidth, visibleOrder } from "../client/thumbnails";
 import { DOCUMENT_KINDS } from "../shared/kinds";
 import { THUMBNAIL_MAX_WIDTH_PX, THUMBNAIL_MIN_WIDTH_PX } from "../shared/limits";
 
@@ -205,5 +206,83 @@ describe("turn card thumbnails", () => {
     for (const message of [ERROR_MESSAGES.tooSlow(), ERROR_MESSAGES.pdfPasswordRequired(), "Request failed: Plugin RPC timed out"]) {
       expect(cardThumbnailRetry(new Error(message), 1)).toBeNull();
     }
+  });
+});
+
+describe("request queue", () => {
+  it("runs at most its limit at once, higher priority first, and drops an owner's waiting work", async () => {
+    const queue = createRequestQueue(2);
+    const started: string[] = [];
+    const gates = new Map<string, () => void>();
+    const job = (name: string) => () => new Promise<string>((resolve) => {
+      started.push(name);
+      gates.set(name, () => resolve(name));
+    });
+    const [low, high] = [{}, {}];
+    const results = [queue.run(low, 1, job("low 1")), queue.run(low, 1, job("low 2")), queue.run(low, 1, job("low 3"))];
+    await flush();
+    expect(started).toEqual(["low 1", "low 2"]);
+    results.push(queue.run(high, 2, job("high 1")), queue.run(high, 2, job("high 2")));
+    gates.get("low 1")!();
+    await flush();
+    expect(started).toEqual(["low 1", "low 2", "high 1"]);
+    queue.drop(high);
+    queue.drop(low);
+    gates.get("low 2")!();
+    gates.get("high 1")!();
+    const settled = await Promise.all(results.map((promise) => promise.catch((error: Error) => error.message)));
+    expect(settled).toEqual(["low 1", "low 2", expect.stringMatching(/Dropped/), "high 1", expect.stringMatching(/Dropped/)]);
+    expect(started).toHaveLength(3);
+  });
+});
+
+describe("turn card thumbnail requests", () => {
+  const files = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => ({
+    path: `${prefix}${i}.pdf`, kind: "pdf" as const, size: 1_000, revision: `r${i}`, status: "new" as const,
+  }));
+
+  async function cards() {
+    vi.resetModules();
+    const module = await import("../client/card-thumbnails");
+    const calls: { path: string; resolve(): void }[] = [];
+    let inFlight = 0;
+    let peak = 0;
+    const client = {
+      rpc: (_contract: unknown, input: { path: string }) => new Promise((resolve) => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        calls.push({ path: input.path, resolve: () => { inFlight--; resolve({ kind: "pdf", revision: `r${input.path.match(/\d+/)![0]}`, index: 0, pageCount: 1, image: image(input.path) }); } });
+      }),
+    } as unknown as Parameters<typeof module.createCardThumbnails>[0];
+    return { ...module, client, calls, peak: () => peak };
+  }
+
+  it("ask for two thumbnails at a time across every card, the card mounted last first", async () => {
+    const { createCardThumbnails, client, calls, peak } = await cards();
+    const older = createCardThumbnails(client, { workspaceId: "w", files: files("old", 12) });
+    const newer = createCardThumbnails(client, { workspaceId: "w", files: files("new", 12) });
+    await flush();
+    while (calls.some((call) => call.path.startsWith("new"))) {
+      calls.splice(0).forEach((call) => call.resolve());
+      await flush();
+    }
+    expect(peak()).toBe(CARD_THUMBNAILS_IN_FLIGHT);
+    expect(newer.state(11)?.status).toBe("ready");
+    expect(older.state(11)).toBeUndefined();
+    newer.close();
+    older.close();
+  });
+
+  it("drop a closed card's waiting requests, so a card scrolled away stops asking", async () => {
+    const { createCardThumbnails, client, calls } = await cards();
+    const gone = createCardThumbnails(client, { workspaceId: "w", files: files("gone", 12) });
+    const kept = createCardThumbnails(client, { workspaceId: "w", files: files("kept", 2) });
+    await flush();
+    expect(calls.map((call) => call.path)).toEqual(["kept0.pdf", "kept1.pdf"]);
+    gone.close();
+    calls.splice(0).forEach((call) => call.resolve());
+    await flush();
+    expect(calls).toEqual([]);
+    expect(kept.state(1)?.status).toBe("ready");
   });
 });

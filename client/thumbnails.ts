@@ -193,3 +193,59 @@ export function createThumbnailLoader({ identify, cache, fetch, retryAfter }: {
   };
   return loader;
 }
+
+export interface RequestQueue {
+  run<T>(owner: object, priority: number, work: () => Promise<T>): Promise<T>;
+  // Work of the owner not started yet is dropped and rejects; started work runs out.
+  drop(owner: object): void;
+}
+
+// Runs at most `limit` requests at once across every owner, higher priority first, then in order.
+// Starting waits a microtask, so owners created in the same render are ordered by priority.
+export function createRequestQueue(limit: number): RequestQueue {
+  const pending: { owner: object; priority: number; start(): void; cancel(): void }[] = [];
+  let running = 0;
+  let scheduled = false;
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    void Promise.resolve().then(() => {
+      scheduled = false;
+      pump();
+    });
+  };
+  const pump = () => {
+    while (running < limit && pending.length > 0) {
+      let best = 0;
+      for (let i = 1; i < pending.length; i++) if (pending[i]!.priority > pending[best]!.priority) best = i;
+      const [next] = pending.splice(best, 1);
+      running++;
+      next!.start();
+    }
+  };
+  return {
+    run(owner, priority, work) {
+      return new Promise((resolve, reject) => {
+        pending.push({
+          owner,
+          priority,
+          start: () => {
+            Promise.resolve().then(work).then(resolve, reject).then(() => {
+              running--;
+              pump();
+            });
+          },
+          cancel: () => reject(new Error("Dropped from the request queue")),
+        });
+        schedule();
+      });
+    },
+    drop(owner) {
+      for (let i = pending.length - 1; i >= 0; i--) {
+        if (pending[i]!.owner !== owner) continue;
+        const [dropped] = pending.splice(i, 1);
+        dropped!.cancel();
+      }
+    },
+  };
+}
