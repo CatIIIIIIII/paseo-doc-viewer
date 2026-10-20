@@ -86,7 +86,8 @@ const watchdog = setTimeout(async () => {
 try {
   const output = await Promise.race([once(server.stdout, "data"), once(server, "exit").then(() => { throw new Error("Harness exited before listening"); })]);
   const { port, root } = JSON.parse(output[0].toString());
-  browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_EXECUTABLE_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage", "--no-zygote", "--single-process", "--disable-gpu", "--disable-software-rasterizer"] });
+  const launch = { headless: true, executablePath: process.env.CHROMIUM_EXECUTABLE_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage", "--no-zygote", "--single-process", "--disable-gpu", "--disable-software-rasterizer"] };
+  browser = await chromium.launch(launch);
   page = await browser.newPage({ viewport: { width: 1100, height: 1000 }, acceptDownloads: true });
   const failures = [];
   page.on("pageerror", (error) => { failures.push(error.message); console.error("Browser error:", error.message); });
@@ -1009,6 +1010,35 @@ try {
   expect((await detailsRow.boundingBox()).height).toBeLessThanOrEqual(30);
   await expect(detailsRow.getByText("reports", { exact: true })).toBeVisible();
   await expect(detailsRow.getByText(/^\d\d:\d\d$/)).toBeVisible();
+  // Column titles line up with the cells, and screen readers skip them.
+  const edges = async (locator) => { const box = await locator.boundingBox(); return [box.x, box.x + box.width]; };
+  const lined = async (title, cell, edge) => expect(Math.abs((await edges(page.getByText(title, { exact: true })))[edge] - (await edges(detailsRow.getByText(cell, { exact: true })))[edge])).toBeLessThanOrEqual(1);
+  await lined("NAME", "quarterly-report-with-a-long-file-name.pdf", 0);
+  await lined("FOLDER", "reports", 0);
+  await lined("SIZE", /^[\d.]+ KB$/, 1);
+  await expect(page.locator('[aria-hidden="true"]').filter({ hasText: "FOLDER" })).toHaveCount(1);
+  // Paseo web shows 8 px scrollbars that take room from the list. The titles sit in the list, so they still line up
+  // and stay put while it scrolls.
+  const scrollbars = await chromium.launch({ ...launch, ignoreDefaultArgs: ["--hide-scrollbars"] });
+  try {
+    const scrolled = await scrollbars.newPage({ viewport: { width: 1100, height: 1000 } });
+    await scrolled.goto(`http://127.0.0.1:${port}`);
+    await scrolled.addStyleTag({ content: "::-webkit-scrollbar { width: 8px } ::-webkit-scrollbar-thumb { background: #888 }" });
+    await scrolled.getByRole("button", { name: "Documents", exact: true }).click();
+    const sizeTitle = scrolled.getByText("SIZE", { exact: true });
+    await expect(sizeTitle).toBeVisible();
+    expect(await scrolled.evaluate(() => [...document.querySelectorAll("main div")].some((node) => node.scrollHeight > node.clientHeight && node.offsetWidth - node.clientWidth === 8))).toBe(true);
+    const sizeCell = scrolled.getByRole("button", { name: /^quarterly-report-with-a-long-file-name\.pdf, / }).getByText(/^[\d.]+ KB$/);
+    expect(Math.abs((await edges(sizeTitle))[1] - (await edges(sizeCell))[1])).toBeLessThanOrEqual(1);
+    const titleTop = (await sizeTitle.boundingBox()).y;
+    await scrolled.mouse.move(500, 600);
+    await scrolled.mouse.wheel(0, 400);
+    await expect.poll(() => scrolled.evaluate(() => Math.max(...[...document.querySelectorAll("main div")].map((node) => node.scrollTop)))).toBeGreaterThan(0);
+    expect(Math.abs((await sizeTitle.boundingBox()).y - titleTop)).toBeLessThanOrEqual(1);
+    await scrolled.screenshot({ path: `${shots}/harness-details-scrolled.png` });
+  } finally {
+    await scrollbars.close();
+  }
   await page.screenshot({ path: `${shots}/harness-details.png` });
   await page.getByRole("textbox", { name: "Search documents", exact: true }).fill("invoices");
   await expect(page.getByRole("button", { name: /, changed / })).toHaveCount(1);

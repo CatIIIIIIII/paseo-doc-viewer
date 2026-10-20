@@ -268,7 +268,6 @@ function DocumentsList({
           ))}
         </ScrollView>
       </View>
-      {columns && entries.length > 0 ? <DetailsHeader theme={theme} styles={styles} columns={columns} /> : null}
       {tree && entries.length > 0 ? (
         <TreeActions
           theme={theme}
@@ -309,7 +308,9 @@ function DocumentsList({
           data={items}
           keyExtractor={previewRowKey}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ padding: 8, paddingBottom: 8 + styles.bottomInset }}
+          contentContainerStyle={{ padding: 8, paddingTop: columns ? 0 : 8, paddingBottom: 8 + styles.bottomInset }}
+          ListHeaderComponent={columns ? <DetailsHeader theme={theme} columns={columns} /> : null}
+          stickyHeaderIndices={columns ? [0] : undefined}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={VIEWABILITY}
           renderItem={({ item }: { item: PreviewRow }) =>

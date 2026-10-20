@@ -60,7 +60,10 @@ export const TextInput = ({ value, onChangeText, onSubmitEditing, accessibilityL
   : <input autoFocus={autoFocus} value={value} onChange={(event) => onChangeText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onSubmitEditing?.(); }} aria-label={accessibilityLabel} style={css(style)} placeholder={placeholder} maxLength={maxLength} />;
 export const Image = ({ source, style, accessibilityLabel, resizeMode }: any) => <img src={source.uri} style={{ objectFit: resizeMode === "contain" ? "contain" : undefined, ...css(style) }} alt={accessibilityLabel} />;
 export const ActivityIndicator = ({ accessibilityLabel = "Loading" }: any) => <span aria-label={accessibilityLabel}>…</span>;
-export const FlatList = ({ data, renderItem, keyExtractor, ListFooterComponent, contentContainerStyle }: any) => <div style={{ overflow: "auto", ...css(contentContainerStyle) }}>{data.map((item: any, index: number) => <div key={keyExtractor?.(item, index) ?? index}>{renderItem({ item, index })}</div>)}{ListFooterComponent}</div>;
+// A sticky header is position: sticky, as in React Native Web.
+export const FlatList = ({ data, renderItem, keyExtractor, ListHeaderComponent, ListFooterComponent, contentContainerStyle, stickyHeaderIndices }: any) => <div style={{ overflow: "auto", ...css(contentContainerStyle) }}>
+  {ListHeaderComponent ? <div style={stickyHeaderIndices?.includes(0) ? { position: "sticky", top: 0, zIndex: 10 } : undefined}>{ListHeaderComponent}</div> : null}
+  {data.map((item: any, index: number) => <div key={keyExtractor?.(item, index) ?? index}>{renderItem({ item, index })}</div>)}{ListFooterComponent}</div>;
 // Same box as the host icon at size 14, so toolbar widths match the app.
 export const Icon = ({ name, size = 14, color }: any) => <span aria-hidden="true" data-icon={name} style={{ display: "inline-block", width: size, textAlign: "center", color }}>{({ Search: "⌕", Download: "↓", ChevronRight: "›", ChevronLeft: "‹", ChevronUp: "↑", ChevronDown: "↓", X: "×", RotateCcw: "↶" } as any)[name] ?? "•"}</span>;
 export const copyText = (value: string) => navigator.clipboard.writeText(value);
