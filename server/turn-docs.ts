@@ -14,7 +14,7 @@ export interface TurnDocsHost {
 }
 
 export interface TurnDocsDeps {
-  scan(root: string, options: { fresh: boolean }): Promise<{ entries: readonly ScannedFile[]; complete: boolean } & ScannedFolders>;
+  scan(root: string): Promise<{ entries: readonly ScannedFile[]; complete: boolean } & ScannedFolders>;
   enabled(): Promise<boolean>;
   now?: () => number;
   log?: (message: string) => void;
@@ -44,7 +44,7 @@ export function createTurnDocs(deps: TurnDocsDeps) {
       // starts, so files touched within the slack before startedAt are left out and judged by the end
       // scan alone; so is a file the agent wrote before the baseline scan reached it.
       const baseline = root
-        .then((dir) => deps.scan(dir, { fresh: false }))
+        .then((dir) => deps.scan(dir))
         .then(({ entries, complete, dirs, repos }): Baseline => ({
           revisions: new Map(entries.filter((entry) => entry.changedMs < startedAt - TURN_WINDOW_SLACK_MS).map((entry) => [entry.path, entry.revision])),
           dirs: new Set(dirs.keys()),
@@ -63,7 +63,7 @@ export function createTurnDocs(deps: TurnDocsDeps) {
       if (!turn || !(await deps.enabled())) return null;
       const began = now();
       const root = await turn.root;
-      const [baseline, after] = await Promise.all([turn.baseline, deps.scan(root, { fresh: true })]);
+      const [baseline, after] = await Promise.all([turn.baseline, deps.scan(root)]);
       const candidates = after.entries.filter((entry) => entry.changedMs >= turn.startedAt - TURN_WINDOW_SLACK_MS);
       const changed = changedDuringTurn(baseline?.complete ? candidates : await withBirthtimes(root, candidates), baseline, turn.startedAt);
       const { files, groups } = groupChanges(changed, after, baseline, turn.startedAt);

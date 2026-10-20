@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { scannedDocuments } from "../server/recent";
+import { recentDocuments, scannedDocuments } from "../server/recent";
 import { createTurnDocs, type TurnDocsHost } from "../server/turn-docs";
 
 const roots: string[] = [];
@@ -24,8 +24,8 @@ const agent = { id: "agent-1", workspaceId: "wks_1", parentAgentId: null, provid
 
 async function turn(root: string, during: () => void) {
   const scans: Promise<unknown>[] = [];
-  const scan = (dir: string, options: { fresh: boolean }) => {
-    const result = scannedDocuments(dir, options);
+  const scan = (dir: string) => {
+    const result = scannedDocuments(dir);
     scans.push(result);
     return result;
   };
@@ -103,5 +103,18 @@ describe("turn card folder rows on a real workspace", () => {
     });
     expect(row!.data.groups).toEqual([]);
     expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["notes/plan.pdf", "changed"]]);
+  });
+
+  it("scans again when the turn starts, so a worktree added after the Documents panel scanned is not a new checkout", async () => {
+    const { root, write } = workspace();
+    write("proj/.git/HEAD", "ref: refs/heads/main");
+    write("proj/a.pdf");
+    await recentDocuments(root);
+    write("proj-wt/.git", "gitdir: ../proj/.git/worktrees/proj-wt");
+    write("proj-wt/a.pdf");
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const row = await turn(root, () => write("proj-wt/report.pdf"));
+    expect(row!.data.groups).toEqual([]);
+    expect(row!.data.files.map(({ path, status }) => [path, status])).toEqual([["proj-wt/report.pdf", "new"]]);
   });
 });

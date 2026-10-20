@@ -307,9 +307,10 @@ describe("createTurnDocs", () => {
 
   function harness({ before, after, enabled = true }: { before: ScannedFile[]; after: ScannedFile[]; enabled?: boolean }) {
     let clock = T0;
+    let scans: ScannedFile[][] = [];
     const appended: unknown[] = [];
     const service = createTurnDocs({
-      scan: async (_root, { fresh }) => ({ entries: fresh ? after : before, complete: true, ...NO_FOLDERS }),
+      scan: async () => ({ entries: scans.shift()!, complete: true, ...NO_FOLDERS }),
       enabled: async () => enabled,
       now: () => clock,
       log: () => {},
@@ -318,6 +319,7 @@ describe("createTurnDocs", () => {
     return {
       appended,
       async turn(outcome: "completed" | "canceled" = "completed") {
+        scans = [before, after];
         service.turnStarted({ agent, turnId: "t1" }, host);
         clock += 4_000;
         const kind = outcome === "completed" ? { kind: "completed" as const } : { kind: "canceled" as const, reason: "user" };

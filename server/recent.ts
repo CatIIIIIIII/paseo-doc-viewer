@@ -214,10 +214,11 @@ function relativePath(root: string, full: string): string {
   return relative(root, full).split(sep).join("/");
 }
 
-// Supported documents and the folders the shared scan walked: cached when fresh, so a turn start costs
-// nothing after a recent list. `fresh` drops the cache first, for the scan at a turn's end.
-export async function scannedDocuments(root: string, { fresh = false } = {}): Promise<{ entries: readonly RecentEntry[]; complete: boolean } & ScannedFolders> {
-  if (fresh) forgetScan(root);
+// Supported documents and the folders the scan walked, for a turn's start and end. Always a new scan:
+// one the Documents panel reused can predate a folder made just before the turn (git worktree add).
+// The result replaces the cached scan, so the panel reuses it in turn.
+export async function scannedDocuments(root: string): Promise<{ entries: readonly RecentEntry[]; complete: boolean } & ScannedFolders> {
+  forgetScan(root);
   const { entries, complete, dirs, repos } = await sharedScan(root);
   return { entries, complete, dirs, repos };
 }
