@@ -17,9 +17,9 @@ export default function contribute(client: PluginClientContext) {
   setHostClient(client);
   const reader = createPanelReader();
   const openDocument = (input: PluginOpenScreenInput) => {
-    const { workspaceId, path } = input.params ?? {};
+    const { workspaceId, path, siblings } = input.params ?? {};
     if (input.screenId === DOCUMENT_SCREEN_ID && workspaceId && path && kindForPath(path) === "pdf") {
-      reader.select(workspaceId, path);
+      reader.select(workspaceId, { path, siblings });
       client.openPanel(DOCUMENTS_PANEL_ID, { workspaceId });
     } else {
       client.openScreen(input);

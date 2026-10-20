@@ -2,7 +2,7 @@ import type { SearchMatch, SearchNavigation } from "../shared/search";
 import { FindPanel } from "./find-panel";
 import { FindScope } from "./web";
 import { DownloadOriginal } from "./download-original";
-import { type PluginScreenProps, useRpc } from "@getpaseo/plugin/client";
+import { type PluginOpenScreenInput, type PluginScreenProps, useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
@@ -27,7 +27,10 @@ import { parseSiblings, type SiblingPosition, siblingPosition } from "./siblings
 import { reviewDrafts, reviewScope, useReviewDraft } from "./review-draft";
 import { NoteComposer, reviewScreen } from "./review-note";
 
-export function DocumentScreen({ host, theme, layout, params }: Pick<PluginScreenProps, "host" | "theme" | "layout" | "params">) {
+// The Documents panel embeds this screen and passes its own opener, so stepping stays in the panel.
+export function DocumentScreen({ host, theme, layout, params, openDocument: open = openHostScreen }: Pick<PluginScreenProps, "host" | "theme" | "layout" | "params"> & {
+  openDocument?: (input: PluginOpenScreenInput) => void;
+}) {
   const { ref, onLayout, bottomInset } = useBottomInset();
   const styles = useMemo(() => makeStyles(theme, layout.compact, bottomInset), [theme, layout.compact, bottomInset]);
   const workspaceId = params.workspaceId ?? "";
@@ -36,7 +39,7 @@ export function DocumentScreen({ host, theme, layout, params }: Pick<PluginScree
   const siblings = useMemo(() => parseSiblings(params.siblings), [params.siblings]);
   const position = siblingPosition(siblings, path);
   const stepper = position && siblings ? (
-    <SiblingStepper position={position} theme={theme} styles={styles} onOpen={(next) => openHostScreen(documentScreen(workspaceId, next, siblings))} />
+    <SiblingStepper position={position} theme={theme} styles={styles} onOpen={(next) => open(documentScreen(workspaceId, next, siblings))} />
   ) : null;
   const [unlock, setUnlock] = useState<{ documentKey: string; password: string; attempt: number } | null>(null);
   const unlocked = unlock?.documentKey === documentKey ? unlock : null;
@@ -182,7 +185,7 @@ function DocumentBody({ reviewScope: scope, stepper, ...props }: Parameters<type
   const pageMap = useMemo(() => (mapOpen ? { compact: props.compact, onClose: () => setMapOpen(false) } : null), [mapOpen, props.compact]);
   return <FindScope enabled={searchable} onFind={() => { if (searchable) setFinding(true); }}>
     <View style={props.styles.screen}>
-    <View style={props.styles.toolbar}>
+    <View style={[props.styles.toolbar, props.compact ? { flexWrap: "wrap", rowGap: 4 } : null]}>
       {props.compact ? null : stepper}
       {searchable ? <ToolbarButton theme={props.theme} styles={props.styles} icon="Search" label={props.compact ? undefined : "Find in document"} accessibilityLabel="Find in document"
         variant="toggle" selected={finding} onPress={() => { setFinding(!finding); if (finding) { setNavigation(null); setSearchMatches([]); } }} /> : null}

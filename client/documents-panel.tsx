@@ -35,6 +35,8 @@ import { onWindowFocus } from "./web";
 const SEARCH_DEBOUNCE_MS = 250;
 const SWITCH_LABELS_MIN_WIDTH = 600;
 const SWITCH_INLINE_MIN_WIDTH = 360;
+// Narrower than this, as in the explorer, the embedded reader takes the phone toolbar so it fits.
+const READER_COMPACT_MAX_WIDTH = 480;
 const NO_GROUPS: ReadonlySet<DocumentGroup> = new Set();
 const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
 const CLOCK_TICK_MS = 60_000;
@@ -72,14 +74,17 @@ export function createDocumentsPanel(openScreen: (input: PluginOpenScreenInput) 
   return function DocumentsPanel(props: PluginWorkspacePanelProps) {
     const { ref, onLayout, bottomInset } = useBottomInset();
     const styles = useMemo(() => makeStyles(props.theme, props.layout.compact, bottomInset), [props.theme, props.layout.compact, bottomInset]);
-    const path = useSyncExternalStore(reader.subscribe, () => reader.get(props.workspaceId), () => null);
+    const selection = useSyncExternalStore(reader.subscribe, () => reader.get(props.workspaceId), () => null);
+    const path = selection?.path;
+    const [width, setWidth] = useState(0);
+    const readerLayout = width > 0 && width < READER_COMPACT_MAX_WIDTH ? { ...props.layout, compact: true } : props.layout;
     const open = (input: PluginOpenScreenInput) => {
       const target = input.params?.path;
-      if (target && kindForPath(target) === "pdf") reader.select(props.workspaceId, target);
+      if (target && kindForPath(target) === "pdf") reader.select(props.workspaceId, { path: target, siblings: input.params?.siblings });
       else openScreen(input);
     };
     return (
-      <View ref={ref} onLayout={onLayout} style={{ flex: 1 }}>
+      <View ref={ref} onLayout={(event: LayoutChangeEvent) => { onLayout(); setWidth(event.nativeEvent.layout.width); }} style={{ flex: 1 }}>
         {path ? (
           <>
             <View style={styles.toolbar}>
@@ -87,8 +92,8 @@ export function createDocumentsPanel(openScreen: (input: PluginOpenScreenInput) 
                 accessibilityLabel="Back to documents" onPress={() => reader.select(props.workspaceId, null)} />
               <Text style={[styles.text, { flex: 1, minWidth: 0 }]} numberOfLines={1} accessibilityLabel={path}>{baseName(path)}</Text>
             </View>
-            <DocumentScreen key={`${props.workspaceId}\0${path}`} host={props.host} theme={props.theme} layout={props.layout}
-              params={{ workspaceId: props.workspaceId, path }} />
+            <DocumentScreen key={`${props.workspaceId}\0${path}`} host={props.host} theme={props.theme} layout={readerLayout} openDocument={open}
+              params={selection?.siblings ? { workspaceId: props.workspaceId, path, siblings: selection.siblings } : { workspaceId: props.workspaceId, path }} />
           </>
         ) : <DocumentsList {...props} styles={styles} openScreen={open} />}
       </View>
