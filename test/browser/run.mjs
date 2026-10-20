@@ -1,14 +1,22 @@
 import { build } from "esbuild";
 import { chromium, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
+import { rmSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { once } from "node:events";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { inspectionWorkbook } from "../fixtures/generators.ts";
-const directory = resolve("node_modules/.cache/viewer-browser");
+// One directory per run: a shared one under node_modules let concurrent runs overwrite each other's bundle and fixtures.
+const chosenDirectory = process.env.VIEWER_BROWSER_DIR;
+const directory = chosenDirectory ? resolve(chosenDirectory) : await mkdtemp(join(tmpdir(), "viewer-browser-"));
 await mkdir(directory, { recursive: true });
+process.on("exit", (code) => {
+  if (code !== 0) console.error(`Bundle, fixtures and screenshots kept in ${directory}`);
+  else if (chosenDirectory) console.log(`Screenshots: ${directory}`);
+  else rmSync(directory, { recursive: true, force: true });
+});
 const pdf = await PDFDocument.create();
 const font = await pdf.embedFont(StandardFonts.Helvetica);
 for (let index = 0; index < 3; index++) pdf.addPage().drawText(`Searchable statement page ${index + 1}`, { font, x: 40, y: 700 });
@@ -34,7 +42,8 @@ await build({ ...base, entryPoints: ["test/browser/app.tsx"], outfile: `${direct
   "@getpaseo/plugin/client": resolve("test/browser/plugin-shim.ts"),
 } });
 await build({ ...base, entryPoints: ["test/browser/server.ts"], outfile: `${directory}/server.cjs`, platform: "node", format: "cjs", external: ["@getpaseo/plugin", "zod"] });
-const server = spawn(process.execPath, [`${directory}/server.cjs`], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, PASEO_DOC_VIEWER_STATE_DIR: stateDirectory } });
+// server.cjs runs from outside the project, so its external packages resolve through NODE_PATH.
+const server = spawn(process.execPath, [`${directory}/server.cjs`], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, NODE_PATH: resolve("node_modules"), VIEWER_BROWSER_DIR: directory, PASEO_DOC_VIEWER_STATE_DIR: stateDirectory } });
 const RUN_LIMIT_MS = 10 * 60_000;
 const watchdog = setTimeout(() => {
   console.error(`Browser checks did not finish in ${RUN_LIMIT_MS / 60_000} minutes`);
@@ -1068,5 +1077,4 @@ try {
   await viewButton("List view").click();
   expect(failures).toEqual([]);
   console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, Documents status, Needs review and New filters, rewrite race), New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains, toggle, Expand all and Collapse all, search opens matches, folder siblings for the stepper, kept per layout class, sidebar row, phone fit).");
-  console.log(`Screenshots: ${directory}`);
 } catch (error) { if (page) { console.error((await page.locator("body").innerText()).slice(0, 1800)); await page.screenshot({ path: `${directory}/failure.png`, fullPage: true }); } throw error; } finally { clearTimeout(watchdog); await browser?.close(); server.kill("SIGTERM"); await rm(stateDirectory, { recursive: true, force: true }); }
