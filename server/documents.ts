@@ -250,7 +250,9 @@ const HANDLERS: { readonly [K in DocumentKind]: KindHandler } = {
     },
     thumbnail: async (file, request) => {
       const { index, width, keepOpen } = request;
-      const fit = { maxWidth: Math.min(width, THUMBNAIL_MAX_WIDTH_PX), maxBytes: THUMBNAIL_MAX_BYTES };
+      const edge = Math.min(width, THUMBNAIL_MAX_WIDTH_PX);
+      // Twice the width covers a page map cell; a receipt-like page is not drawn longer than that.
+      const fit = { maxWidth: edge, maxEdge: edge * 2, maxBytes: THUMBNAIL_MAX_BYTES };
       const { pageCount, image } = await thumbnailCached(file, request, (signal) => renderPdfPage(file, index, fit, signal, { hold: keepOpen !== false }));
       return { kind: "pdf", revision: file.revision, index, pageCount, image };
     },

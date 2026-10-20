@@ -177,6 +177,12 @@ describe("PDF thumbnails", () => {
     expect(pdfiumStats().documents).toBe(documents);
   });
 
+  it("bounds the height of a tall page to twice the width", async () => {
+    const root = workspace({ "receipt.pdf": await textPdf(["receipt"], [200, 4_000]) });
+    const thumbnail = await renderThumbnail({ root, path: "receipt.pdf" }, { index: 0, width: 80, keepOpen: false });
+    expect(thumbnail.image).toMatchObject({ width: 8, height: 160 });
+  });
+
   it("bounds the requested width in the RPC schema", () => {
     const input = { workspaceId: "w", path: "a.pdf", index: 0 };
     expect(docThumbnailRpc.input.safeParse({ ...input, width: 160 }).success).toBe(true);
