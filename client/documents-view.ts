@@ -1,5 +1,6 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 import { DEFAULT_DOCUMENT_VIEW, type DocumentView, type DocumentViews } from "../shared/documents-view";
 import { documentsViewReadRpc, documentsViewWriteRpc } from "../shared/rpc";
 import type { LayoutClass } from "../shared/viewer-state";
@@ -18,14 +19,19 @@ export function useDocumentView(layout: LayoutClass): [DocumentView, (view: Docu
   const queryClient = useQueryClient();
   const stored = useQuery({ queryKey: VIEW_QUERY_KEY, queryFn: () => read({}), staleTime: 60_000, retry: false });
   const view = stored.data?.views[layout] ?? DEFAULT_DOCUMENT_VIEW;
+  // Writes go one at a time, and only the latest press applies its answer: a late answer to an earlier
+  // press would otherwise switch the view back.
+  const writes = useRef<Promise<unknown>>(Promise.resolve());
+  const latest = useRef(0);
   const choose = (next: DocumentView) => {
-    void queryClient.cancelQueries({ queryKey: VIEW_QUERY_KEY }).then(() => {
+    const choice = ++latest.current;
+    const shown = queryClient.cancelQueries({ queryKey: VIEW_QUERY_KEY }).then(() => {
       queryClient.setQueryData(VIEW_QUERY_KEY, (current: { views: DocumentViews } | undefined) => ({ views: { ...current?.views, [layout]: next } }));
-      return write({ layout, view: next }).then(
-        (answer) => queryClient.setQueryData(VIEW_QUERY_KEY, answer),
-        () => void queryClient.invalidateQueries({ queryKey: VIEW_QUERY_KEY }),
-      );
     });
+    writes.current = Promise.all([writes.current, shown]).then(() => write({ layout, view: next })).then(
+      (answer) => { if (choice === latest.current) queryClient.setQueryData(VIEW_QUERY_KEY, answer); },
+      () => { if (choice === latest.current) void queryClient.invalidateQueries({ queryKey: VIEW_QUERY_KEY }); },
+    );
   };
   return [view, choose];
 }
