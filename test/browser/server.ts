@@ -76,7 +76,8 @@ const server = createServer(async (request, response) => {
   if (request.url === "/bundle.js") { response.setHeader("Content-Type", "application/javascript"); response.end(readFileSync(join(generated, "app.js"))); return; }
   // Simulates an agent rewriting a file: a new modified time gives it a new revision.
   if (request.url === "/touch/statement.pdf") { const later = new Date(Date.now() + 60_000); utimesSync(join(root, "statement.pdf"), later, later); response.end("ok"); return; }
-  if (request.url === "/settings?openDocuments=unset") { const { openDocuments: _, ...rest } = settingsValues; settingsValues = rest; settingsRevision++; response.end("ok"); return; }
+  const openDocuments = request.url?.match(/^\/settings\?openDocuments=(\w+)$/)?.[1];
+  if (openDocuments) { const { openDocuments: _, ...rest } = settingsValues; settingsValues = openDocuments === "unset" ? rest : { ...rest, openDocuments }; settingsRevision++; response.end("ok"); return; }
   if (request.url?.startsWith("/settings?")) { settingsValues = { ...settingsValues, kindColors: !request.url.endsWith("kindColors=0") }; settingsRevision++; response.end("ok"); return; }
   if (request.url === "/turn-docs") {
     response.setHeader("Content-Type", "application/json");

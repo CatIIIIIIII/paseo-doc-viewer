@@ -934,6 +934,8 @@ try {
   await cardFrame.screenshot({ path: `${shots}/harness-phone-card-opened.png` });
   await page.getByRole("button", { name: pdfRow }).click();
   await expect(page.getByText("Document 1 of 4", { exact: true })).toBeVisible();
+  // The stepper shows while the document loads too; More comes with the loaded toolbar.
+  await expect(page.getByRole("button", { name: "More actions", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Page map", exact: true })).toHaveCount(0);
   const stepperBox = await page.getByRole("button", { name: "Next document", exact: true }).boundingBox();
   const toolbarBox = await page.getByRole("button", { name: "More actions", exact: true }).boundingBox();
@@ -1015,7 +1017,7 @@ try {
   for (const button of await cardFrame.getByRole("button").all()) expect((await button.boundingBox()).x + (await button.boundingBox()).width).toBeLessThanOrEqual(390);
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(390);
   await page.getByRole("button", { name: "+1 more in Documents", exact: true }).click();
-  expect(await page.evaluate(() => window.__openedPanel)).toBe("documents");
+  expect(await page.evaluate(() => window.__openedPanel)).toEqual({ id: "documents", workspaceId: "workspace" });
   await cardFrame.screenshot({ path: `${collapseShots}/harness-phone-expanded.png` });
   await page.setViewportSize({ width: 1100, height: 1000 });
   await page.goto(`http://127.0.0.1:${port}`);
@@ -1301,7 +1303,7 @@ try {
   await expect(fileRow("statement.pdf").getByText(/ KB · /)).toHaveCount(0);
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(230);
   await page.screenshot({ path: `${shots}/harness-sidebar-tree.png` });
-  // A PDF read inside a sidebar-wide Documents takes the phone toolbar, wrapped to fit.
+  // A PDF read inside a 230 pt sidebar keeps its other tools behind More, and nothing runs past the edge.
   await fileRow("report.pdf").click();
   await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open in tab", exact: true })).toBeVisible();
@@ -1314,6 +1316,18 @@ try {
   expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(230);
   await page.screenshot({ path: `${shots}/harness-sidebar-reader.png` });
   await page.getByRole("button", { name: "Back to documents", exact: true }).click();
+  // At the explorer's default 320 pt the stepper, Find and More share one row.
+  await page.goto(`http://127.0.0.1:${port}/?width=320`);
+  await showDocuments(page);
+  await fileRow("report.pdf").click();
+  const moreBox = await page.getByRole("button", { name: "More actions", exact: true }).boundingBox();
+  for (const name of ["Previous document", "Next document", "Find in document"]) {
+    const box = await page.getByRole("button", { name, exact: true }).boundingBox();
+    expect(Math.abs(box.y - moreBox.y), name).toBeLessThan(2);
+  }
+  await expect(page.getByRole("button", { name: "Page map", exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.querySelector("main").scrollWidth)).toBe(320);
+  await page.screenshot({ path: `${shots}/harness-explorer-reader.png` });
   // A split pane is wider than the narrow toolbar's 480 pt, so its tools wrap inside the pane.
   await page.goto(`http://127.0.0.1:${port}/?width=560`);
   await showDocuments(page);
@@ -1451,6 +1465,31 @@ try {
   await page.goto(`http://127.0.0.1:${port}`);
   await expect(page.getByRole("button", { name: "Download original", exact: true })).toBeVisible();
   await expect(page.getByText("How should documents open?", { exact: true })).toHaveCount(0);
+  // Phones always open the document screen. On a wide window Side by side shows the document in Documents in
+  // the explorer, and Auto does from a 1,100 pt window.
+  const reportPath = "reports/quarterly-report-with-a-long-file-name.pdf";
+  const besideChat = { id: "documents", workspaceId: "workspace", location: "explorer" };
+  const openFromCard = async (viewport, url = `http://127.0.0.1:${port}`) => {
+    await page.setViewportSize(viewport);
+    await page.goto(url);
+    await page.getByRole("button", { name: "Turn card", exact: true }).click();
+    await page.getByRole("button", { name: pdfRow }).click();
+  };
+  const opened = () => page.evaluate(() => ({ screen: window.__openedScreen?.params?.path, panel: window.__openedPanel }));
+  await openFromCard({ width: 390, height: 844 }, `http://127.0.0.1:${port}/?compact`);
+  await expect(page.getByText("Document 1 of 4", { exact: true })).toBeVisible();
+  expect(await opened()).toEqual({ screen: reportPath, panel: undefined });
+  await openFromCard({ width: 1100, height: 1000 });
+  await expect.poll(opened).toEqual({ screen: undefined, panel: besideChat });
+  await page.getByRole("button", { name: "Documents", exact: true }).click();
+  await expect(page.locator("main").getByLabel(reportPath, { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 1 of 4", { exact: true })).toBeVisible();
+  await page.screenshot({ path: `${shots}/harness-side-by-side.png` });
+  await fetch(`http://127.0.0.1:${port}/settings?openDocuments=auto`);
+  await openFromCard({ width: 1099, height: 1000 });
+  await expect.poll(opened).toEqual({ screen: reportPath, panel: undefined });
+  await openFromCard({ width: 1100, height: 1000 });
+  await expect.poll(opened).toEqual({ screen: undefined, panel: besideChat });
   expect(failures).toEqual([]);
-  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, current page marked, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, one button name in both states, Documents status, Needs review and New filters, rewrite race), Documents times read again on focus, New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide under one name with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains that stay open when a file splits them, tree items with levels, toggle, Space on rows, Expand all and Collapse all, search opens matches, folder siblings for the stepper, PDFs read in Documents with the stepper and in sidebar width, kept per layout class, sidebar row, phone fit), empty Documents saying what the scan did not reach, every kind read in Documents (sidebar fit, Previous and Next across kinds, Open in tab with folder siblings, Back keeps search, type filter, New and Needs review, collapsed headings and scroll), first-open chooser (wide only, 320 pt fit, saved, asked once).");
+  console.log("Browser checks passed: persisted page/zoom/sheet, reset, scoped find shortcut, PDF/Word/grid find navigation, Word table fills its card, cell inspector, record cards, bounded issue check, original-file download bytes, WAV decoding/playback, WebM audio-track playback, visible media/animation/download loading with cancel and navigation, stale-query/cancel/slow-position races, PDF page map (visible-first, at most two thumbnail requests, current page marked, open page, close stops requests), page pins (label, revisit after reopen, may need checking after rewrite, confirm, remove), review marks (explicit only, one button name in both states, Documents status, Needs review and New filters, rewrite race), Documents times read again on focus, New cleared by opening until the file changes, first-run tips (Next, Skip, Done, kept dismissed after reload, reopen, phone fit), review notes (collect, edit, preview, copy, busy preselected agent, stale, send), phone toolbar fit, JSON Lines (named columns, full value and copy, record JSON, invalid-line issues, find), turn card settings link (desktop, 390 px fit, fallback hint), turn card thumbnails, Opened pill and document stepper (desktop, phone row, per-document reset), turn card folder rows (collapsed checkout and new folder, Show and Hide under one name with aria-expanded, thumbnails and stepper only once shown, phone fit), kind colors and their setting, filter chip icons (status and type glyphs, hidden from screen readers, phone scroll, sidebar fit), view switch (beside search, kept per layout class, last press wins over a late answer, phone fit), Details (columns, phone rows), Previews (tiles with page count, rows for other kinds, sidebar rows, phone columns), Tree (folders first, counts, folder chains that stay open when a file splits them, tree items with levels, toggle, Space on rows, Expand all and Collapse all, search opens matches, folder siblings for the stepper, PDFs read in Documents with the stepper and in sidebar width, kept per layout class, sidebar row, phone fit), empty Documents saying what the scan did not reach, every kind read in Documents (sidebar fit, Previous and Next across kinds, Open in tab with folder siblings, Back keeps search, type filter, New and Needs review, collapsed headings and scroll), first-open chooser (wide only, 320 pt fit, saved, asked once), open routing (phones full screen, Side by side in the explorer, Auto from 1,100 pt), one toolbar row at 320 pt.");
 } catch (error) { await saveFailure(); throw timedOut ? new Error(overLimit, { cause: error }) : error; } finally { await cleanUp(); }
